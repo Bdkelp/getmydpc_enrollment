@@ -3,60 +3,85 @@
  * Provides admin-only utilities for generating and exporting certification samples
  */
 
-import { Router, Response } from 'express';
-import path from 'path';
-import fs from 'fs';
-import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { requireRole } from '../auth/roles';
-import { certificationLogger } from '../services/certification-logger';
-import { storage, getRecentPaymentsDetailed, getSubscriptionsDueForBilling } from '../storage';
-import { submitServerPostRecurringPayment, getEPXService } from '../services/epx-payment-service';
-import { maskAuthGuidValue, parsePaymentMetadata, persistServerPostResult } from '../utils/epx-metadata';
-import { getRecentEPXLogs, getTransactionLogs, type EPXLogEvent } from '../services/epx-payment-logger';
-import { getPaymentEnvironmentDetails, paymentEnvironment, type PaymentEnvironment } from '../services/payment-environment-service';
+import { Router, Response } from "express";
+import path from "path";
+import fs from "fs";
+import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
+import { requireRole } from "../auth/roles";
+import { certificationLogger } from "../services/certification-logger";
+import {
+  storage,
+  getRecentPaymentsDetailed,
+  getSubscriptionsDueForBilling,
+} from "../storage";
+import {
+  submitServerPostRecurringPayment,
+  getEPXService,
+} from "../services/epx-payment-service";
+import {
+  maskAuthGuidValue,
+  parsePaymentMetadata,
+  persistServerPostResult,
+} from "../utils/epx-metadata";
+import {
+  getRecentEPXLogs,
+  getTransactionLogs,
+  type EPXLogEvent,
+} from "../services/epx-payment-logger";
+import {
+  getPaymentEnvironmentDetails,
+  paymentEnvironment,
+  type PaymentEnvironment,
+} from "../services/payment-environment-service";
 
 const router = Router();
 
-const requireSuperAdmin = requireRole('super_admin');
-const requireAdmin = requireRole('admin');
+const requireSuperAdmin = requireRole("super_admin");
+const requireAdmin = requireRole("admin");
 
-const SUPPORTED_TRAN_TYPES = ['CCE1', 'CCE9'] as const;
+const SUPPORTED_TRAN_TYPES = ["CCE1", "CCE9"] as const;
 type SupportedTranType = (typeof SUPPORTED_TRAN_TYPES)[number];
 const isSupportedTranType = (value: string): value is SupportedTranType =>
   SUPPORTED_TRAN_TYPES.includes(value as SupportedTranType);
 
-const LOG_PHASES: EPXLogEvent['phase'][] = [
-  'create-payment',
-  'callback',
-  'recaptcha',
-  'status',
-  'server-post',
-  'general',
-  'certification',
-  'recurring',
-  'scheduler'
+const LOG_PHASES: EPXLogEvent["phase"][] = [
+  "create-payment",
+  "callback",
+  "recaptcha",
+  "status",
+  "server-post",
+  "general",
+  "certification",
+  "recurring",
+  "scheduler",
 ];
 
-const isValidLogPhase = (value: string): value is EPXLogEvent['phase'] =>
-  LOG_PHASES.includes(value as EPXLogEvent['phase']);
+const isValidLogPhase = (value: string): value is EPXLogEvent["phase"] =>
+  LOG_PHASES.includes(value as EPXLogEvent["phase"]);
 
 const mapRuntimeLogToCertificationEntry = (entry: EPXLogEvent): any => {
-  const eventData = entry.data && typeof entry.data === 'object' ? entry.data as Record<string, any> : {};
-  const derivedTransactionId = eventData.transactionId
-    || eventData.transaction_id
-    || eventData.epxTransactionId
-    || eventData?.request?.fields?.TRAN_NBR
-    || eventData?.response?.transactionId
-    || undefined;
+  const eventData =
+    entry.data && typeof entry.data === "object"
+      ? (entry.data as Record<string, any>)
+      : {};
+  const derivedTransactionId =
+    eventData.transactionId ||
+    eventData.transaction_id ||
+    eventData.epxTransactionId ||
+    eventData?.request?.fields?.TRAN_NBR ||
+    eventData?.response?.transactionId ||
+    undefined;
 
   return {
-    transactionId: derivedTransactionId ? String(derivedTransactionId) : undefined,
+    transactionId: derivedTransactionId
+      ? String(derivedTransactionId)
+      : undefined,
     purpose: `runtime-${entry.phase}`,
-    amount: typeof eventData.amount === 'number' ? eventData.amount : undefined,
+    amount: typeof eventData.amount === "number" ? eventData.amount : undefined,
     environment: eventData.environment || undefined,
     timestamp: entry.timestamp,
     metadata: {
-      source: 'epx-runtime',
+      source: "epx-runtime",
       phase: entry.phase,
       level: entry.level,
       message: entry.message,
@@ -75,17 +100,24 @@ const mapRuntimeLogToCertificationEntry = (entry: EPXLogEvent): any => {
   };
 };
 
-const getMergedCertificationEntries = (limit: number, includeRuntimeLogs: boolean = true) => {
-  const normalizedLimit = Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 2000) : 200;
+const getMergedCertificationEntries = (
+  limit: number,
+  includeRuntimeLogs: boolean = true,
+) => {
+  const normalizedLimit = Number.isFinite(limit)
+    ? Math.min(Math.max(limit, 1), 2000)
+    : 200;
   const fileEntries = certificationLogger.getRecentEntries(normalizedLimit);
   const runtimeEntries = includeRuntimeLogs
-    ? getRecentEPXLogs(normalizedLimit * 2).map(mapRuntimeLogToCertificationEntry)
+    ? getRecentEPXLogs(normalizedLimit * 2).map(
+        mapRuntimeLogToCertificationEntry,
+      )
     : [];
 
   const mergedEntries = [...fileEntries, ...runtimeEntries]
     .sort((a: any, b: any) => {
-      const aTime = Date.parse(a?.timestamp || '') || 0;
-      const bTime = Date.parse(b?.timestamp || '') || 0;
+      const aTime = Date.parse(a?.timestamp || "") || 0;
+      const bTime = Date.parse(b?.timestamp || "") || 0;
       return bTime - aTime;
     })
     .slice(0, normalizedLimit);
@@ -96,12 +128,14 @@ const getMergedCertificationEntries = (limit: number, includeRuntimeLogs: boolea
       certificationFiles: fileEntries.length,
       runtimeEPX: runtimeEntries.length,
       includeRuntimeLogs,
-    }
+    },
   };
 };
 
-const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null => {
-  if (!value || typeof value !== 'string') {
+const normalizeTranTypeInput = (
+  value?: string | null,
+): SupportedTranType | null => {
+  if (!value || typeof value !== "string") {
     return null;
   }
 
@@ -112,8 +146,8 @@ const normalizeTranTypeInput = (value?: string | null): SupportedTranType | null
 
   const upper = trimmed.toUpperCase();
   const aliasMap: Record<string, SupportedTranType> = {
-    RETURN: 'CCE9',
-    REFUND: 'CCE9'
+    RETURN: "CCE9",
+    REFUND: "CCE9",
   };
 
   const normalized = aliasMap[upper] || (upper as SupportedTranType);
@@ -139,15 +173,15 @@ const extractSubscriptionIdFromPayment = (payment: any): number | undefined => {
 };
 
 const sanitizeFilename = (value?: string): string => {
-  if (!value || typeof value !== 'string') {
-    return '';
+  if (!value || typeof value !== "string") {
+    return "";
   }
   const trimmed = value.trim();
   if (!trimmed.length) {
-    return '';
+    return "";
   }
-  const sanitized = trimmed.replace(/[^a-z0-9._-]/gi, '_');
-  return sanitized.endsWith('.json') ? sanitized : `${sanitized}.json`;
+  const sanitized = trimmed.replace(/[^a-z0-9._-]/gi, "_");
+  return sanitized.endsWith(".json") ? sanitized : `${sanitized}.json`;
 };
 
 const getTranTypeFromEntry = (entry: any): string | null => {
@@ -159,7 +193,7 @@ const getTranTypeFromEntry = (entry: any): string | null => {
   ];
 
   for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
+    if (typeof candidate === "string" && candidate.trim()) {
       return candidate.trim().toUpperCase();
     }
   }
@@ -173,75 +207,92 @@ const maskSensitiveText = (input: string): string => {
   }
 
   return input
-    .replace(/(ORIG_AUTH_GUID"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3')
-    .replace(/(AUTH_GUID"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3')
-    .replace(/(ACCOUNT_NBR"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3')
-    .replace(/(ROUTING_NBR"?\s*[:=]\s*")([^"]+)(")/gi, '$1****$3');
+    .replace(/(ORIG_AUTH_GUID"?\s*[:=]\s*")([^"]+)(")/gi, "$1****$3")
+    .replace(/(AUTH_GUID"?\s*[:=]\s*")([^"]+)(")/gi, "$1****$3")
+    .replace(/(ACCOUNT_NBR"?\s*[:=]\s*")([^"]+)(")/gi, "$1****$3")
+    .replace(/(ROUTING_NBR"?\s*[:=]\s*")([^"]+)(")/gi, "$1****$3");
 };
 
 const toSafePretty = (value: any): string => {
   try {
     return maskSensitiveText(JSON.stringify(value ?? {}, null, 2));
   } catch {
-    return maskSensitiveText(String(value ?? ''));
+    return maskSensitiveText(String(value ?? ""));
   }
 };
 
 const getRequestFieldsFromEntry = (entry: any): Record<string, any> => {
-  return entry?.request?.body?.rawFields
-    || entry?.request?.body?.form
-    || entry?.metadata?.epxTransaction?.requestFields
-    || entry?.request?.body
-    || {};
+  return (
+    entry?.request?.body?.rawFields ||
+    entry?.request?.body?.form ||
+    entry?.metadata?.epxTransaction?.requestFields ||
+    entry?.request?.body ||
+    {}
+  );
 };
 
 const getResponseFieldsFromEntry = (entry: any): Record<string, any> => {
-  return entry?.response?.body?.fields
-    || entry?.metadata?.epxTransaction?.responseFields
-    || entry?.response?.body
-    || {};
+  return (
+    entry?.response?.body?.fields ||
+    entry?.metadata?.epxTransaction?.responseFields ||
+    entry?.response?.body ||
+    {}
+  );
 };
 
 const getRawRequestPayloadFromEntry = (entry: any): string | null => {
-  const value = entry?.request?.body?.raw || entry?.metadata?.epxTransaction?.rawRequest || null;
-  return typeof value === 'string' && value.trim() ? value : null;
+  const value =
+    entry?.request?.body?.raw ||
+    entry?.metadata?.epxTransaction?.rawRequest ||
+    null;
+  return typeof value === "string" && value.trim() ? value : null;
 };
 
 const getRawResponsePayloadFromEntry = (entry: any): string | null => {
-  const value = entry?.response?.body?.raw || entry?.metadata?.epxTransaction?.rawResponse || null;
-  return typeof value === 'string' && value.trim() ? value : null;
+  const value =
+    entry?.response?.body?.raw ||
+    entry?.metadata?.epxTransaction?.rawResponse ||
+    null;
+  return typeof value === "string" && value.trim() ? value : null;
 };
 
 const hasMeaningfulValue = (value: unknown): boolean => {
   if (value === null || value === undefined) return false;
   const normalized = String(value).trim();
   if (!normalized) return false;
-  if (normalized === '****') return false;
+  if (normalized === "****") return false;
   return true;
 };
 
-const classifyEpxUseCase = (entry: any): 'initial-sale' | 'token-sale' | 'mixed-or-unknown' => {
+const classifyEpxUseCase = (
+  entry: any,
+): "initial-sale" | "token-sale" | "mixed-or-unknown" => {
   const requestFields = getRequestFieldsFromEntry(entry);
   const hasOrigAuthGuid = hasMeaningfulValue(requestFields?.ORIG_AUTH_GUID);
   const hasRouting = hasMeaningfulValue(requestFields?.ROUTING_NBR);
   const hasAccount = hasMeaningfulValue(requestFields?.ACCOUNT_NBR);
 
   if (hasOrigAuthGuid && !hasRouting && !hasAccount) {
-    return 'token-sale';
+    return "token-sale";
   }
 
   if (!hasOrigAuthGuid && (hasRouting || hasAccount)) {
-    return 'initial-sale';
+    return "initial-sale";
   }
 
-  return 'mixed-or-unknown';
+  return "mixed-or-unknown";
 };
 
-const formatPresence = (value: unknown): string => (hasMeaningfulValue(value) ? 'yes' : 'no');
+const formatPresence = (value: unknown): string =>
+  hasMeaningfulValue(value) ? "yes" : "no";
 
 const buildPlainTextCertificationSamples = (entries: any[]): string => {
   const seenSampleKeys = new Set<string>();
-  const selectedSamples: Array<{ tranType: string; useCase: string; entry: any }> = [];
+  const selectedSamples: Array<{
+    tranType: string;
+    useCase: string;
+    entry: any;
+  }> = [];
 
   for (const entry of entries) {
     const tranType = getTranTypeFromEntry(entry);
@@ -260,12 +311,16 @@ const buildPlainTextCertificationSamples = (entries: any[]): string => {
   }
 
   const lines: string[] = [];
-  lines.push('EPX Certification Samples (Guideline Format)');
+  lines.push("EPX Certification Samples (Guideline Format)");
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push(`Total samples: ${selectedSamples.length}`);
-  lines.push('Format: one request sample and one response sample per TRAN_TYPE/use-case.');
-  lines.push('Use-cases: initial-sale (bank data) and token-sale (ORIG_AUTH_GUID).');
-  lines.push('');
+  lines.push(
+    "Format: one request sample and one response sample per TRAN_TYPE/use-case.",
+  );
+  lines.push(
+    "Use-cases: initial-sale (bank data) and token-sale (ORIG_AUTH_GUID).",
+  );
+  lines.push("");
 
   for (const sample of selectedSamples) {
     const entry = sample.entry;
@@ -274,42 +329,56 @@ const buildPlainTextCertificationSamples = (entries: any[]): string => {
     const rawRequestPayload = getRawRequestPayloadFromEntry(entry);
     const rawResponsePayload = getRawResponsePayloadFromEntry(entry);
 
-    lines.push('============================================================');
+    lines.push("============================================================");
     lines.push(`USE_CASE: ${sample.useCase}`);
     lines.push(`TRAN_TYPE: ${sample.tranType}`);
-    lines.push(`Purpose: ${entry?.purpose || 'unknown'}`);
-    lines.push(`Transaction ID: ${entry?.transactionId || 'n/a'}`);
-    lines.push(`Timestamp: ${entry?.timestamp || 'n/a'}`);
-    lines.push('FIELD CHECKLIST');
-    lines.push(`- CARD_ENT_METH present: ${formatPresence(requestFields?.CARD_ENT_METH)}`);
-    lines.push(`- STD_ENTRY_CLASS present: ${formatPresence(requestFields?.STD_ENTRY_CLASS)}`);
-    lines.push(`- ORIG_AUTH_GUID present: ${formatPresence(requestFields?.ORIG_AUTH_GUID)}`);
-    lines.push(`- ROUTING_NBR present: ${formatPresence(requestFields?.ROUTING_NBR)}`);
-    lines.push(`- ACCOUNT_NBR present: ${formatPresence(requestFields?.ACCOUNT_NBR)}`);
-    lines.push(`- AUTH_GUID in response: ${formatPresence(responseFields?.AUTH_GUID)}`);
-    lines.push('');
-    lines.push('REQUEST SAMPLE');
+    lines.push(`Purpose: ${entry?.purpose || "unknown"}`);
+    lines.push(`Transaction ID: ${entry?.transactionId || "n/a"}`);
+    lines.push(`Timestamp: ${entry?.timestamp || "n/a"}`);
+    lines.push("FIELD CHECKLIST");
+    lines.push(
+      `- CARD_ENT_METH present: ${formatPresence(requestFields?.CARD_ENT_METH)}`,
+    );
+    lines.push(
+      `- STD_ENTRY_CLASS present: ${formatPresence(requestFields?.STD_ENTRY_CLASS)}`,
+    );
+    lines.push(
+      `- ORIG_AUTH_GUID present: ${formatPresence(requestFields?.ORIG_AUTH_GUID)}`,
+    );
+    lines.push(
+      `- ROUTING_NBR present: ${formatPresence(requestFields?.ROUTING_NBR)}`,
+    );
+    lines.push(
+      `- ACCOUNT_NBR present: ${formatPresence(requestFields?.ACCOUNT_NBR)}`,
+    );
+    lines.push(
+      `- AUTH_GUID in response: ${formatPresence(responseFields?.AUTH_GUID)}`,
+    );
+    lines.push("");
+    lines.push("REQUEST SAMPLE");
     lines.push(toSafePretty(requestFields));
     if (rawRequestPayload) {
-      lines.push('RAW REQUEST PAYLOAD');
+      lines.push("RAW REQUEST PAYLOAD");
       lines.push(maskSensitiveText(rawRequestPayload));
     }
-    lines.push('');
-    lines.push('RESPONSE SAMPLE');
+    lines.push("");
+    lines.push("RESPONSE SAMPLE");
     lines.push(toSafePretty(responseFields));
     if (rawResponsePayload) {
-      lines.push('RAW RESPONSE PAYLOAD');
+      lines.push("RAW RESPONSE PAYLOAD");
       lines.push(maskSensitiveText(rawResponsePayload));
     }
-    lines.push('');
+    lines.push("");
   }
 
   if (!selectedSamples.length) {
-    lines.push('No certification samples with TRAN_TYPE were found in recent logs.');
-    lines.push('Run a fresh test and export immediately afterward.');
+    lines.push(
+      "No certification samples with TRAN_TYPE were found in recent logs.",
+    );
+    lines.push("Run a fresh test and export immediately afterward.");
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 };
 
 type ServerPostPayload = {
@@ -329,11 +398,11 @@ type ServerPostPayload = {
 const executeServerPostAction = async (
   payload: ServerPostPayload,
   initiatedBy?: string,
-  source: string = 'epx-certification'
+  source: string = "epx-certification",
 ): Promise<{ status: number; body: Record<string, any> }> => {
   try {
     const {
-      tranType = 'CCE1',
+      tranType = "CCE1",
       transactionId,
       paymentId,
       memberId,
@@ -343,19 +412,19 @@ const executeServerPostAction = async (
       cardEntryMethod,
       industryType,
       authGuid,
-      paymentTransactionId
+      paymentTransactionId,
     } = payload || {};
 
-    let resolvedTranType: SupportedTranType = 'CCE1';
-    if (typeof tranType === 'string' && tranType.trim()) {
+    let resolvedTranType: SupportedTranType = "CCE1";
+    if (typeof tranType === "string" && tranType.trim()) {
       const normalizedValue = normalizeTranTypeInput(tranType);
       if (!normalizedValue) {
         return {
           status: 400,
           body: {
             success: false,
-            error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(', ')}`
-          }
+            error: `Unsupported TRAN_TYPE. Use one of: ${SUPPORTED_TRAN_TYPES.join(", ")}`,
+          },
         };
       }
       resolvedTranType = normalizedValue;
@@ -363,9 +432,9 @@ const executeServerPostAction = async (
 
     let paymentRecord;
     let parsedPaymentId: number | null = null;
-    if (typeof paymentId === 'number' && Number.isFinite(paymentId)) {
+    if (typeof paymentId === "number" && Number.isFinite(paymentId)) {
       parsedPaymentId = paymentId;
-    } else if (typeof paymentId === 'string' && paymentId.trim()) {
+    } else if (typeof paymentId === "string" && paymentId.trim()) {
       const parsed = Number(paymentId.trim());
       parsedPaymentId = Number.isFinite(parsed) ? parsed : null;
     }
@@ -375,42 +444,55 @@ const executeServerPostAction = async (
     }
 
     if (!paymentRecord && (paymentTransactionId || transactionId)) {
-      paymentRecord = await storage.getPaymentByTransactionId(paymentTransactionId || transactionId);
+      paymentRecord = await storage.getPaymentByTransactionId(
+        paymentTransactionId || transactionId,
+      );
     }
 
     let resolvedMemberId: number | null = null;
-    if (typeof memberId === 'number' && Number.isFinite(memberId)) {
+    if (typeof memberId === "number" && Number.isFinite(memberId)) {
       resolvedMemberId = memberId;
-    } else if (typeof memberId === 'string' && memberId.trim()) {
+    } else if (typeof memberId === "string" && memberId.trim()) {
       const parsedMemberId = Number(memberId);
-      resolvedMemberId = Number.isFinite(parsedMemberId) ? parsedMemberId : null;
+      resolvedMemberId = Number.isFinite(parsedMemberId)
+        ? parsedMemberId
+        : null;
     } else if (paymentRecord?.member_id) {
       const parsedMemberId = Number(paymentRecord.member_id);
-      resolvedMemberId = Number.isFinite(parsedMemberId) ? parsedMemberId : null;
+      resolvedMemberId = Number.isFinite(parsedMemberId)
+        ? parsedMemberId
+        : null;
     }
 
     let fallbackAuthGuidPayment;
     if (!authGuid && !paymentRecord?.epx_auth_guid && resolvedMemberId) {
-      fallbackAuthGuidPayment = await storage.getLatestPaymentWithAuthGuid(resolvedMemberId);
+      fallbackAuthGuidPayment =
+        await storage.getLatestPaymentWithAuthGuid(resolvedMemberId);
     }
 
-    const resolvedAuthGuid = authGuid || paymentRecord?.epx_auth_guid || fallbackAuthGuidPayment?.epx_auth_guid;
+    const resolvedAuthGuid =
+      authGuid ||
+      paymentRecord?.epx_auth_guid ||
+      fallbackAuthGuidPayment?.epx_auth_guid;
     if (!resolvedAuthGuid) {
       return {
         status: 400,
         body: {
           success: false,
-          error: 'An EPX AUTH_GUID is required (provide authGuid or reference a payment with one).'
-        }
+          error:
+            "An EPX AUTH_GUID is required (provide authGuid or reference a payment with one).",
+        },
       };
     }
 
-    const member = resolvedMemberId ? await storage.getMember(resolvedMemberId) : null;
+    const member = resolvedMemberId
+      ? await storage.getMember(resolvedMemberId)
+      : null;
 
     let explicitAmount: number | null = null;
-    if (typeof amount === 'number') {
+    if (typeof amount === "number") {
       explicitAmount = amount;
-    } else if (typeof amount === 'string' && amount.trim()) {
+    } else if (typeof amount === "string" && amount.trim()) {
       explicitAmount = parseFloat(amount);
     }
 
@@ -418,23 +500,29 @@ const executeServerPostAction = async (
       if (!Number.isFinite(explicitAmount) || explicitAmount <= 0) {
         return {
           status: 400,
-          body: { success: false, error: 'Enter a positive numeric amount.' }
+          body: { success: false, error: "Enter a positive numeric amount." },
         };
       }
     }
 
-    const fallbackAmount = paymentRecord?.amount ? parseFloat(String(paymentRecord.amount)) : null;
+    const fallbackAmount = paymentRecord?.amount
+      ? parseFloat(String(paymentRecord.amount))
+      : null;
 
-    const amountToSend = explicitAmount !== null
-      ? explicitAmount
-      : fallbackAmount && Number.isFinite(fallbackAmount)
-        ? fallbackAmount
-        : undefined;
+    const amountToSend =
+      explicitAmount !== null
+        ? explicitAmount
+        : fallbackAmount && Number.isFinite(fallbackAmount)
+          ? fallbackAmount
+          : undefined;
 
     if (!amountToSend || amountToSend <= 0) {
       return {
         status: 400,
-        body: { success: false, error: 'A valid amount is required for this transaction type.' }
+        body: {
+          success: false,
+          error: "A valid amount is required for this transaction type.",
+        },
       };
     }
 
@@ -443,7 +531,9 @@ const executeServerPostAction = async (
       authGuid: resolvedAuthGuid,
       transactionId: paymentRecord?.transaction_id || transactionId,
       member: member ? (member as Record<string, any>) : undefined,
-      description: description || `Manual ${resolvedTranType} initiated by ${initiatedBy || 'unknown admin'}`,
+      description:
+        description ||
+        `Manual ${resolvedTranType} initiated by ${initiatedBy || "unknown admin"}`,
       aciExt,
       cardEntryMethod,
       industryType,
@@ -451,21 +541,27 @@ const executeServerPostAction = async (
       metadata: {
         initiatedBy,
         paymentId: paymentRecord?.id || null,
-        toolkit: source
-      }
+        toolkit: source,
+      },
     });
 
     if (paymentRecord) {
       await persistServerPostResult({
         paymentRecord,
         tranType: resolvedTranType,
-        amount: amountToSend ?? (paymentRecord?.amount ? Number(paymentRecord.amount) : null),
+        amount:
+          amountToSend ??
+          (paymentRecord?.amount ? Number(paymentRecord.amount) : null),
         initiatedBy,
         requestFields: response.requestFields,
         responseFields: response.responseFields,
-        transactionReference: response.requestFields?.TRAN_NBR || paymentRecord.transaction_id || transactionId || null,
+        transactionReference:
+          response.requestFields?.TRAN_NBR ||
+          paymentRecord.transaction_id ||
+          transactionId ||
+          null,
         authGuidUsed: resolvedAuthGuid,
-        metadataSource: source
+        metadataSource: source,
       });
     }
 
@@ -481,19 +577,19 @@ const executeServerPostAction = async (
               memberId: paymentRecord.member_id,
               transactionId: paymentRecord.transaction_id,
               amount: paymentRecord.amount,
-              epxAuthGuidMasked: maskAuthGuidValue(paymentRecord.epx_auth_guid)
+              epxAuthGuidMasked: maskAuthGuidValue(paymentRecord.epx_auth_guid),
             }
           : null,
         request: {
           fields: response.requestFields,
-          payload: response.requestPayload
+          payload: response.requestPayload,
         },
         response: {
           fields: response.responseFields,
-          raw: response.rawResponse
+          raw: response.rawResponse,
         },
-        error: response.error
-      }
+        error: response.error,
+      },
     };
   } catch (error: any) {
     console.error(`[EPX Manual Transaction] ${source} helper failed`, error);
@@ -501,8 +597,8 @@ const executeServerPostAction = async (
       status: 500,
       body: {
         success: false,
-        error: error?.message || 'Server Post helper failed'
-      }
+        error: error?.message || "Server Post helper failed",
+      },
     };
   }
 };
@@ -510,7 +606,7 @@ const executeServerPostAction = async (
 const handleSubscriptionCancellation = async (
   req: AuthRequest,
   res: Response,
-  source: 'epx-certification' | 'admin-dashboard'
+  source: "epx-certification" | "admin-dashboard",
 ) => {
   try {
     const { subscriptionId, transactionId, reason } = req.body || {};
@@ -525,23 +621,29 @@ const handleSubscriptionCancellation = async (
     if (!resolvedSubscriptionId) {
       return res.status(400).json({
         success: false,
-        error: 'Provide a subscriptionId or reference a payment with subscription metadata.'
+        error:
+          "Provide a subscriptionId or reference a payment with subscription metadata.",
       });
     }
 
     const epxService = await getEPXService();
     const environment = await paymentEnvironment.getEnvironment();
-    const cancelResult = await epxService.cancelSubscription(resolvedSubscriptionId);
-    const endpointPath = source === 'admin-dashboard'
-      ? '/api/admin/payments/cancel-subscription'
-      : '/api/epx/certification/cancel-subscription';
+    const cancelResult = await epxService.cancelSubscription(
+      resolvedSubscriptionId,
+    );
+    const endpointPath =
+      source === "admin-dashboard"
+        ? "/api/admin/payments/cancel-subscription"
+        : "/api/epx/certification/cancel-subscription";
 
     certificationLogger.logCertificationEntry({
-      purpose: 'subscription-cancel',
+      purpose: "subscription-cancel",
       transactionId: transactionId || paymentRecord?.transaction_id,
       environment,
       amount: paymentRecord?.amount ? Number(paymentRecord.amount) : undefined,
-      customerId: paymentRecord?.member_id ? String(paymentRecord.member_id) : undefined,
+      customerId: paymentRecord?.member_id
+        ? String(paymentRecord.member_id)
+        : undefined,
       metadata: {
         subscriptionId: resolvedSubscriptionId,
         paymentId: paymentRecord?.id || null,
@@ -551,7 +653,7 @@ const handleSubscriptionCancellation = async (
       },
       request: {
         timestamp: new Date().toISOString(),
-        method: 'POST',
+        method: "POST",
         endpoint: endpointPath,
         headers: req.headers as Record<string, any>,
         body: {
@@ -560,11 +662,11 @@ const handleSubscriptionCancellation = async (
           reason,
         },
         ipAddress: req.ip,
-        userAgent: req.get('user-agent') || undefined,
+        userAgent: req.get("user-agent") || undefined,
       },
       response: {
         statusCode: cancelResult.success ? 200 : 502,
-        headers: { 'content-type': 'application/json' },
+        headers: { "content-type": "application/json" },
         body: cancelResult,
       },
     });
@@ -577,344 +679,488 @@ const handleSubscriptionCancellation = async (
       error: cancelResult.error,
     });
   } catch (error: any) {
-    console.error('[EPX Certification] Cancel subscription failed', error);
+    console.error("[EPX Certification] Cancel subscription failed", error);
     return res.status(500).json({
       success: false,
-      error: error?.message || 'Failed to cancel subscription',
+      error: error?.message || "Failed to cancel subscription",
     });
   }
 };
 
-router.get('/api/epx/certification/logs', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
+router.get(
+  "/api/epx/certification/logs",
+  authenticateToken,
+  requireSuperAdmin,
+  (req: AuthRequest, res: Response) => {
+    const limitParam = parseInt((req.query.limit as string) || "25", 10);
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 1), 200)
+      : 25;
+    const includeRuntimeLogs =
+      String(req.query.includeRuntimeLogs ?? "true").toLowerCase() !== "false";
 
-  const limitParam = parseInt((req.query.limit as string) || '25', 10);
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 25;
-  const includeRuntimeLogs = String(req.query.includeRuntimeLogs ?? 'true').toLowerCase() !== 'false';
-
-  const merged = getMergedCertificationEntries(limit, includeRuntimeLogs);
-  const mergedEntries = merged.entries;
-
-  res.json({
-    success: true,
-    entries: mergedEntries,
-    totalEntries: mergedEntries.length,
-    limit,
-    sources: merged.sources,
-  });
-});
-
-router.get('/api/epx/certification/logs/transaction/:transactionId', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
-
-  const transactionId = req.params.transactionId?.trim();
-  if (!transactionId) {
-    return res.status(400).json({ success: false, error: 'transactionId path parameter is required' });
-  }
-
-  const limitParam = parseInt((req.query.limit as string) || '100', 10);
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 100;
-  const dateParam = typeof req.query.date === 'string' ? req.query.date : undefined;
-  const phaseParam = typeof req.query.phases === 'string' ? req.query.phases : undefined;
-
-  const requestedPhases = phaseParam
-    ? phaseParam.split(',').map((phase) => phase.trim()).filter(isValidLogPhase)
-    : [];
-
-  const logs = getTransactionLogs(transactionId, {
-    date: dateParam,
-    limit,
-    phases: requestedPhases.length ? requestedPhases : undefined
-  });
-
-  res.json({
-    success: true,
-    transactionId,
-    date: dateParam || null,
-    limit,
-    totalEntries: logs.length,
-    phases: requestedPhases.length ? requestedPhases : null,
-    logs
-  });
-});
-
-router.get('/api/epx/certification/callbacks', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
-
-  const limitParam = parseInt((req.query.limit as string) || '50', 10);
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 500) : 50;
-
-  // Pull a larger recent set, then filter down to hosted callback events
-  const recentEntries = certificationLogger.getRecentEntries(500);
-  const callbackEntries = recentEntries.filter((entry) =>
-    typeof entry?.purpose === 'string' && entry.purpose.startsWith('hosted-callback')
-  ).slice(0, limit);
-
-  res.json({
-    success: true,
-    entries: callbackEntries,
-    totalEntries: callbackEntries.length,
-    limit
-  });
-});
-
-router.get('/api/epx/certification/payments', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
-
-  const limitParam = parseInt((req.query.limit as string) || '25', 10);
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 1), 200) : 25;
-  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-
-  try {
-    const recentPayments = await getRecentPaymentsDetailed({ limit, status });
-    const normalized = recentPayments.map((payment) => ({
-      id: payment.id,
-      memberId: payment.member_id,
-      planName: payment.plan_name,
-      amount: payment.amount,
-      status: payment.status,
-      createdAt: payment.created_at,
-      transactionId: payment.transaction_id,
-      epxAuthGuid: payment.epx_auth_guid,
-      environment: payment.environment,
-      metadata: payment.metadata,
-      member: payment.member_id
-        ? {
-            firstName: payment.member_first_name,
-            lastName: payment.member_last_name,
-            email: payment.member_email,
-            customerNumber: payment.member_customer_number,
-          }
-        : null,
-    }));
-
-    res.json({
-      success: true,
-      limit,
-      status,
-      payments: normalized,
-    });
-  } catch (error: any) {
-    console.error('[EPX Certification] Failed to load payments', error);
-    res.status(500).json({ success: false, error: error?.message || 'Unable to load recent payments' });
-  }
-});
-
-router.get('/api/epx/certification/report', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
-
-  const report = certificationLogger.generateCertificationReport();
-  const summary = certificationLogger.getLogsSummary();
-
-  res.json({
-    success: true,
-    report,
-    summary
-  });
-});
-
-router.get('/api/epx/certification/scheduler-preview', authenticateToken, requireSuperAdmin, async (_req: AuthRequest, res: Response) => {
-  try {
-    const environment = await paymentEnvironment.getEnvironment();
-    const achEnabledByFlag = process.env.ACH_RECURRING_ENABLED === 'true';
-    const achEnabledForRuntime = achEnabledByFlag && environment === 'sandbox';
-    const now = new Date();
-
-    const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
-      includeACH: achEnabledForRuntime,
-    });
-
-    const normalized = dueSubscriptions.map((item) => ({
-      subscriptionId: item.subscriptionId,
-      memberId: item.memberId,
-      amount: item.amount,
-      nextBillingDate: item.nextBillingDate,
-      paymentMethodType: item.paymentMethodType,
-      cardLastFour: item.cardLastFour,
-      bankAccountLastFour: item.memberBankAccountLastFour || item.tokenBankAccountLastFour || null,
-    }));
-
-    const cardDueCount = normalized.filter((item) => String(item.paymentMethodType || '').toUpperCase() === 'CREDITCARD').length;
-    const achDueCount = normalized.filter((item) => String(item.paymentMethodType || '').toUpperCase() === 'ACH').length;
-
-    res.json({
-      success: true,
-      runtime: {
-        paymentEnvironment: environment,
-        achEnabledByFlag,
-        achEnabledForRuntime,
-      },
-      dueCounts: {
-        total: normalized.length,
-        card: cardDueCount,
-        ach: achDueCount,
-      },
-      dueSubscriptions: normalized.slice(0, 100),
-    });
-  } catch (error: any) {
-    console.error('[EPX Certification] Scheduler preview failed', error);
-    res.status(500).json({ success: false, error: error?.message || 'Failed to load scheduler preview' });
-  }
-});
-
-router.post('/api/epx/certification/export', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
-
-  const providedName = sanitizeFilename(req.body?.filename);
-  const defaultName = `epx-certification-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-  const exportFileName = providedName || defaultName;
-
-  try {
-    const filePath = certificationLogger.exportAllLogs(exportFileName);
-    const rawContents = fs.readFileSync(filePath, 'utf8');
-    let entries: unknown = [];
-
-    try {
-      entries = JSON.parse(rawContents);
-    } catch (parseError) {
-      console.warn('[EPX Certification] Failed to parse exported log file', { parseError });
-    }
-
-    const merged = getMergedCertificationEntries(2000, true);
+    const merged = getMergedCertificationEntries(limit, includeRuntimeLogs);
     const mergedEntries = merged.entries;
-    const responseEntries = Array.isArray(entries) && entries.length > 0 ? entries : mergedEntries;
 
     res.json({
       success: true,
-      fileName: path.basename(filePath),
-      filePath,
-      totalEntries: Array.isArray(responseEntries) ? responseEntries.length : 0,
-      entries: responseEntries,
+      entries: mergedEntries,
+      totalEntries: mergedEntries.length,
+      limit,
       sources: merged.sources,
     });
-  } catch (error: any) {
-    console.error('[EPX Certification] Export failed', { error: error?.message });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to export certification logs'
+  },
+);
+
+router.get(
+  "/api/epx/certification/logs/transaction/:transactionId",
+  authenticateToken,
+  requireSuperAdmin,
+  (req: AuthRequest, res: Response) => {
+    const transactionId = req.params.transactionId?.trim();
+    if (!transactionId) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          error: "transactionId path parameter is required",
+        });
+    }
+
+    const limitParam = parseInt((req.query.limit as string) || "100", 10);
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 1), 500)
+      : 100;
+    const dateParam =
+      typeof req.query.date === "string" ? req.query.date : undefined;
+    const phaseParam =
+      typeof req.query.phases === "string" ? req.query.phases : undefined;
+
+    const requestedPhases = phaseParam
+      ? phaseParam
+          .split(",")
+          .map((phase) => phase.trim())
+          .filter(isValidLogPhase)
+      : [];
+
+    const logs = getTransactionLogs(transactionId, {
+      date: dateParam,
+      limit,
+      phases: requestedPhases.length ? requestedPhases : undefined,
     });
-  }
-});
 
-router.get('/api/epx/certification/export-txt', authenticateToken, requireSuperAdmin, (req: AuthRequest, res: Response) => {
-  const limitParam = parseInt((req.query.limit as string) || '1000', 10);
-  const limit = Number.isFinite(limitParam) ? Math.min(Math.max(limitParam, 25), 2000) : 1000;
-  const merged = getMergedCertificationEntries(limit, true);
-  const entries = merged.entries;
-  const textPayload = buildPlainTextCertificationSamples(entries);
-  const fileName = `epx-certification-samples-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+    res.json({
+      success: true,
+      transactionId,
+      date: dateParam || null,
+      limit,
+      totalEntries: logs.length,
+      phases: requestedPhases.length ? requestedPhases : null,
+      logs,
+    });
+  },
+);
 
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-  res.status(200).send(textPayload);
-});
+router.get(
+  "/api/epx/certification/callbacks",
+  authenticateToken,
+  requireSuperAdmin,
+  (req: AuthRequest, res: Response) => {
+    const limitParam = parseInt((req.query.limit as string) || "50", 10);
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 1), 500)
+      : 50;
+
+    // Pull a larger recent set, then filter down to hosted callback events
+    const recentEntries = certificationLogger.getRecentEntries(500);
+    const callbackEntries = recentEntries
+      .filter(
+        (entry) =>
+          typeof entry?.purpose === "string" &&
+          entry.purpose.startsWith("hosted-callback"),
+      )
+      .slice(0, limit);
+
+    res.json({
+      success: true,
+      entries: callbackEntries,
+      totalEntries: callbackEntries.length,
+      limit,
+    });
+  },
+);
+
+router.get(
+  "/api/epx/certification/payments",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    const limitParam = parseInt((req.query.limit as string) || "25", 10);
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 1), 200)
+      : 25;
+    const status =
+      typeof req.query.status === "string" ? req.query.status : undefined;
+
+    try {
+      const recentPayments = await getRecentPaymentsDetailed({ limit, status });
+      const normalized = recentPayments.map((payment) => ({
+        id: payment.id,
+        memberId: payment.member_id,
+        planName: payment.plan_name,
+        amount: payment.amount,
+        status: payment.status,
+        createdAt: payment.created_at,
+        transactionId: payment.transaction_id,
+        epxAuthGuid: payment.epx_auth_guid,
+        environment: payment.environment,
+        metadata: payment.metadata,
+        member: payment.member_id
+          ? {
+              firstName: payment.member_first_name,
+              lastName: payment.member_last_name,
+              email: payment.member_email,
+              customerNumber: payment.member_customer_number,
+            }
+          : null,
+      }));
+
+      res.json({
+        success: true,
+        limit,
+        status,
+        payments: normalized,
+      });
+    } catch (error: any) {
+      console.error("[EPX Certification] Failed to load payments", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: error?.message || "Unable to load recent payments",
+        });
+    }
+  },
+);
+
+router.get(
+  "/api/epx/certification/report",
+  authenticateToken,
+  requireSuperAdmin,
+  (req: AuthRequest, res: Response) => {
+    const report = certificationLogger.generateCertificationReport();
+    const summary = certificationLogger.getLogsSummary();
+
+    res.json({
+      success: true,
+      report,
+      summary,
+    });
+  },
+);
+
+router.get(
+  "/api/epx/certification/scheduler-preview",
+  authenticateToken,
+  requireSuperAdmin,
+  async (_req: AuthRequest, res: Response) => {
+    try {
+      const environment = await paymentEnvironment.getEnvironment();
+      const achEnabledByFlag = process.env.ACH_RECURRING_ENABLED === "true";
+      const achEnabledForRuntime =
+        achEnabledByFlag && environment === "sandbox";
+      const now = new Date();
+
+      const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
+        includeACH: achEnabledForRuntime,
+      });
+
+      const normalized = dueSubscriptions.map((item) => ({
+        subscriptionId: item.subscriptionId,
+        memberId: item.memberId,
+        amount: item.amount,
+        nextBillingDate: item.nextBillingDate,
+        paymentMethodType: item.paymentMethodType,
+        cardLastFour: item.cardLastFour,
+        bankAccountLastFour:
+          item.memberBankAccountLastFour ||
+          item.tokenBankAccountLastFour ||
+          null,
+      }));
+
+      const cardDueCount = normalized.filter(
+        (item) =>
+          String(item.paymentMethodType || "").toUpperCase() === "CREDITCARD",
+      ).length;
+      const achDueCount = normalized.filter(
+        (item) => String(item.paymentMethodType || "").toUpperCase() === "ACH",
+      ).length;
+
+      res.json({
+        success: true,
+        runtime: {
+          paymentEnvironment: environment,
+          achEnabledByFlag,
+          achEnabledForRuntime,
+        },
+        dueCounts: {
+          total: normalized.length,
+          card: cardDueCount,
+          ach: achDueCount,
+        },
+        dueSubscriptions: normalized.slice(0, 100),
+      });
+    } catch (error: any) {
+      console.error("[EPX Certification] Scheduler preview failed", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: error?.message || "Failed to load scheduler preview",
+        });
+    }
+  },
+);
+
+router.post(
+  "/api/epx/certification/export",
+  authenticateToken,
+  requireSuperAdmin,
+  (req: AuthRequest, res: Response) => {
+    const providedName = sanitizeFilename(req.body?.filename);
+    const defaultName = `epx-certification-export-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    const exportFileName = providedName || defaultName;
+
+    try {
+      const filePath = certificationLogger.exportAllLogs(exportFileName);
+      const rawContents = fs.readFileSync(filePath, "utf8");
+      let entries: unknown = [];
+
+      try {
+        entries = JSON.parse(rawContents);
+      } catch (parseError) {
+        console.warn("[EPX Certification] Failed to parse exported log file", {
+          parseError,
+        });
+      }
+
+      const merged = getMergedCertificationEntries(2000, true);
+      const mergedEntries = merged.entries;
+      const responseEntries =
+        Array.isArray(entries) && entries.length > 0 ? entries : mergedEntries;
+
+      res.json({
+        success: true,
+        fileName: path.basename(filePath),
+        filePath,
+        totalEntries: Array.isArray(responseEntries)
+          ? responseEntries.length
+          : 0,
+        entries: responseEntries,
+        sources: merged.sources,
+      });
+    } catch (error: any) {
+      console.error("[EPX Certification] Export failed", {
+        error: error?.message,
+      });
+      res.status(500).json({
+        success: false,
+        error: "Failed to export certification logs",
+      });
+    }
+  },
+);
+
+router.get(
+  "/api/epx/certification/export-txt",
+  authenticateToken,
+  requireSuperAdmin,
+  (req: AuthRequest, res: Response) => {
+    const limitParam = parseInt((req.query.limit as string) || "1000", 10);
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 25), 2000)
+      : 1000;
+    const merged = getMergedCertificationEntries(limit, true);
+    const entries = merged.entries;
+    const textPayload = buildPlainTextCertificationSamples(entries);
+    const fileName = `epx-certification-samples-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.status(200).send(textPayload);
+  },
+);
 
 /**
  * GET /api/epx/certification/auth-guid
  * Quick endpoint to retrieve most recent AUTH_GUID for EPX certification
  */
-router.get('/api/epx/certification/auth-guid', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
-  try {
-    const recentPayments = await getRecentPaymentsDetailed({ limit: 10, status: 'completed' });
-    
-    const paymentsWithAuthGuid = recentPayments
-      .filter(p => p.epx_auth_guid && p.epx_auth_guid.trim())
-      .map(p => ({
-        id: p.id,
-        memberId: p.member_id,
-        transactionId: p.transaction_id,
-        amount: p.amount,
-        planName: p.plan_name,
-        createdAt: p.created_at,
-        authGuid: p.epx_auth_guid,
-        authGuidMasked: maskAuthGuidValue(p.epx_auth_guid),
-        member: p.member_id ? {
-          name: `${p.member_first_name || ''} ${p.member_last_name || ''}`.trim(),
-          email: p.member_email,
-          customerNumber: p.member_customer_number
-        } : null
-      }));
+router.get(
+  "/api/epx/certification/auth-guid",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const recentPayments = await getRecentPaymentsDetailed({
+        limit: 10,
+        status: "completed",
+      });
 
-    const mostRecent = paymentsWithAuthGuid[0];
+      const paymentsWithAuthGuid = recentPayments
+        .filter((p) => p.epx_auth_guid && p.epx_auth_guid.trim())
+        .map((p) => ({
+          id: p.id,
+          memberId: p.member_id,
+          transactionId: p.transaction_id,
+          amount: p.amount,
+          planName: p.plan_name,
+          createdAt: p.created_at,
+          authGuid: p.epx_auth_guid,
+          authGuidMasked: maskAuthGuidValue(p.epx_auth_guid),
+          member: p.member_id
+            ? {
+                name: `${p.member_first_name || ""} ${p.member_last_name || ""}`.trim(),
+                email: p.member_email,
+                customerNumber: p.member_customer_number,
+              }
+            : null,
+        }));
 
-    res.json({
-      success: true,
-      mostRecent: mostRecent || null,
-      recentPayments: paymentsWithAuthGuid,
-      message: mostRecent 
-        ? `Found AUTH_GUID from transaction ${mostRecent.transactionId}`
-        : 'No payments with AUTH_GUID found. Complete a test enrollment first.'
-    });
-  } catch (error: any) {
-    console.error('[EPX Certification] Failed to retrieve AUTH_GUID', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error?.message || 'Failed to retrieve AUTH_GUID' 
-    });
-  }
-});
+      const mostRecent = paymentsWithAuthGuid[0];
 
-router.post('/api/epx/certification/server-post', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+      res.json({
+        success: true,
+        mostRecent: mostRecent || null,
+        recentPayments: paymentsWithAuthGuid,
+        message: mostRecent
+          ? `Found AUTH_GUID from transaction ${mostRecent.transactionId}`
+          : "No payments with AUTH_GUID found. Complete a test enrollment first.",
+      });
+    } catch (error: any) {
+      console.error("[EPX Certification] Failed to retrieve AUTH_GUID", error);
+      res.status(500).json({
+        success: false,
+        error: error?.message || "Failed to retrieve AUTH_GUID",
+      });
+    }
+  },
+);
 
-  const result = await executeServerPostAction(req.body || {}, req.user?.email, 'epx-certification');
-  return res.status(result.status).json(result.body);
-});
+router.post(
+  "/api/epx/certification/server-post",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    const result = await executeServerPostAction(
+      req.body || {},
+      req.user?.email,
+      "epx-certification",
+    );
+    return res.status(result.status).json(result.body);
+  },
+);
 
-router.post('/api/epx/certification/cancel-subscription', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
+router.post(
+  "/api/epx/certification/cancel-subscription",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    return handleSubscriptionCancellation(req, res, "epx-certification");
+  },
+);
 
-  return handleSubscriptionCancellation(req, res, 'epx-certification');
-});
+router.get(
+  "/api/admin/payments/environment",
+  authenticateToken,
+  requireSuperAdmin,
+  async (_req: AuthRequest, res: Response) => {
+    try {
+      const details = await getPaymentEnvironmentDetails();
+      res.json({
+        success: true,
+        environment: details.environment,
+        updatedAt: details.updatedAt,
+        updatedBy: details.updatedBy,
+        allowed: ["sandbox", "production"] as PaymentEnvironment[],
+      });
+    } catch (error: any) {
+      console.error("[EPX Admin] Failed to load payment environment", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: error?.message || "Unable to load payment environment",
+        });
+    }
+  },
+);
 
-router.get('/api/admin/payments/environment', authenticateToken, requireAdmin, async (_req: AuthRequest, res: Response) => {
-  try {
-    const details = await getPaymentEnvironmentDetails();
-    res.json({
-      success: true,
-      environment: details.environment,
-      updatedAt: details.updatedAt,
-      updatedBy: details.updatedBy,
-      allowed: ['sandbox', 'production'] as PaymentEnvironment[],
-    });
-  } catch (error: any) {
-    console.error('[EPX Admin] Failed to load payment environment', error);
-    res.status(500).json({ success: false, error: error?.message || 'Unable to load payment environment' });
-  }
-});
+router.post(
+  "/api/admin/payments/environment",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    const requested =
+      typeof req.body?.environment === "string"
+        ? req.body.environment.trim().toLowerCase()
+        : "";
 
-router.post('/api/admin/payments/environment', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
-  const requested = typeof req.body?.environment === 'string'
-    ? req.body.environment.trim().toLowerCase()
-    : '';
+    if (requested !== "sandbox" && requested !== "production") {
+      return res.status(400).json({
+        success: false,
+        error: 'Environment must be "sandbox" or "production"',
+      });
+    }
 
-  if (requested !== 'sandbox' && requested !== 'production') {
-    return res.status(400).json({
-      success: false,
-      error: 'Environment must be "sandbox" or "production"',
-    });
-  }
+    try {
+      const previous = paymentEnvironment.getCachedEnvironment();
+      const updated = await paymentEnvironment.setEnvironment(
+        requested as PaymentEnvironment,
+        req.user?.id,
+      );
+      const details = await getPaymentEnvironmentDetails();
 
-  try {
-    const previous = paymentEnvironment.getCachedEnvironment();
-    const updated = await paymentEnvironment.setEnvironment(requested as PaymentEnvironment, req.user?.id);
-    const details = await getPaymentEnvironmentDetails();
+      res.json({
+        success: true,
+        previousEnvironment: previous,
+        environment: updated,
+        updatedAt: details.updatedAt,
+        updatedBy: details.updatedBy,
+      });
+    } catch (error: any) {
+      console.error("[EPX Admin] Failed to update payment environment", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: error?.message || "Unable to update payment environment",
+        });
+    }
+  },
+);
 
-    res.json({
-      success: true,
-      previousEnvironment: previous,
-      environment: updated,
-      updatedAt: details.updatedAt,
-      updatedBy: details.updatedBy,
-    });
-  } catch (error: any) {
-    console.error('[EPX Admin] Failed to update payment environment', error);
-    res.status(500).json({ success: false, error: error?.message || 'Unable to update payment environment' });
-  }
-});
+router.post(
+  "/api/admin/payments/cancel-subscription",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    return handleSubscriptionCancellation(req, res, "admin-dashboard");
+  },
+);
 
-router.post('/api/admin/payments/cancel-subscription', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
-
-  return handleSubscriptionCancellation(req, res, 'admin-dashboard');
-});
-
-router.post('/api/admin/payments/manual-transaction', authenticateToken, requireSuperAdmin, async (req: AuthRequest, res: Response) => {
-
-  // Regular manual transactions (refunds, captures, etc.)
-  const result = await executeServerPostAction(req.body || {}, req.user?.email, 'admin-dashboard');
-  return res.status(result.status).json(result.body);
-});
+router.post(
+  "/api/admin/payments/manual-transaction",
+  authenticateToken,
+  requireSuperAdmin,
+  async (req: AuthRequest, res: Response) => {
+    // Regular manual transactions (refunds, captures, etc.)
+    const result = await executeServerPostAction(
+      req.body || {},
+      req.user?.email,
+      "admin-dashboard",
+    );
+    return res.status(result.status).json(result.body);
+  },
+);
 
 export default router;

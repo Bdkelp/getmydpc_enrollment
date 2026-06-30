@@ -1045,6 +1045,7 @@ export interface IStorage {
   listAgencyUsers(): Promise<any[]>;
   listAssignableAgents(): Promise<any[]>;
   getAgencyAssignmentsSnapshot(): Promise<Record<string, string[]>>;
+  getDirectDownlineUserIds(userId: string): Promise<string[]>;
   getHierarchyDownlineUserIds(userId: string): Promise<string[]>;
   getAllUsersForAdmin(): Promise<{ users: User[]; totalCount: number }>;
   setAgencyAssignments(
@@ -2538,6 +2539,43 @@ export async function getHierarchyDownlineUserIds(
 
   const descendants = await getDownlineAgentIds(normalizedUserId);
   return Array.from(new Set(descendants));
+}
+
+export async function getDirectDownlineUserIds(
+  userId: string,
+): Promise<string[]> {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) {
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .select("id")
+      .eq("upline_agent_id", normalizedUserId)
+      .eq("is_active", true)
+      .in("role", ["agent", "agency_manager", "agency_admin"]);
+
+    if (error) {
+      console.error("[Storage] Error fetching direct downline users:", error);
+      return [];
+    }
+
+    return Array.from(
+      new Set(
+        (data || [])
+          .map((row: any) => String(row.id || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  } catch (error: any) {
+    console.error(
+      "[Storage] Unexpected error in getDirectDownlineUserIds:",
+      error,
+    );
+    return [];
+  }
 }
 
 export async function getAgencyAssignedAgentIds(
@@ -9786,6 +9824,7 @@ export const storage = {
   getAllEnrollments,
   getEnrollmentsByAgent,
   getHierarchyDownlineUserIds,
+  getDirectDownlineUserIds,
   getAgencyAssignedAgentIds,
   listAgencyUsers,
   listAssignableAgents,

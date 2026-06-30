@@ -18,7 +18,11 @@ interface PaymentEnvironmentResponse {
 }
 
 const MANUAL_TRANSACTION_TYPES = [
-  { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
+  {
+    value: "CCE1",
+    label: "Initial Capture (CCE1)",
+    description: "Purchase auth & capture",
+  },
   { value: "CCE9", label: "Refund (CCE9)", description: "Return capture" },
 ] as const;
 
@@ -48,29 +52,35 @@ type CancelSubscriptionForm = {
 export function useAdminEPXOperations(
   isSuperAdmin: boolean,
   isAuthenticated: boolean,
-  isAdminUser: boolean
+  isAdminUser: boolean,
 ) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // State
-  const [manualTransactionForm, setManualTransactionForm] = useState<ManualTransactionForm>({
-    memberId: "",
-    transactionId: "",
-    authGuid: "",
-    testCustomerEmail: "",
-    testCustomerName: "",
-    amount: "",
-    description: "Manual EPX action from dashboard",
-    tranType: MANUAL_TRANSACTION_TYPES[0].value,
-  });
-  const [manualTransactionResult, setManualTransactionResult] = useState<any | null>(null);
-  const [cancelSubscriptionForm, setCancelSubscriptionForm] = useState<CancelSubscriptionForm>({
-    subscriptionId: "",
-    transactionId: "",
-    reason: "Subscription cancellation via admin dashboard",
-  });
-  const [cancelSubscriptionResult, setCancelSubscriptionResult] = useState<any | null>(null);
+  const [manualTransactionForm, setManualTransactionForm] =
+    useState<ManualTransactionForm>({
+      memberId: "",
+      transactionId: "",
+      authGuid: "",
+      testCustomerEmail: "",
+      testCustomerName: "",
+      amount: "",
+      description: "Manual EPX action from dashboard",
+      tranType: MANUAL_TRANSACTION_TYPES[0].value,
+    });
+  const [manualTransactionResult, setManualTransactionResult] = useState<
+    any | null
+  >(null);
+  const [cancelSubscriptionForm, setCancelSubscriptionForm] =
+    useState<CancelSubscriptionForm>({
+      subscriptionId: "",
+      transactionId: "",
+      reason: "Subscription cancellation via admin dashboard",
+    });
+  const [cancelSubscriptionResult, setCancelSubscriptionResult] = useState<
+    any | null
+  >(null);
   const [manualConfirmPayload, setManualConfirmPayload] = useState<{
     payload: Record<string, any>;
     amount: number;
@@ -94,51 +104,89 @@ export function useAdminEPXOperations(
 
   const ensureSuperAdmin = (label: string): boolean => {
     if (isSuperAdmin) return true;
-    toast({ title: "Super admin access required", description: `${label} is limited to super admins.`, variant: "destructive" });
+    toast({
+      title: "Super admin access required",
+      description: `${label} is limited to super admins.`,
+      variant: "destructive",
+    });
     return false;
   };
 
   // ── Queries ───────────────────────────────────────────────────────────────
-  const { data: paymentEnvironmentDetails, isLoading: paymentEnvironmentLoading } =
-    useQuery<PaymentEnvironmentResponse>({
-      queryKey: ["/api/admin/payments/environment"],
-      enabled: isAuthenticated && isAdminUser,
-    });
+  const {
+    data: paymentEnvironmentDetails,
+    isLoading: paymentEnvironmentLoading,
+  } = useQuery<PaymentEnvironmentResponse>({
+    queryKey: ["/api/admin/payments/environment"],
+    enabled: isAuthenticated && isAdminUser && isSuperAdmin,
+  });
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const manualTransactionMutation = useMutation({
     mutationFn: async (payload: Record<string, any>) =>
-      apiRequest("/api/admin/payments/manual-transaction", { method: "POST", body: JSON.stringify(payload) }),
+      apiRequest("/api/admin/payments/manual-transaction", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
     onSuccess: (data) => {
       setManualTransactionResult(data);
-      toast({ title: "EPX request submitted", description: "Review the response below for details." });
+      toast({
+        title: "EPX request submitted",
+        description: "Review the response below for details.",
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Unable to submit", description: error?.message || "Check console for additional details.", variant: "destructive" });
+      toast({
+        title: "Unable to submit",
+        description: error?.message || "Check console for additional details.",
+        variant: "destructive",
+      });
     },
   });
 
   const cancelSubscriptionMutation = useMutation({
     mutationFn: async (payload: Record<string, any>) =>
-      apiRequest("/api/admin/payments/cancel-subscription", { method: "POST", body: JSON.stringify(payload) }),
+      apiRequest("/api/admin/payments/cancel-subscription", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
     onSuccess: (data, variables) => {
       setCancelSubscriptionResult({ ...data, request: variables });
-      toast({ title: "Cancellation request submitted", description: "Review the response below for EPX confirmation." });
+      toast({
+        title: "Cancellation request submitted",
+        description: "Review the response below for EPX confirmation.",
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Unable to cancel subscription", description: error?.message || "Check console for additional details.", variant: "destructive" });
+      toast({
+        title: "Unable to cancel subscription",
+        description: error?.message || "Check console for additional details.",
+        variant: "destructive",
+      });
     },
   });
 
   const updatePaymentEnvironmentMutation = useMutation({
     mutationFn: async (nextEnvironment: PaymentEnvironmentValue) =>
-      apiRequest("/api/admin/payments/environment", { method: "POST", body: JSON.stringify({ environment: nextEnvironment }) }),
+      apiRequest("/api/admin/payments/environment", {
+        method: "POST",
+        body: JSON.stringify({ environment: nextEnvironment }),
+      }),
     onSuccess: (data: PaymentEnvironmentResponse) => {
-      toast({ title: "Payment environment updated", description: `Environment now set to ${(data?.environment || "production").toUpperCase()}.` });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/payments/environment"] });
+      toast({
+        title: "Payment environment updated",
+        description: `Environment now set to ${(data?.environment || "production").toUpperCase()}.`,
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["/api/admin/payments/environment"],
+      });
     },
     onError: (error: any) => {
-      toast({ title: "Unable to update environment", description: error?.message || "Check console for additional details.", variant: "destructive" });
+      toast({
+        title: "Unable to update environment",
+        description: error?.message || "Check console for additional details.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -148,16 +196,19 @@ export function useAdminEPXOperations(
   const paymentEnvironmentBadgeLabel = paymentEnvironmentLoading
     ? "Checking..."
     : paymentEnvironmentDetails
-    ? isPaymentEnvironmentProduction
-      ? "Live Production"
-      : "Sandbox / Test"
-    : "Unavailable";
+      ? isPaymentEnvironmentProduction
+        ? "Live Production"
+        : "Sandbox / Test"
+      : "Unavailable";
   const paymentEnvironmentBadgeClasses = isPaymentEnvironmentProduction
     ? "bg-emerald-600 text-white hover:bg-emerald-600"
     : "bg-amber-500 text-white hover:bg-amber-500";
-  const paymentEnvironmentButtonTarget: PaymentEnvironmentValue = isPaymentEnvironmentProduction ? "sandbox" : "production";
+  const paymentEnvironmentButtonTarget: PaymentEnvironmentValue =
+    isPaymentEnvironmentProduction ? "sandbox" : "production";
   const paymentEnvironmentButtonLabel =
-    paymentEnvironmentButtonTarget === "production" ? "Switch to Production" : "Switch to Sandbox";
+    paymentEnvironmentButtonTarget === "production"
+      ? "Switch to Production"
+      : "Switch to Sandbox";
 
   let paymentEnvironmentUpdatedText: string | null = null;
   if (paymentEnvironmentDetails?.updatedAt) {
@@ -174,26 +225,37 @@ export function useAdminEPXOperations(
   const environmentAlertTitle = paymentEnvironmentLoading
     ? "Confirming EPX environment"
     : isPaymentEnvironmentProduction
-    ? "Live EPX controls"
-    : "Sandbox mode active";
+      ? "Live EPX controls"
+      : "Sandbox mode active";
   const environmentAlertDescription = paymentEnvironmentLoading
     ? "Retrieving your current EPX environment before enabling manual controls."
     : isPaymentEnvironmentProduction
-    ? "Charges, refunds, and voids are transmitted to EPX immediately. Double-check every identifier before continuing."
-    : "Transactions currently route to the EPX sandbox. Switch to production before running live dollars.";
+      ? "Charges, refunds, and voids are transmitted to EPX immediately. Double-check every identifier before continuing."
+      : "Transactions currently route to the EPX sandbox. Switch to production before running live dollars.";
   const environmentAlertClasses = isPaymentEnvironmentProduction
     ? "border-emerald-200 bg-emerald-50 text-emerald-900"
     : "border-amber-300 bg-amber-50 text-amber-900";
-  const EnvironmentAlertIcon = paymentEnvironmentLoading ? Clock : isPaymentEnvironmentProduction ? CheckCircle : AlertTriangle;
+  const EnvironmentAlertIcon = paymentEnvironmentLoading
+    ? Clock
+    : isPaymentEnvironmentProduction
+      ? CheckCircle
+      : AlertTriangle;
 
   // ── Hosted checkout helpers ───────────────────────────────────────────────
   const openHostedCheckoutTab = (url: string) => {
     const hostedWindow = window.open(url, "_blank", "noopener,noreferrer");
     if (hostedWindow) {
       hostedWindow.focus();
-      toast({ title: "Hosted checkout opened", description: "Complete the payment in the new tab." });
+      toast({
+        title: "Hosted checkout opened",
+        description: "Complete the payment in the new tab.",
+      });
     } else {
-      toast({ title: "Allow pop-ups to continue", description: `Open this link manually if no tab appeared: ${url}`, variant: "destructive" });
+      toast({
+        title: "Allow pop-ups to continue",
+        description: `Open this link manually if no tab appeared: ${url}`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -206,13 +268,17 @@ export function useAdminEPXOperations(
     description?: string;
     transactionId?: string;
   }) => {
-    const search = new URLSearchParams({ amount: params.amount.toFixed(2), autoLaunch: "1" });
+    const search = new URLSearchParams({
+      amount: params.amount.toFixed(2),
+      autoLaunch: "1",
+    });
     if (params.mode === "member" && typeof params.memberId === "number") {
       search.set("memberId", String(params.memberId));
     }
     if (params.mode === "adhoc") {
       search.set("mode", "adhoc");
-      if (params.customerEmail) search.set("customerEmail", params.customerEmail);
+      if (params.customerEmail)
+        search.set("customerEmail", params.customerEmail);
       if (params.customerName) search.set("customerName", params.customerName);
     }
     if (params.description) search.set("description", params.description);
@@ -233,14 +299,20 @@ export function useAdminEPXOperations(
   };
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handlePaymentEnvironmentChange = (nextEnvironment: PaymentEnvironmentValue) => {
+  const handlePaymentEnvironmentChange = (
+    nextEnvironment: PaymentEnvironmentValue,
+  ) => {
     if (!ensureSuperAdmin("Update payment environment")) return;
     updatePaymentEnvironmentMutation.mutate(nextEnvironment);
   };
 
   const handleManualFieldChange =
-    (field: keyof ManualTransactionForm) => (event: ChangeEvent<HTMLInputElement>) => {
-      setManualTransactionForm((prev) => ({ ...prev, [field]: event.target.value }));
+    (field: keyof ManualTransactionForm) =>
+    (event: ChangeEvent<HTMLInputElement>) => {
+      setManualTransactionForm((prev) => ({
+        ...prev,
+        [field]: event.target.value,
+      }));
     };
 
   const handleManualTranTypeChange = (value: string) => {
@@ -251,28 +323,69 @@ export function useAdminEPXOperations(
     event.preventDefault();
     if (!ensureSuperAdmin("Manual EPX transactions")) return;
 
-    if (!manualTransactionForm.memberId.trim() && !manualTransactionForm.transactionId.trim() && !manualTransactionForm.authGuid.trim()) {
-      toast({ title: "Provide member info", description: "Enter a member ID, transaction ID, or AUTH GUID before submitting.", variant: "destructive" });
+    if (
+      !manualTransactionForm.memberId.trim() &&
+      !manualTransactionForm.transactionId.trim() &&
+      !manualTransactionForm.authGuid.trim()
+    ) {
+      toast({
+        title: "Provide member info",
+        description:
+          "Enter a member ID, transaction ID, or AUTH GUID before submitting.",
+        variant: "destructive",
+      });
       return;
     }
 
     const amountInput = manualTransactionForm.amount.trim();
-    if (!amountInput) { toast({ title: "Amount required", description: "Sales and refunds must include a dollar amount.", variant: "destructive" }); return; }
+    if (!amountInput) {
+      toast({
+        title: "Amount required",
+        description: "Sales and refunds must include a dollar amount.",
+        variant: "destructive",
+      });
+      return;
+    }
     const parsedAmount = parseFloat(amountInput);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) { toast({ title: "Invalid amount", description: "Enter a positive dollar amount.", variant: "destructive" }); return; }
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Enter a positive dollar amount.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const payload: Record<string, any> = { tranType: manualTransactionForm.tranType, description: manualTransactionForm.description.trim() || undefined, amount: parsedAmount };
+    const payload: Record<string, any> = {
+      tranType: manualTransactionForm.tranType,
+      description: manualTransactionForm.description.trim() || undefined,
+      amount: parsedAmount,
+    };
 
     if (manualTransactionForm.memberId.trim()) {
       const memberIdNumber = Number(manualTransactionForm.memberId.trim());
-      if (!Number.isFinite(memberIdNumber)) { toast({ title: "Invalid member ID", description: "Member ID must be numeric.", variant: "destructive" }); return; }
+      if (!Number.isFinite(memberIdNumber)) {
+        toast({
+          title: "Invalid member ID",
+          description: "Member ID must be numeric.",
+          variant: "destructive",
+        });
+        return;
+      }
       payload.memberId = memberIdNumber;
     }
-    if (manualTransactionForm.transactionId.trim()) payload.transactionId = manualTransactionForm.transactionId.trim();
-    if (manualTransactionForm.authGuid.trim()) payload.authGuid = manualTransactionForm.authGuid.trim();
+    if (manualTransactionForm.transactionId.trim())
+      payload.transactionId = manualTransactionForm.transactionId.trim();
+    if (manualTransactionForm.authGuid.trim())
+      payload.authGuid = manualTransactionForm.authGuid.trim();
 
     setManualTransactionResult(null);
-    setManualConfirmPayload({ payload, amount: parsedAmount, tranType: manualTransactionForm.tranType, memberId: payload.memberId });
+    setManualConfirmPayload({
+      payload,
+      amount: parsedAmount,
+      tranType: manualTransactionForm.tranType,
+      memberId: payload.memberId,
+    });
   };
 
   const resetManualTransactionForm = () => {
@@ -290,62 +403,127 @@ export function useAdminEPXOperations(
   };
 
   const handleCancelFieldChange =
-    (field: keyof CancelSubscriptionForm) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setCancelSubscriptionForm((prev) => ({ ...prev, [field]: event.target.value }));
+    (field: keyof CancelSubscriptionForm) =>
+    (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setCancelSubscriptionForm((prev) => ({
+        ...prev,
+        [field]: event.target.value,
+      }));
     };
 
   const resetCancelSubscriptionForm = () => {
-    setCancelSubscriptionForm({ subscriptionId: "", transactionId: "", reason: "Subscription cancellation via admin dashboard" });
+    setCancelSubscriptionForm({
+      subscriptionId: "",
+      transactionId: "",
+      reason: "Subscription cancellation via admin dashboard",
+    });
     setCancelSubscriptionResult(null);
   };
 
-  const handleCancelSubscriptionSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleCancelSubscriptionSubmit = (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
     if (!ensureSuperAdmin("Subscription cancellations")) return;
 
-    if (!cancelSubscriptionForm.subscriptionId.trim() && !cancelSubscriptionForm.transactionId.trim()) {
-      toast({ title: "Provide subscription context", description: "Enter a subscription ID or reference transaction ID.", variant: "destructive" }); return;
+    if (
+      !cancelSubscriptionForm.subscriptionId.trim() &&
+      !cancelSubscriptionForm.transactionId.trim()
+    ) {
+      toast({
+        title: "Provide subscription context",
+        description: "Enter a subscription ID or reference transaction ID.",
+        variant: "destructive",
+      });
+      return;
     }
 
     const payload: Record<string, any> = {};
     if (cancelSubscriptionForm.subscriptionId.trim()) {
       const parsed = Number(cancelSubscriptionForm.subscriptionId.trim());
-      if (!Number.isFinite(parsed)) { toast({ title: "Invalid subscription ID", description: "Subscription ID must be numeric.", variant: "destructive" }); return; }
+      if (!Number.isFinite(parsed)) {
+        toast({
+          title: "Invalid subscription ID",
+          description: "Subscription ID must be numeric.",
+          variant: "destructive",
+        });
+        return;
+      }
       payload.subscriptionId = parsed;
     }
-    if (cancelSubscriptionForm.transactionId.trim()) payload.transactionId = cancelSubscriptionForm.transactionId.trim();
-    if (cancelSubscriptionForm.reason.trim()) payload.reason = cancelSubscriptionForm.reason.trim();
+    if (cancelSubscriptionForm.transactionId.trim())
+      payload.transactionId = cancelSubscriptionForm.transactionId.trim();
+    if (cancelSubscriptionForm.reason.trim())
+      payload.reason = cancelSubscriptionForm.reason.trim();
 
     setCancelSubscriptionResult(null);
-    setCancelConfirmPayload({ payload, subscriptionId: payload.subscriptionId, transactionId: payload.transactionId });
+    setCancelConfirmPayload({
+      payload,
+      subscriptionId: payload.subscriptionId,
+      transactionId: payload.transactionId,
+    });
   };
 
   const executeManualTransaction = () => {
     if (!manualConfirmPayload) return;
-    if (!ensureSuperAdmin("Manual EPX transactions")) { setManualConfirmPayload(null); return; }
-    manualTransactionMutation.mutate(manualConfirmPayload.payload, { onSettled: () => setManualConfirmPayload(null) });
+    if (!ensureSuperAdmin("Manual EPX transactions")) {
+      setManualConfirmPayload(null);
+      return;
+    }
+    manualTransactionMutation.mutate(manualConfirmPayload.payload, {
+      onSettled: () => setManualConfirmPayload(null),
+    });
   };
 
   const executeCancelSubscription = () => {
     if (!cancelConfirmPayload) return;
-    if (!ensureSuperAdmin("Subscription cancellations")) { setCancelConfirmPayload(null); return; }
-    cancelSubscriptionMutation.mutate(cancelConfirmPayload.payload, { onSettled: () => setCancelConfirmPayload(null) });
+    if (!ensureSuperAdmin("Subscription cancellations")) {
+      setCancelConfirmPayload(null);
+      return;
+    }
+    cancelSubscriptionMutation.mutate(cancelConfirmPayload.payload, {
+      onSettled: () => setCancelConfirmPayload(null),
+    });
   };
 
   const handleHostedCheckoutRequest = () => {
     if (!ensureSuperAdmin("Hosted checkout launcher")) return;
     const memberIdRaw = manualTransactionForm.memberId.trim();
     const parsedAmount = parseFloat(manualTransactionForm.amount || "0");
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) { toast({ title: "Invalid amount", description: "Hosted checkout requires a positive USD amount.", variant: "destructive" }); return; }
-    if (manualTransactionForm.tranType !== "CCE1") { toast({ title: "Hosted checkout is for initial captures only", description: "Switch the transaction type to CCE1 to collect a new payment.", variant: "destructive" }); return; }
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: "Invalid amount",
+        description: "Hosted checkout requires a positive USD amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (manualTransactionForm.tranType !== "CCE1") {
+      toast({
+        title: "Hosted checkout is for initial captures only",
+        description:
+          "Switch the transaction type to CCE1 to collect a new payment.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!memberIdRaw) {
-      toast({ title: "Member required", description: "Enter the member ID to launch member hosted checkout.", variant: "destructive" });
+      toast({
+        title: "Member required",
+        description: "Enter the member ID to launch member hosted checkout.",
+        variant: "destructive",
+      });
       return;
     }
 
     const memberIdNumber = Number(memberIdRaw);
     if (!Number.isFinite(memberIdNumber)) {
-      toast({ title: "Invalid member ID", description: "Member ID must be numeric before opening hosted checkout.", variant: "destructive" });
+      toast({
+        title: "Invalid member ID",
+        description:
+          "Member ID must be numeric before opening hosted checkout.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -363,12 +541,21 @@ export function useAdminEPXOperations(
 
     const parsedAmount = parseFloat(manualTransactionForm.amount || "0");
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      toast({ title: "Invalid amount", description: "Hosted checkout requires a positive USD amount.", variant: "destructive" });
+      toast({
+        title: "Invalid amount",
+        description: "Hosted checkout requires a positive USD amount.",
+        variant: "destructive",
+      });
       return;
     }
 
     if (manualTransactionForm.tranType !== "CCE1") {
-      toast({ title: "Hosted checkout is for initial captures only", description: "Switch the transaction type to CCE1 to collect a new payment.", variant: "destructive" });
+      toast({
+        title: "Hosted checkout is for initial captures only",
+        description:
+          "Switch the transaction type to CCE1 to collect a new payment.",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -378,8 +565,9 @@ export function useAdminEPXOperations(
     if (!testCustomerEmail || !testCustomerEmail.includes("@")) {
       toast({
         title: "Test customer email required",
-        description: "Provide a valid test customer email to run ad-hoc hosted checkout without a member ID.",
-        variant: "destructive"
+        description:
+          "Provide a valid test customer email to run ad-hoc hosted checkout without a member ID.",
+        variant: "destructive",
       });
       return;
     }
@@ -396,7 +584,10 @@ export function useAdminEPXOperations(
 
   const finalizeHostedCheckoutLaunch = () => {
     if (!hostedConfirmPayload) return;
-    if (!ensureSuperAdmin("Hosted checkout launcher")) { setHostedConfirmPayload(null); return; }
+    if (!ensureSuperAdmin("Hosted checkout launcher")) {
+      setHostedConfirmPayload(null);
+      return;
+    }
     launchAdminHostedCheckout({
       mode: hostedConfirmPayload.mode,
       amount: hostedConfirmPayload.amount,

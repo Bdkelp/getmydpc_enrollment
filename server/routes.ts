@@ -412,12 +412,19 @@ async function resolveScopedAgentIds(
 
   if (isAgencyScopedRole(normalized)) {
     const assignedAgentIds = await storage.getAgencyAssignedAgentIds(user.id);
-    const hierarchyFromSelf = await storage.getHierarchyDownlineUserIds(
-      user.id,
-    );
+    const includeFullDownline = normalized === "agency_admin";
+
+    const hierarchyFromSelf = includeFullDownline
+      ? await storage.getHierarchyDownlineUserIds(user.id)
+      : await storage.getDirectDownlineUserIds(user.id);
+
     const hierarchyFromAssignedRoots = (
       await Promise.all(
-        assignedAgentIds.map((id) => storage.getHierarchyDownlineUserIds(id)),
+        assignedAgentIds.map((id) =>
+          includeFullDownline
+            ? storage.getHierarchyDownlineUserIds(id)
+            : storage.getDirectDownlineUserIds(id),
+        ),
       )
     ).flat();
 
@@ -464,12 +471,11 @@ async function getScopedEnrollments(
   startDate?: string,
   endDate?: string,
 ): Promise<any[]> {
-  const includeDownline = agentIds.length <= 1;
   const pages = await Promise.all(
     agentIds.map(async (id) => {
       try {
         return await storage.getEnrollmentsByAgent(id, startDate, endDate, {
-          includeDownline,
+          includeDownline: false,
         });
       } catch (error: any) {
         console.warn(
@@ -3895,12 +3901,17 @@ router.get("/api/agents", authenticateToken, async (req: AuthRequest, res) => {
       const assignedAgentIds = await storage.getAgencyAssignedAgentIds(
         req.user.id,
       );
-      const hierarchyFromSelf = await storage.getHierarchyDownlineUserIds(
-        req.user.id,
-      );
+      const includeFullDownline = requesterRole === "agency_admin";
+      const hierarchyFromSelf = includeFullDownline
+        ? await storage.getHierarchyDownlineUserIds(req.user.id)
+        : await storage.getDirectDownlineUserIds(req.user.id);
       const hierarchyFromAssignedRoots = (
         await Promise.all(
-          assignedAgentIds.map((id) => storage.getHierarchyDownlineUserIds(id)),
+          assignedAgentIds.map((id) =>
+            includeFullDownline
+              ? storage.getHierarchyDownlineUserIds(id)
+              : storage.getDirectDownlineUserIds(id),
+          ),
         )
       ).flat();
 
@@ -8580,11 +8591,10 @@ export async function registerRoutes(app: any) {
 
       const enrollmentPages = await Promise.all(
         scopedAgentIds.map(async (agentId) => {
-          const includeDownline = scopedAgentIds.length <= 1;
           const [individualEnrollments, groupEnrollments] = await Promise.all([
             storage
               .getEnrollmentsByAgent(agentId, undefined, undefined, {
-                includeDownline,
+                includeDownline: false,
               })
               .catch((error) => {
                 console.warn(

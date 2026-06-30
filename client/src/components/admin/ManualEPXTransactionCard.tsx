@@ -94,13 +94,13 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
             </p>
           </div>
           <div className="flex w-full flex-col items-start gap-3 md:w-auto md:items-end">
-            <div className="flex flex-col items-start gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment Environment</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={`${paymentEnvironmentBadgeClasses} text-xs font-semibold uppercase tracking-wide`}>
-                  {paymentEnvironmentBadgeLabel}
-                </Badge>
-                {isSuperAdmin && (
+            {isSuperAdmin ? (
+              <div className="flex flex-col items-start gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Payment Environment</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={`${paymentEnvironmentBadgeClasses} text-xs font-semibold uppercase tracking-wide`}>
+                    {paymentEnvironmentBadgeLabel}
+                  </Badge>
                   <Button
                     type="button"
                     size="sm"
@@ -110,12 +110,12 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
                   >
                     {updatePaymentEnvironmentPending ? "Updating..." : paymentEnvironmentButtonLabel}
                   </Button>
+                </div>
+                {paymentEnvironmentUpdatedText && (
+                  <span className="text-xs text-gray-500">{paymentEnvironmentUpdatedText}</span>
                 )}
               </div>
-              {paymentEnvironmentUpdatedText && (
-                <span className="text-xs text-gray-500">{paymentEnvironmentUpdatedText}</span>
-              )}
-            </div>
+            ) : null}
             <div className="flex w-full gap-2 md:w-auto">
               <Button
                 type="button"
@@ -137,15 +137,17 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
           </div>
         </div>
 
-        <Alert className={environmentAlertClasses}>
-          <div className="flex gap-3">
-            <EnvironmentAlertIcon className="h-5 w-5 mt-0.5" />
-            <div>
-              <AlertTitle>{environmentAlertTitle}</AlertTitle>
-              <AlertDescription>{environmentAlertDescription}</AlertDescription>
+        {isSuperAdmin ? (
+          <Alert className={environmentAlertClasses}>
+            <div className="flex gap-3">
+              <EnvironmentAlertIcon className="h-5 w-5 mt-0.5" />
+              <div>
+                <AlertTitle>{environmentAlertTitle}</AlertTitle>
+                <AlertDescription>{environmentAlertDescription}</AlertDescription>
+              </div>
             </div>
-          </div>
-        </Alert>
+          </Alert>
+        ) : null}
 
         {superAdminRestricted && (
           <Alert variant="destructive" className="border-red-200 bg-red-50 text-red-900">
