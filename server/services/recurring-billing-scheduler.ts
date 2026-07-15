@@ -16,7 +16,7 @@
  *   ACH_RECURRING_TEST_MODE – defaults to true; tags ACH logs for internal/certification runs
  */
 
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from "../lib/supabaseClient";
 import {
   createAdminNotification,
   decryptSensitiveData,
@@ -28,24 +28,54 @@ import {
   getBillingLogAttemptCountForCycle,
   getStalePendingBillingLogs,
   getPaymentByTransactionId,
+  getPlatformSetting,
+  upsertPlatformSetting,
   type BillableSubscription,
-} from '../storage';
-import { submitServerPostRecurringPayment } from './epx-payment-service';
-import { persistRecurringPostSuccess } from './recurring-post-success-persistence';
-import { paymentEnvironment } from './payment-environment-service';
-import { sendRecurringBillingCycleReport } from '../email';
-import cron from 'node-cron';
+} from "../storage";
+import { submitServerPostRecurringPayment } from "./epx-payment-service";
+import { persistRecurringPostSuccess } from "./recurring-post-success-persistence";
+import { paymentEnvironment } from "./payment-environment-service";
+import { sendRecurringBillingCycleReport } from "../email";
+import cron from "node-cron";
 
-const LOG_PREFIX = '[Recurring Billing]';
+const LOG_PREFIX = "[Recurring Billing]";
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
 const STALE_PENDING_THRESHOLD_MINUTES = 30;
 const DEFAULT_DECLINE_RETRY_DAYS = 2;
 const SOFT_DECLINE_RETRY_DAYS = 1;
 const DEFAULT_SUSPEND_AFTER_CONSECUTIVE_FAILURES = 3;
 const DEFAULT_MAX_ATTEMPTS_PER_CYCLE = 3;
+const SCHEDULER_HEARTBEAT_SETTING_KEY =
+  "recurring_billing_scheduler_heartbeat_v1";
+const DEFAULT_SCHEDULER_STALE_ALERT_MINUTES = 180;
+const DEFAULT_STARTUP_CATCHUP_DELAY_MS = 5_000;
 
-type SchedulerMode = 'DRY RUN' | 'LIVE';
-type SchedulerCycleSource = 'automatic' | 'manual';
+type SchedulerMode = "DRY RUN" | "LIVE";
+type SchedulerCycleSource = "automatic" | "manual";
+
+type SchedulerCycleOutcome =
+  | "running"
+  | "completed"
+  | "skipped_lock"
+  | "failed";
+
+interface RecurringSchedulerHeartbeat {
+  source: SchedulerCycleSource;
+  mode: SchedulerMode;
+  outcome: SchedulerCycleOutcome;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  lockAcquired: boolean | null;
+  dueCount: number;
+  metrics: CycleMetrics | null;
+  error: string | null;
+  requestedBy: string | null;
+  paymentEnvironment: string;
+  achEnabledByFlag: boolean;
+  achEnabled: boolean;
+  achTestMode: boolean;
+}
 
 interface CycleMetrics {
   processed: number;
@@ -59,13 +89,13 @@ interface DueDecisionLogEntry {
   subscriptionId: number;
   memberId: number;
   groupId: string | null;
-  payerType: 'member' | 'group';
+  payerType: "member" | "group";
   payerId: string;
   payerDisplayName?: string | null;
   amount?: string;
   nextBillingDate?: string;
   paymentMethodType: string;
-  groupContactSource: 'responsible_person' | 'contact_person' | null;
+  groupContactSource: "responsible_person" | "contact_person" | null;
   contactResolutionSucceeded: boolean;
   selected: boolean;
   skipped: boolean;
@@ -78,13 +108,13 @@ interface ChargeAttemptLogEntry {
   subscriptionId: number;
   memberId: number;
   groupId: string | null;
-  payerType: 'member' | 'group';
+  payerType: "member" | "group";
   payerId: string;
   payerDisplayName?: string | null;
   amount?: string;
   nextBillingDate?: string;
   paymentMethodType: string;
-  groupContactSource: 'responsible_person' | 'contact_person' | null;
+  groupContactSource: "responsible_person" | "contact_person" | null;
   contactResolutionSucceeded: boolean;
   selected: boolean;
   skipped: boolean;
@@ -161,16 +191,18 @@ const schedulerStatusState: RecurringSchedulerStatus = {
 const MAX_DUE_DECISION_LOG_ENTRIES = 200;
 const MAX_CHARGE_ATTEMPT_LOG_ENTRIES = 200;
 
-const SUCCESS_RESULTS = new Set(['success', 'ach_test_success']);
+const SUCCESS_RESULTS = new Set(["success", "ach_test_success"]);
 
 function isRecurringCycleEmailEnabled(): boolean {
-  return process.env.RECURRING_BILLING_REPORT_EMAIL_ENABLED === 'true';
+  return process.env.RECURRING_BILLING_REPORT_EMAIL_ENABLED === "true";
 }
 
 function getRecurringCycleEmailRecipients(): string[] {
-  const raw = process.env.RECURRING_BILLING_REPORT_RECIPIENTS || 'info@mypremierplans.com';
+  const raw =
+    process.env.RECURRING_BILLING_REPORT_RECIPIENTS ||
+    "info@mypremierplans.com";
   return raw
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
@@ -186,16 +218,18 @@ function getCycleChargeAttempts(
     return [];
   }
 
-  return schedulerStatusState.launchDiagnostics.recentChargeAttempts.filter((entry) => {
-    if (entry.source !== source) {
-      return false;
-    }
-    const atMs = Date.parse(entry.at);
-    if (Number.isNaN(atMs)) {
-      return false;
-    }
-    return atMs >= startMs && atMs <= endMs;
-  });
+  return schedulerStatusState.launchDiagnostics.recentChargeAttempts.filter(
+    (entry) => {
+      if (entry.source !== source) {
+        return false;
+      }
+      const atMs = Date.parse(entry.at);
+      if (Number.isNaN(atMs)) {
+        return false;
+      }
+      return atMs >= startMs && atMs <= endMs;
+    },
+  );
 }
 
 async function sendRecurringCycleEmailIfNeeded(options: {
@@ -209,7 +243,7 @@ async function sendRecurringCycleEmailIfNeeded(options: {
     return;
   }
 
-  if (options.mode !== 'LIVE' || options.source !== 'automatic') {
+  if (options.mode !== "LIVE" || options.source !== "automatic") {
     return;
   }
 
@@ -217,7 +251,11 @@ async function sendRecurringCycleEmailIfNeeded(options: {
     return;
   }
 
-  const chargeAttempts = getCycleChargeAttempts(options.source, options.startedAt, options.completedAt);
+  const chargeAttempts = getCycleChargeAttempts(
+    options.source,
+    options.startedAt,
+    options.completedAt,
+  );
   if (chargeAttempts.length === 0) {
     return;
   }
@@ -285,9 +323,10 @@ function appendChargeAttempt(entry: ChargeAttemptLogEntry): void {
 }
 
 function refreshSchedulerConfigState(enabledOverride?: boolean): void {
-  schedulerStatusState.enabled = typeof enabledOverride === 'boolean'
-    ? enabledOverride
-    : process.env.BILLING_SCHEDULER_ENABLED === 'true';
+  schedulerStatusState.enabled =
+    typeof enabledOverride === "boolean"
+      ? enabledOverride
+      : process.env.BILLING_SCHEDULER_ENABLED === "true";
   schedulerStatusState.defaultDryRun = isDryRun();
   schedulerStatusState.intervalMs = getIntervalMs();
   schedulerStatusState.achRecurringEnabled = isAchRecurringEnabled();
@@ -306,10 +345,95 @@ export function getRecurringBillingSchedulerStatus(): RecurringSchedulerStatus {
         : null,
     },
     launchDiagnostics: {
-      recentDueDecisions: [...schedulerStatusState.launchDiagnostics.recentDueDecisions],
-      recentChargeAttempts: [...schedulerStatusState.launchDiagnostics.recentChargeAttempts],
+      recentDueDecisions: [
+        ...schedulerStatusState.launchDiagnostics.recentDueDecisions,
+      ],
+      recentChargeAttempts: [
+        ...schedulerStatusState.launchDiagnostics.recentChargeAttempts,
+      ],
     },
   };
+}
+
+function getSchedulerStaleAlertMinutes(): number {
+  const parsed = Number.parseInt(
+    process.env.RECURRING_BILLING_SCHEDULER_STALE_ALERT_MINUTES ||
+      String(DEFAULT_SCHEDULER_STALE_ALERT_MINUTES),
+    10,
+  );
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SCHEDULER_STALE_ALERT_MINUTES;
+  }
+  return Math.max(15, parsed);
+}
+
+function getStartupCatchupDelayMs(): number {
+  const parsed = Number.parseInt(
+    process.env.RECURRING_BILLING_STARTUP_CATCHUP_DELAY_MS ||
+      String(DEFAULT_STARTUP_CATCHUP_DELAY_MS),
+    10,
+  );
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_STARTUP_CATCHUP_DELAY_MS;
+  }
+  return Math.max(1_000, parsed);
+}
+
+async function persistSchedulerHeartbeat(
+  heartbeat: RecurringSchedulerHeartbeat,
+): Promise<void> {
+  try {
+    await upsertPlatformSetting(SCHEDULER_HEARTBEAT_SETTING_KEY, heartbeat);
+  } catch (error: any) {
+    console.warn(
+      `${LOG_PREFIX} Unable to persist scheduler heartbeat:`,
+      error?.message || error,
+    );
+  }
+}
+
+async function warnIfSchedulerHeartbeatIsStale(): Promise<void> {
+  try {
+    const record = await getPlatformSetting<RecurringSchedulerHeartbeat>(
+      SCHEDULER_HEARTBEAT_SETTING_KEY,
+    );
+    if (!record?.value) {
+      return;
+    }
+
+    const completedAt = record.value.completedAt;
+    const startedAt = record.value.startedAt;
+    const referenceTime = completedAt || startedAt || null;
+    if (!referenceTime) {
+      return;
+    }
+
+    const staleMinutes = getSchedulerStaleAlertMinutes();
+    const elapsedMs = Date.now() - Date.parse(referenceTime);
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 0) {
+      return;
+    }
+
+    const thresholdMs = staleMinutes * 60_000;
+    if (elapsedMs < thresholdMs) {
+      return;
+    }
+
+    const elapsedMinutes = Math.round(elapsedMs / 60_000);
+    console.warn(
+      `${LOG_PREFIX} Scheduler heartbeat is stale (${elapsedMinutes} minute(s) since last cycle; threshold ${staleMinutes} minutes).`,
+      {
+        lastOutcome: record.value.outcome,
+        lastStartedAt: record.value.startedAt,
+        lastCompletedAt: record.value.completedAt,
+      },
+    );
+  } catch (error: any) {
+    console.warn(
+      `${LOG_PREFIX} Unable to evaluate scheduler heartbeat staleness:`,
+      error?.message || error,
+    );
+  }
 }
 
 // ────────────────────────────────────────
@@ -317,7 +441,7 @@ export function getRecurringBillingSchedulerStatus(): RecurringSchedulerStatus {
 // ────────────────────────────────────────
 
 function isDryRun(): boolean {
-  return process.env.BILLING_SCHEDULER_DRY_RUN !== 'false';
+  return process.env.BILLING_SCHEDULER_DRY_RUN !== "false";
 }
 
 function getIntervalMs(): number {
@@ -327,13 +451,13 @@ function getIntervalMs(): number {
 }
 
 function isFixedTimeSchedulingEnabled(): boolean {
-  return process.env.BILLING_SCHEDULER_USE_FIXED_TIMES === 'true';
+  return process.env.BILLING_SCHEDULER_USE_FIXED_TIMES === "true";
 }
 
 function getFixedScheduleHours(): number[] {
-  const raw = process.env.BILLING_SCHEDULER_FIXED_HOURS || '8,20';
+  const raw = process.env.BILLING_SCHEDULER_FIXED_HOURS || "8,20";
   const parsed = raw
-    .split(',')
+    .split(",")
     .map((token) => parseInt(token.trim(), 10))
     .filter((hour) => Number.isFinite(hour) && hour >= 0 && hour <= 23);
 
@@ -345,28 +469,34 @@ function getFixedScheduleHours(): number[] {
 }
 
 function getFixedScheduleTimezone(): string {
-  const timezone = (process.env.BILLING_SCHEDULER_TIMEZONE || 'America/Chicago').trim();
+  const timezone = (
+    process.env.BILLING_SCHEDULER_TIMEZONE || "America/Chicago"
+  ).trim();
 
   try {
-    Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
+    Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(new Date());
     return timezone;
   } catch {
-    console.warn(`${LOG_PREFIX} Invalid BILLING_SCHEDULER_TIMEZONE '${timezone}', defaulting to America/Chicago`);
-    return 'America/Chicago';
+    console.warn(
+      `${LOG_PREFIX} Invalid BILLING_SCHEDULER_TIMEZONE '${timezone}', defaulting to America/Chicago`,
+    );
+    return "America/Chicago";
   }
 }
 
 function buildFixedScheduleCronExpression(hours: number[]): string {
-  return `0 ${hours.join(',')} * * *`;
+  return `0 ${hours.join(",")} * * *`;
 }
 
 function isSimulationModeEnabled(): boolean {
-  const explicitEnable = process.env.EPX_SIMULATION_MODE === 'true';
+  const explicitEnable = process.env.EPX_SIMULATION_MODE === "true";
   if (!explicitEnable) return false;
 
   // Hard guard: simulation mode is never allowed in production runtime.
-  if (process.env.NODE_ENV === 'production') {
-    console.error(`${LOG_PREFIX} EPX_SIMULATION_MODE requested but blocked in NODE_ENV=production`);
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      `${LOG_PREFIX} EPX_SIMULATION_MODE requested but blocked in NODE_ENV=production`,
+    );
     return false;
   }
 
@@ -374,47 +504,60 @@ function isSimulationModeEnabled(): boolean {
 }
 
 function isAchRecurringEnabled(): boolean {
-  return process.env.ACH_RECURRING_ENABLED === 'true';
+  return process.env.ACH_RECURRING_ENABLED === "true";
 }
 
 function isAchRecurringProductionOverrideEnabled(): boolean {
-  return process.env.ACH_RECURRING_ALLOW_PRODUCTION === 'true';
+  return process.env.ACH_RECURRING_ALLOW_PRODUCTION === "true";
 }
 
 function isAchRecurringTestMode(): boolean {
-  return process.env.ACH_RECURRING_TEST_MODE !== 'false';
+  return process.env.ACH_RECURRING_TEST_MODE !== "false";
 }
 
 function isGroupPayerRecurringEnabled(): boolean {
-  return process.env.GROUP_PAYER_RECURRING_ENABLED === 'true';
+  return process.env.GROUP_PAYER_RECURRING_ENABLED === "true";
 }
 
-export function normalizePaymentMethodType(paymentMethodType: string | null | undefined): 'CreditCard' | 'ACH' | 'UNKNOWN' {
-  const normalized = String(paymentMethodType || '').trim().toUpperCase();
-  if (normalized === 'CREDITCARD') return 'CreditCard';
-  if (normalized === 'ACH' || normalized === 'BANKACCOUNT') return 'ACH';
-  return 'UNKNOWN';
+export function normalizePaymentMethodType(
+  paymentMethodType: string | null | undefined,
+): "CreditCard" | "ACH" | "UNKNOWN" {
+  const normalized = String(paymentMethodType || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "CREDITCARD") return "CreditCard";
+  if (normalized === "ACH" || normalized === "BANKACCOUNT") return "ACH";
+  return "UNKNOWN";
 }
 
-export function normalizeAchAccountType(accountType: string | null | undefined): 'Checking' | 'Savings' | null {
-  const normalized = String(accountType || '').trim().toLowerCase();
+export function normalizeAchAccountType(
+  accountType: string | null | undefined,
+): "Checking" | "Savings" | null {
+  const normalized = String(accountType || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return null;
-  if (normalized === 'c' || normalized.startsWith('check')) return 'Checking';
-  if (normalized === 's' || normalized.startsWith('sav')) return 'Savings';
+  if (normalized === "c" || normalized.startsWith("check")) return "Checking";
+  if (normalized === "s" || normalized.startsWith("sav")) return "Savings";
   return null;
 }
 
-export function isAchRuntimeEnabled(achEnabledByFlag: boolean, paymentEnvironment: string): boolean {
-  const normalizedEnvironment = String(paymentEnvironment || '').trim().toLowerCase();
+export function isAchRuntimeEnabled(
+  achEnabledByFlag: boolean,
+  paymentEnvironment: string,
+): boolean {
+  const normalizedEnvironment = String(paymentEnvironment || "")
+    .trim()
+    .toLowerCase();
   if (!achEnabledByFlag) {
     return false;
   }
 
-  if (normalizedEnvironment === 'sandbox') {
+  if (normalizedEnvironment === "sandbox") {
     return true;
   }
 
-  if (normalizedEnvironment === 'production') {
+  if (normalizedEnvironment === "production") {
     return isAchRecurringProductionOverrideEnabled();
   }
 
@@ -426,48 +569,76 @@ function resolveAchRuntimeData(sub: BillableSubscription):
       bankAccountData: {
         routingNumber: string;
         accountNumber: string;
-        accountType: 'Checking' | 'Savings';
+        accountType: "Checking" | "Savings";
         accountHolderName: string;
       };
       maskedSummary: string;
     }
   | { error: string } {
-  const routingNumberRaw = (sub.memberBankRoutingNumber || sub.tokenBankRoutingNumber || '').trim();
-  const routingNumber = routingNumberRaw.replace(/\D/g, '');
+  const routingNumberRaw = (
+    sub.memberBankRoutingNumber ||
+    sub.tokenBankRoutingNumber ||
+    ""
+  ).trim();
+  const routingNumber = routingNumberRaw.replace(/\D/g, "");
   if (!routingNumber || routingNumber.length !== 9) {
-    return { error: 'Missing or invalid ACH routing number (must be 9 digits)' };
+    return {
+      error: "Missing or invalid ACH routing number (must be 9 digits)",
+    };
   }
 
-  const encryptedOrRawAccountNumber = (sub.tokenBankAccountNumber || sub.memberBankAccountNumber || '').trim();
+  const encryptedOrRawAccountNumber = (
+    sub.tokenBankAccountNumber ||
+    sub.memberBankAccountNumber ||
+    ""
+  ).trim();
   if (!encryptedOrRawAccountNumber) {
-    return { error: 'Missing ACH account number on member record' };
+    return { error: "Missing ACH account number on member record" };
   }
 
   let resolvedAccountNumber = encryptedOrRawAccountNumber;
   try {
-    resolvedAccountNumber = decryptSensitiveData(encryptedOrRawAccountNumber).trim();
+    resolvedAccountNumber = decryptSensitiveData(
+      encryptedOrRawAccountNumber,
+    ).trim();
   } catch {
     // If not encrypted with the app format, continue with the stored value.
     resolvedAccountNumber = encryptedOrRawAccountNumber;
   }
 
-  const accountNumber = resolvedAccountNumber.replace(/\s+/g, '');
+  const accountNumber = resolvedAccountNumber.replace(/\s+/g, "");
   if (!accountNumber) {
-    return { error: 'Missing ACH account number after decryption/normalization' };
+    return {
+      error: "Missing ACH account number after decryption/normalization",
+    };
   }
 
-  const accountType = normalizeAchAccountType(sub.memberBankAccountType || sub.tokenBankAccountType);
+  const accountType = normalizeAchAccountType(
+    sub.memberBankAccountType || sub.tokenBankAccountType,
+  );
   if (!accountType) {
-    return { error: 'Missing or invalid ACH account type (expected Checking or Savings)' };
+    return {
+      error:
+        "Missing or invalid ACH account type (expected Checking or Savings)",
+    };
   }
 
-  const fallbackName = `${sub.memberFirstName || ''} ${sub.memberLastName || ''}`.trim();
-  const accountHolderName = (sub.tokenBankAccountHolderName || sub.memberBankAccountHolderName || fallbackName).trim();
+  const fallbackName =
+    `${sub.memberFirstName || ""} ${sub.memberLastName || ""}`.trim();
+  const accountHolderName = (
+    sub.tokenBankAccountHolderName ||
+    sub.memberBankAccountHolderName ||
+    fallbackName
+  ).trim();
   if (!accountHolderName) {
-    return { error: 'Missing ACH account holder name' };
+    return { error: "Missing ACH account holder name" };
   }
 
-  const lastFour = accountNumber.slice(-4) || sub.memberBankAccountLastFour || sub.tokenBankAccountLastFour || '****';
+  const lastFour =
+    accountNumber.slice(-4) ||
+    sub.memberBankAccountLastFour ||
+    sub.tokenBankAccountLastFour ||
+    "****";
   return {
     bankAccountData: {
       routingNumber,
@@ -480,11 +651,11 @@ function resolveAchRuntimeData(sub: BillableSubscription):
 }
 
 function resolvePayerContext(sub: BillableSubscription): {
-  payerType: 'member' | 'group';
+  payerType: "member" | "group";
   payerAccountId: string;
   payerDisplayName: string;
   payerEmail: string | null;
-  groupContactSource: 'responsible_person' | 'contact_person' | null;
+  groupContactSource: "responsible_person" | "contact_person" | null;
   contactResolutionSucceeded: boolean;
   chargeContact: {
     id: string;
@@ -495,76 +666,106 @@ function resolvePayerContext(sub: BillableSubscription): {
   };
 } {
   const normalizeEmail = (value: string | null | undefined): string | null => {
-    const normalized = String(value || '').trim().toLowerCase();
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase();
     if (!normalized) return null;
-    if (!normalized.includes('@') || normalized.startsWith('@') || normalized.endsWith('@')) return null;
+    if (
+      !normalized.includes("@") ||
+      normalized.startsWith("@") ||
+      normalized.endsWith("@")
+    )
+      return null;
     return normalized;
   };
 
-  const resolveGroupBillingContact = (groupSub: BillableSubscription): {
+  const resolveGroupBillingContact = (
+    groupSub: BillableSubscription,
+  ): {
     email: string | null;
-    source: 'responsible_person' | 'contact_person' | null;
+    source: "responsible_person" | "contact_person" | null;
     resolved: boolean;
   } => {
     const responsibleEmail = normalizeEmail(groupSub.payerResponsibleEmail);
     if (responsibleEmail) {
-      return { email: responsibleEmail, source: 'responsible_person', resolved: true };
+      return {
+        email: responsibleEmail,
+        source: "responsible_person",
+        resolved: true,
+      };
     }
 
     const contactEmail = normalizeEmail(groupSub.payerContactEmail);
     if (contactEmail) {
-      return { email: contactEmail, source: 'contact_person', resolved: true };
+      return { email: contactEmail, source: "contact_person", resolved: true };
     }
 
     const fallback = normalizeEmail(groupSub.payerEmail);
     if (fallback) {
-      const fallbackSource = groupSub.payerContactSource === 'contact_person' ? 'contact_person' : 'responsible_person';
+      const fallbackSource =
+        groupSub.payerContactSource === "contact_person"
+          ? "contact_person"
+          : "responsible_person";
       return { email: fallback, source: fallbackSource, resolved: true };
     }
 
     return { email: null, source: null, resolved: false };
   };
 
-  const payerType = sub.payerType === 'group' ? 'group' : 'member';
+  const payerType = sub.payerType === "group" ? "group" : "member";
   const payerAccountId = String(sub.payerAccountId || sub.memberId);
-  const memberName = `${sub.memberFirstName || ''} ${sub.memberLastName || ''}`.trim();
-  const groupName = (sub.groupName || sub.payerDisplayName || '').trim();
+  const memberName =
+    `${sub.memberFirstName || ""} ${sub.memberLastName || ""}`.trim();
+  const groupName = (sub.groupName || sub.payerDisplayName || "").trim();
 
   const payerDisplayName =
-    payerType === 'group'
-      ? (groupName || `Group ${sub.groupId || payerAccountId}`)
-      : (memberName || `Member ${sub.memberId}`);
+    payerType === "group"
+      ? groupName || `Group ${sub.groupId || payerAccountId}`
+      : memberName || `Member ${sub.memberId}`;
 
-  const groupContact = payerType === 'group'
-    ? resolveGroupBillingContact(sub)
-    : null;
+  const groupContact =
+    payerType === "group" ? resolveGroupBillingContact(sub) : null;
 
   const memberEmailFallback = normalizeEmail(sub.memberEmail);
 
-  const payerEmail = payerType === 'group'
-    ? (groupContact?.email || memberEmailFallback || null)
-    : (memberEmailFallback || null);
+  const payerEmail =
+    payerType === "group"
+      ? groupContact?.email || memberEmailFallback || null
+      : memberEmailFallback || null;
 
   return {
     payerType,
     payerAccountId,
     payerDisplayName,
     payerEmail,
-    groupContactSource: payerType === 'group' ? (groupContact?.source || null) : null,
-    contactResolutionSucceeded: payerType === 'group'
-      ? Boolean(groupContact?.resolved || memberEmailFallback)
-      : true,
+    groupContactSource:
+      payerType === "group" ? groupContact?.source || null : null,
+    contactResolutionSucceeded:
+      payerType === "group"
+        ? Boolean(groupContact?.resolved || memberEmailFallback)
+        : true,
     chargeContact: {
-      id: payerType === 'group' ? `group:${payerAccountId}` : String(sub.memberId),
+      id:
+        payerType === "group"
+          ? `group:${payerAccountId}`
+          : String(sub.memberId),
       email: payerEmail,
-      firstName: payerType === 'group' ? payerDisplayName : (sub.memberFirstName || null),
-      lastName: payerType === 'group' ? null : (sub.memberLastName || null),
-      customerNumber: payerType === 'group' ? `GROUP-${payerAccountId}` : String(sub.memberId),
+      firstName:
+        payerType === "group" ? payerDisplayName : sub.memberFirstName || null,
+      lastName: payerType === "group" ? null : sub.memberLastName || null,
+      customerNumber:
+        payerType === "group"
+          ? `GROUP-${payerAccountId}`
+          : String(sub.memberId),
     },
   };
 }
 
-function buildMockRecurringEpxSuccess(transactionId: string, tranType: 'CCE1' | 'CKC2', contextLabel: string): {
+function buildMockRecurringEpxSuccess(
+  transactionId: string,
+  tranType: "CCE1" | "CKC2",
+  contextLabel: string,
+): {
   success: boolean;
   requestFields: Record<string, string>;
   requestPayload: string;
@@ -574,12 +775,12 @@ function buildMockRecurringEpxSuccess(transactionId: string, tranType: 'CCE1' | 
 } {
   const now = new Date();
   const responseFields: Record<string, string> = {
-    AUTH_RESP: '00',
+    AUTH_RESP: "00",
     AUTH_RESP_TEXT: `APPROVED (SIMULATED ${contextLabel})`,
-    AUTH_CODE: 'SIM123',
+    AUTH_CODE: "SIM123",
     TRAN_NBR: transactionId,
     TRANSACTION_ID: transactionId,
-    RESPONSE_SOURCE: 'EPX_SIMULATION_MODE',
+    RESPONSE_SOURCE: "EPX_SIMULATION_MODE",
     TS: now.toISOString(),
   };
 
@@ -588,14 +789,14 @@ function buildMockRecurringEpxSuccess(transactionId: string, tranType: 'CCE1' | 
     requestFields: {
       TRAN_TYPE: tranType,
       TRAN_NBR: transactionId,
-      AMOUNT: 'SIMULATED',
-      MODE: 'EPX_SIMULATION_MODE',
+      AMOUNT: "SIMULATED",
+      MODE: "EPX_SIMULATION_MODE",
     },
-    requestPayload: 'SIMULATED_SERVER_POST_REQUEST',
+    requestPayload: "SIMULATED_SERVER_POST_REQUEST",
     responseFields,
     rawResponse: Object.entries(responseFields)
       .map(([key, value]) => `${key}=${value}`)
-      .join('&'),
+      .join("&"),
   };
 }
 
@@ -605,7 +806,7 @@ function buildMockRecurringEpxSuccess(transactionId: string, tranType: 'CCE1' | 
 
 async function acquireLock(): Promise<boolean> {
   try {
-    const { data, error } = await supabase.rpc('app_try_advisory_lock', {
+    const { data, error } = await supabase.rpc("app_try_advisory_lock", {
       lock_id: ADVISORY_LOCK_KEY,
     });
     if (error) {
@@ -621,7 +822,7 @@ async function acquireLock(): Promise<boolean> {
 
 async function releaseLock(): Promise<void> {
   try {
-    await supabase.rpc('app_advisory_unlock', {
+    await supabase.rpc("app_advisory_unlock", {
       lock_id: ADVISORY_LOCK_KEY,
     });
   } catch (err: any) {
@@ -633,14 +834,17 @@ async function releaseLock(): Promise<void> {
 // Transaction ID generation
 // ────────────────────────────────────────
 
-function generateTransactionId(subscriptionId: number, billingDate: Date): string {
-  const ymd = billingDate.toISOString().slice(0, 10).replace(/-/g, '');
+function generateTransactionId(
+  subscriptionId: number,
+  billingDate: Date,
+): string {
+  const ymd = billingDate.toISOString().slice(0, 10).replace(/-/g, "");
   return `RECUR-${subscriptionId}-${ymd}`;
 }
 
 function resolveRetryDelayDays(responseCode?: string | null): number {
-  const normalizedCode = String(responseCode || '').trim();
-  if (normalizedCode === '51') {
+  const normalizedCode = String(responseCode || "").trim();
+  if (normalizedCode === "51") {
     return SOFT_DECLINE_RETRY_DAYS;
   }
   return DEFAULT_DECLINE_RETRY_DAYS;
@@ -666,7 +870,8 @@ function getSuspendAfterConsecutiveFailures(): number {
 
 function getMaxAttemptsPerCycle(): number {
   const raw = Number.parseInt(
-    process.env.RECURRING_BILLING_MAX_ATTEMPTS_PER_CYCLE || String(DEFAULT_MAX_ATTEMPTS_PER_CYCLE),
+    process.env.RECURRING_BILLING_MAX_ATTEMPTS_PER_CYCLE ||
+      String(DEFAULT_MAX_ATTEMPTS_PER_CYCLE),
     10,
   );
   if (!Number.isFinite(raw)) {
@@ -675,13 +880,15 @@ function getMaxAttemptsPerCycle(): number {
   return Math.max(1, raw);
 }
 
-async function getConsecutiveRecurringFailureCount(subscriptionId: number): Promise<number> {
+async function getConsecutiveRecurringFailureCount(
+  subscriptionId: number,
+): Promise<number> {
   const { data, error } = await supabase
-    .from('recurring_billing_log')
-    .select('status')
-    .eq('subscription_id', subscriptionId)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
+    .from("recurring_billing_log")
+    .select("status")
+    .eq("subscription_id", subscriptionId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(20);
 
   if (error || !data || data.length === 0) {
@@ -690,13 +897,15 @@ async function getConsecutiveRecurringFailureCount(subscriptionId: number): Prom
 
   let failures = 0;
   for (const row of data) {
-    const status = String(row.status || '').trim().toLowerCase();
-    if (status === 'failed') {
+    const status = String(row.status || "")
+      .trim()
+      .toLowerCase();
+    if (status === "failed") {
       failures += 1;
       continue;
     }
 
-    if (status === 'success' || status === 'ach_test_success') {
+    if (status === "success" || status === "ach_test_success") {
       break;
     }
   }
@@ -707,16 +916,18 @@ async function getConsecutiveRecurringFailureCount(subscriptionId: number): Prom
 async function applyRecurringFailureSuspensionPolicy(options: {
   subscriptionId: number;
   memberId: number;
-  paymentMethodType: 'CreditCard' | 'ACH' | 'UNKNOWN';
+  paymentMethodType: "CreditCard" | "ACH" | "UNKNOWN";
   errorMessage: string;
   responseCode?: string | null;
-  payerType: 'member' | 'group';
+  payerType: "member" | "group";
   payerAccountId: string;
   payerDisplayName: string;
   amount: string;
 }): Promise<void> {
   const threshold = getSuspendAfterConsecutiveFailures();
-  const consecutiveFailures = await getConsecutiveRecurringFailureCount(options.subscriptionId);
+  const consecutiveFailures = await getConsecutiveRecurringFailureCount(
+    options.subscriptionId,
+  );
   if (consecutiveFailures < threshold) {
     return;
   }
@@ -724,20 +935,24 @@ async function applyRecurringFailureSuspensionPolicy(options: {
   const nowIso = new Date().toISOString();
   const details = `Auto-suspended after ${consecutiveFailures} consecutive recurring billing failures.`;
 
-  const { data: updatedSubscriptions, error: subscriptionError } = await supabase
-    .from('subscriptions')
-    .update({
-      status: 'suspended',
-      pending_reason: 'payment_delinquent',
-      pending_details: details,
-      updated_at: nowIso,
-    })
-    .eq('id', options.subscriptionId)
-    .eq('status', 'active')
-    .select('id');
+  const { data: updatedSubscriptions, error: subscriptionError } =
+    await supabase
+      .from("subscriptions")
+      .update({
+        status: "suspended",
+        pending_reason: "payment_delinquent",
+        pending_details: details,
+        updated_at: nowIso,
+      })
+      .eq("id", options.subscriptionId)
+      .eq("status", "active")
+      .select("id");
 
   if (subscriptionError) {
-    console.error(`${LOG_PREFIX} Failed applying suspension policy for subscription ${options.subscriptionId}`, subscriptionError);
+    console.error(
+      `${LOG_PREFIX} Failed applying suspension policy for subscription ${options.subscriptionId}`,
+      subscriptionError,
+    );
     return;
   }
 
@@ -746,17 +961,20 @@ async function applyRecurringFailureSuspensionPolicy(options: {
   }
 
   const { error: memberError } = await supabase
-    .from('members')
+    .from("members")
     .update({
-      status: 'suspended',
+      status: "suspended",
       is_active: false,
       updated_at: nowIso,
     })
-    .eq('id', options.memberId)
-    .neq('status', 'cancelled');
+    .eq("id", options.memberId)
+    .neq("status", "cancelled");
 
   if (memberError) {
-    console.warn(`${LOG_PREFIX} Subscription suspended but failed to update member ${options.memberId}:`, memberError.message);
+    console.warn(
+      `${LOG_PREFIX} Subscription suspended but failed to update member ${options.memberId}:`,
+      memberError.message,
+    );
   }
 
   await createRecurringFailureAdminNotification({
@@ -774,13 +992,13 @@ async function applyRecurringFailureSuspensionPolicy(options: {
 
   try {
     await createAdminNotification({
-      type: 'recurring_membership_suspended',
+      type: "recurring_membership_suspended",
       memberId: options.memberId,
       subscriptionId: options.subscriptionId,
       errorMessage: `${details} Latest error: ${options.errorMessage}`,
       metadata: {
-        source: 'recurring_scheduler',
-        suspensionReason: 'payment_delinquent',
+        source: "recurring_scheduler",
+        suspensionReason: "payment_delinquent",
         consecutiveFailures,
         threshold,
         responseCode: options.responseCode || null,
@@ -805,23 +1023,23 @@ async function applyRecurringFailureSuspensionPolicy(options: {
 async function createRecurringFailureAdminNotification(options: {
   subscriptionId: number;
   memberId: number;
-  paymentMethodType: 'CreditCard' | 'ACH' | 'UNKNOWN';
+  paymentMethodType: "CreditCard" | "ACH" | "UNKNOWN";
   responseCode?: string | null;
   errorMessage: string;
   nextRetryDate: string;
-  payerType: 'member' | 'group';
+  payerType: "member" | "group";
   payerAccountId: string;
   payerDisplayName: string;
   amount: string;
 }): Promise<void> {
   try {
     await createAdminNotification({
-      type: 'recurring_payment_failed',
+      type: "recurring_payment_failed",
       memberId: options.memberId,
       subscriptionId: options.subscriptionId,
       errorMessage: options.errorMessage,
       metadata: {
-        source: 'recurring_scheduler',
+        source: "recurring_scheduler",
         paymentMethodType: options.paymentMethodType,
         responseCode: options.responseCode || null,
         nextRetryDate: options.nextRetryDate,
@@ -832,55 +1050,62 @@ async function createRecurringFailureAdminNotification(options: {
       },
     });
   } catch (error: any) {
-    console.warn(`${LOG_PREFIX} Failed to create admin notification for recurring failure:`, error?.message || error);
+    console.warn(
+      `${LOG_PREFIX} Failed to create admin notification for recurring failure:`,
+      error?.message || error,
+    );
   }
 }
 
 function truncateBillingDate(date: string | Date): string {
-  return new Date(date).toISOString().slice(0, 10) + 'T00:00:00.000Z';
+  return new Date(date).toISOString().slice(0, 10) + "T00:00:00.000Z";
 }
 
 function looksLikeEncryptedToken(value: string): boolean {
-  const parts = value.split(':');
+  const parts = value.split(":");
   if (parts.length !== 2) return false;
   return /^[0-9a-f]+$/i.test(parts[0]) && /^[0-9a-f]+$/i.test(parts[1]);
 }
 
 function isUsableAuthGuid(value: string | null | undefined): value is string {
-  if (typeof value !== 'string') return false;
+  if (typeof value !== "string") return false;
   const normalized = value.trim();
   // EPX ORIG_AUTH_GUID/AUTH_GUID samples are token-like and can be ~19 chars.
   if (normalized.length < 16 || normalized.length > 64) return false;
   return /^[A-Za-z0-9-]+$/.test(normalized);
 }
 
-function isUsableTrustedAuthGuid(value: string | null | undefined): value is string {
-  if (typeof value !== 'string') return false;
+function isUsableTrustedAuthGuid(
+  value: string | null | undefined,
+): value is string {
+  if (typeof value !== "string") return false;
   const normalized = value.trim();
   if (normalized.length < 8 || normalized.length > 128) return false;
   return /^[A-Za-z0-9-]+$/.test(normalized);
 }
 
-function resolveRecurringCardAuthGuid(sub: BillableSubscription):
-  | { authGuid: string }
-  | { error: string } {
-  const storedAuthGuid = typeof sub.tokenOriginalNetworkTransId === 'string'
-    ? sub.tokenOriginalNetworkTransId.trim()
-    : '';
+function resolveRecurringCardAuthGuid(
+  sub: BillableSubscription,
+): { authGuid: string } | { error: string } {
+  const storedAuthGuid =
+    typeof sub.tokenOriginalNetworkTransId === "string"
+      ? sub.tokenOriginalNetworkTransId.trim()
+      : "";
   if (isUsableAuthGuid(storedAuthGuid)) {
     return { authGuid: storedAuthGuid };
   }
 
-  const latestPaymentAuthGuid = typeof sub.latestPaymentAuthGuid === 'string'
-    ? sub.latestPaymentAuthGuid.trim()
-    : '';
+  const latestPaymentAuthGuid =
+    typeof sub.latestPaymentAuthGuid === "string"
+      ? sub.latestPaymentAuthGuid.trim()
+      : "";
   if (isUsableTrustedAuthGuid(latestPaymentAuthGuid)) {
     return { authGuid: latestPaymentAuthGuid };
   }
 
-  const tokenValue = String(sub.bricToken || '').trim();
+  const tokenValue = String(sub.bricToken || "").trim();
   if (!tokenValue) {
-    return { error: 'Missing recurring token for card charge' };
+    return { error: "Missing recurring token for card charge" };
   }
 
   if (!looksLikeEncryptedToken(tokenValue) && isUsableAuthGuid(tokenValue)) {
@@ -890,26 +1115,32 @@ function resolveRecurringCardAuthGuid(sub: BillableSubscription):
   try {
     const decrypted = decryptPaymentToken(tokenValue).trim();
     if (!isUsableAuthGuid(decrypted)) {
-      return { error: 'Resolved ORIG_AUTH_GUID was empty or invalid length' };
+      return { error: "Resolved ORIG_AUTH_GUID was empty or invalid length" };
     }
     return { authGuid: decrypted };
   } catch {
-    return { error: 'Token decryption failed and no stored ORIG_AUTH_GUID was available' };
+    return {
+      error:
+        "Token decryption failed and no stored ORIG_AUTH_GUID was available",
+    };
   }
 }
 
 async function finalizeScheduledMemberCancellations() {
   const nowIso = new Date().toISOString();
   const { data: dueCancellations, error } = await supabase
-    .from('subscriptions')
-    .select('id, member_id, end_date, pending_reason, status')
-    .eq('status', 'active')
-    .eq('pending_reason', 'member_cancelled')
-    .not('end_date', 'is', null)
-    .lte('end_date', nowIso);
+    .from("subscriptions")
+    .select("id, member_id, end_date, pending_reason, status")
+    .eq("status", "active")
+    .eq("pending_reason", "member_cancelled")
+    .not("end_date", "is", null)
+    .lte("end_date", nowIso);
 
   if (error) {
-    console.error(`${LOG_PREFIX} Failed to fetch scheduled cancellations for finalization`, error);
+    console.error(
+      `${LOG_PREFIX} Failed to fetch scheduled cancellations for finalization`,
+      error,
+    );
     return { finalizedCount: 0, erroredCount: 1 };
   }
 
@@ -924,15 +1155,15 @@ async function finalizeScheduledMemberCancellations() {
     try {
       const timestamp = new Date().toISOString();
       const { error: subscriptionUpdateError } = await supabase
-        .from('subscriptions')
+        .from("subscriptions")
         .update({
-          status: 'cancelled',
+          status: "cancelled",
           cancelled_at: timestamp,
           updated_at: timestamp,
           pending_reason: null,
           pending_details: null,
         })
-        .eq('id', row.id);
+        .eq("id", row.id);
 
       if (subscriptionUpdateError) {
         throw subscriptionUpdateError;
@@ -940,14 +1171,14 @@ async function finalizeScheduledMemberCancellations() {
 
       if (row.member_id) {
         const { error: memberUpdateError } = await supabase
-          .from('members')
+          .from("members")
           .update({
-            status: 'cancelled',
+            status: "cancelled",
             is_active: false,
             cancellation_date: timestamp,
             updated_at: timestamp,
           })
-          .eq('id', row.member_id);
+          .eq("id", row.member_id);
 
         if (memberUpdateError) {
           throw memberUpdateError;
@@ -955,14 +1186,14 @@ async function finalizeScheduledMemberCancellations() {
       }
 
       await createAdminNotification(
-        'member_cancellation_finalized',
-        'Membership cancellation finalized at end of paid period',
+        "member_cancellation_finalized",
+        "Membership cancellation finalized at end of paid period",
         {
           subscriptionId: row.id,
           memberId: row.member_id,
           paidThroughDate: row.end_date,
           finalizedAt: timestamp,
-        }
+        },
       );
 
       finalizedCount++;
@@ -983,17 +1214,25 @@ async function finalizeScheduledMemberCancellations() {
  * Finalize scheduled plan changes whose effective_date <= today.
  * Runs BEFORE due-billing processing so the correct plan amount is charged.
  */
-async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number; erroredCount: number }> {
+async function finalizeScheduledPlanChanges(): Promise<{
+  finalizedCount: number;
+  erroredCount: number;
+}> {
   const todayIso = new Date().toISOString().slice(0, 10);
 
   const { data: pendingChanges, error } = await supabase
-    .from('subscriptions')
-    .select('id, member_id, plan_id, amount, pending_reason, pending_details, next_billing_date')
-    .eq('status', 'active')
-    .eq('pending_reason', 'plan_change');
+    .from("subscriptions")
+    .select(
+      "id, member_id, plan_id, amount, pending_reason, pending_details, next_billing_date",
+    )
+    .eq("status", "active")
+    .eq("pending_reason", "plan_change");
 
   if (error) {
-    console.error(`${LOG_PREFIX} Failed to fetch scheduled plan changes`, error);
+    console.error(
+      `${LOG_PREFIX} Failed to fetch scheduled plan changes`,
+      error,
+    );
     return { finalizedCount: 0, erroredCount: 1 };
   }
 
@@ -1008,9 +1247,10 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
     try {
       let details: any = {};
       try {
-        details = typeof row.pending_details === 'string'
-          ? JSON.parse(row.pending_details)
-          : (row.pending_details ?? {});
+        details =
+          typeof row.pending_details === "string"
+            ? JSON.parse(row.pending_details)
+            : (row.pending_details ?? {});
       } catch {
         details = {};
       }
@@ -1025,7 +1265,9 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
       const newAmount = details.new_amount;
 
       if (!newPlanId || newAmount === undefined || newAmount === null) {
-        console.warn(`${LOG_PREFIX} Scheduled plan change for subscription ${row.id} is missing new_plan_id or new_amount — skipping`);
+        console.warn(
+          `${LOG_PREFIX} Scheduled plan change for subscription ${row.id} is missing new_plan_id or new_amount — skipping`,
+        );
         erroredCount++;
         continue;
       }
@@ -1034,7 +1276,7 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
 
       // Apply to subscription.
       const { error: subUpdateError } = await supabase
-        .from('subscriptions')
+        .from("subscriptions")
         .update({
           plan_id: newPlanId,
           amount: newAmount,
@@ -1042,28 +1284,28 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
           pending_details: null,
           updated_at: timestamp,
         })
-        .eq('id', row.id);
+        .eq("id", row.id);
 
       if (subUpdateError) throw subUpdateError;
 
       // Apply to member.
       if (row.member_id) {
         const { error: memberUpdateError } = await supabase
-          .from('members')
+          .from("members")
           .update({
             plan_id: newPlanId,
             total_monthly_price: newAmount,
             updated_at: timestamp,
           })
-          .eq('id', row.member_id);
+          .eq("id", row.member_id);
 
         if (memberUpdateError) throw memberUpdateError;
       }
 
       // Write admin log.
       try {
-        await supabase.from('admin_logs').insert({
-          action: 'plan_change_finalized',
+        await supabase.from("admin_logs").insert({
+          action: "plan_change_finalized",
           user_id: details.requested_by || null,
           metadata: {
             subscriptionId: row.id,
@@ -1073,18 +1315,21 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
             previousAmount: details.current_amount,
             newAmount,
             effectiveDate,
-            changeType: details.type || 'unknown',
+            changeType: details.type || "unknown",
             finalizedAt: timestamp,
           },
           created_at: timestamp,
         });
       } catch (logError) {
-        console.warn(`${LOG_PREFIX} Failed to write plan_change_finalized admin log`, logError);
+        console.warn(
+          `${LOG_PREFIX} Failed to write plan_change_finalized admin log`,
+          logError,
+        );
       }
 
       await createAdminNotification(
-        'plan_change_finalized',
-        `Scheduled plan ${details.type || 'change'} finalized`,
+        "plan_change_finalized",
+        `Scheduled plan ${details.type || "change"} finalized`,
         {
           subscriptionId: row.id,
           memberId: row.member_id,
@@ -1094,7 +1339,7 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
           newAmount,
           effectiveDate,
           finalizedAt: timestamp,
-        }
+        },
       );
 
       finalizedCount++;
@@ -1111,7 +1356,6 @@ async function finalizeScheduledPlanChanges(): Promise<{ finalizedCount: number;
   return { finalizedCount, erroredCount };
 }
 
-
 // ────────────────────────────────────────
 // Core billing cycle
 // ────────────────────────────────────────
@@ -1122,16 +1366,20 @@ async function runBillingCycle(options?: {
   requestedBy?: string;
 }): Promise<RecurringSchedulerRunResult> {
   const cycleStart = Date.now();
-  const source: SchedulerCycleSource = options?.source || 'automatic';
-  const dryRun = typeof options?.dryRunOverride === 'boolean'
-    ? options.dryRunOverride
-    : isDryRun();
+  const source: SchedulerCycleSource = options?.source || "automatic";
+  const dryRun =
+    typeof options?.dryRunOverride === "boolean"
+      ? options.dryRunOverride
+      : isDryRun();
   const achEnabledByFlag = isAchRecurringEnabled();
   const achProdOverrideEnabled = isAchRecurringProductionOverrideEnabled();
   const achTestMode = isAchRecurringTestMode();
   const currentPaymentEnvironment = await paymentEnvironment.getEnvironment();
-  const achEnabled = isAchRuntimeEnabled(achEnabledByFlag, currentPaymentEnvironment);
-  const mode = dryRun ? 'DRY RUN' : 'LIVE';
+  const achEnabled = isAchRuntimeEnabled(
+    achEnabledByFlag,
+    currentPaymentEnvironment,
+  );
+  const mode = dryRun ? "DRY RUN" : "LIVE";
 
   refreshSchedulerConfigState();
   schedulerStatusState.lastCycle.source = source;
@@ -1144,9 +1392,31 @@ async function runBillingCycle(options?: {
   schedulerStatusState.lastCycle.metrics = null;
   schedulerStatusState.lastCycle.error = null;
 
-  if (achEnabledByFlag && currentPaymentEnvironment === 'production' && !achProdOverrideEnabled) {
+  await persistSchedulerHeartbeat({
+    source,
+    mode,
+    outcome: "running",
+    startedAt: new Date(cycleStart).toISOString(),
+    completedAt: null,
+    durationMs: null,
+    lockAcquired: null,
+    dueCount: 0,
+    metrics: null,
+    error: null,
+    requestedBy: options?.requestedBy || null,
+    paymentEnvironment: currentPaymentEnvironment,
+    achEnabledByFlag,
+    achEnabled,
+    achTestMode,
+  });
+
+  if (
+    achEnabledByFlag &&
+    currentPaymentEnvironment === "production" &&
+    !achProdOverrideEnabled
+  ) {
     console.warn(
-      `${LOG_PREFIX} ACH recurring is enabled but blocked in production. Set ACH_RECURRING_ALLOW_PRODUCTION=true to allow live ACH recurring charges.`
+      `${LOG_PREFIX} ACH recurring is enabled but blocked in production. Set ACH_RECURRING_ALLOW_PRODUCTION=true to allow live ACH recurring charges.`,
     );
   }
 
@@ -1157,19 +1427,42 @@ async function runBillingCycle(options?: {
   schedulerStatusState.lastCycle.lockAcquired = locked;
   if (!locked) {
     const completedAt = new Date().toISOString();
+    const durationMs = Date.now() - cycleStart;
+    const metrics = { processed: 0, skipped: 0, errors: 0 };
     schedulerStatusState.lastCycle.lockSkippedAt = completedAt;
     schedulerStatusState.lastCycle.completedAt = completedAt;
-    schedulerStatusState.lastCycle.durationMs = Date.now() - cycleStart;
-    schedulerStatusState.lastCycle.metrics = { processed: 0, skipped: 0, errors: 0 };
-    console.log(`${LOG_PREFIX} Another instance holds the lock — skipping cycle`);
+    schedulerStatusState.lastCycle.durationMs = durationMs;
+    schedulerStatusState.lastCycle.metrics = metrics;
+
+    await persistSchedulerHeartbeat({
+      source,
+      mode,
+      outcome: "skipped_lock",
+      startedAt: new Date(cycleStart).toISOString(),
+      completedAt,
+      durationMs,
+      lockAcquired: false,
+      dueCount: 0,
+      metrics,
+      error: null,
+      requestedBy: options?.requestedBy || null,
+      paymentEnvironment: currentPaymentEnvironment,
+      achEnabledByFlag,
+      achEnabled,
+      achTestMode,
+    });
+
+    console.log(
+      `${LOG_PREFIX} Another instance holds the lock — skipping cycle`,
+    );
     return {
       source,
       mode,
       startedAt: new Date(cycleStart).toISOString(),
       completedAt,
-      durationMs: Date.now() - cycleStart,
+      durationMs,
       lockAcquired: false,
-      metrics: { processed: 0, skipped: 0, errors: 0 },
+      metrics,
       requestedBy: options?.requestedBy,
     };
   }
@@ -1182,54 +1475,82 @@ async function runBillingCycle(options?: {
   try {
     // 2. Finalize scheduled cancellations that reached end-of-paid-period.
     if (!dryRun) {
-      const cancellationFinalizationResult = await finalizeScheduledMemberCancellations();
-      if (cancellationFinalizationResult.finalizedCount > 0 || cancellationFinalizationResult.erroredCount > 0) {
-        console.log(`${LOG_PREFIX} Scheduled cancellation finalization`, cancellationFinalizationResult);
+      const cancellationFinalizationResult =
+        await finalizeScheduledMemberCancellations();
+      if (
+        cancellationFinalizationResult.finalizedCount > 0 ||
+        cancellationFinalizationResult.erroredCount > 0
+      ) {
+        console.log(
+          `${LOG_PREFIX} Scheduled cancellation finalization`,
+          cancellationFinalizationResult,
+        );
       }
 
       // 2b. Finalize scheduled plan changes whose effective_date <= today.
       // Must run BEFORE due-billing so the correct plan amount is charged.
       const planChangeFinalizationResult = await finalizeScheduledPlanChanges();
-      if (planChangeFinalizationResult.finalizedCount > 0 || planChangeFinalizationResult.erroredCount > 0) {
-        console.log(`${LOG_PREFIX} Scheduled plan change finalization`, planChangeFinalizationResult);
+      if (
+        planChangeFinalizationResult.finalizedCount > 0 ||
+        planChangeFinalizationResult.erroredCount > 0
+      ) {
+        console.log(
+          `${LOG_PREFIX} Scheduled plan change finalization`,
+          planChangeFinalizationResult,
+        );
       }
     }
 
     // 3. Verify and resolve stale 'pending' entries
-    const staleLogs = await getStalePendingBillingLogs(STALE_PENDING_THRESHOLD_MINUTES);
+    const staleLogs = await getStalePendingBillingLogs(
+      STALE_PENDING_THRESHOLD_MINUTES,
+    );
     for (const stale of staleLogs) {
       // Check whether the payment actually succeeded (EPX may have responded after crash)
-      const txId = generateTransactionId(stale.subscriptionId, new Date(stale.billingDate));
+      const txId = generateTransactionId(
+        stale.subscriptionId,
+        new Date(stale.billingDate),
+      );
       const payment = await getPaymentByTransactionId(txId);
 
       // Also check whether the webhook already advanced next_billing_date past the stale date
       const { data: subRow } = await supabase
-        .from('subscriptions')
-        .select('next_billing_date')
-        .eq('id', stale.subscriptionId)
+        .from("subscriptions")
+        .select("next_billing_date")
+        .eq("id", stale.subscriptionId)
         .single();
-      const nextBilling = subRow?.next_billing_date ? new Date(subRow.next_billing_date) : null;
+      const nextBilling = subRow?.next_billing_date
+        ? new Date(subRow.next_billing_date)
+        : null;
       const staleBillingDate = new Date(stale.billingDate);
 
-      const paymentExists = !!payment && (payment.status === 'completed' || payment.status === 'succeeded');
-      const dateAdvanced = nextBilling !== null && nextBilling > staleBillingDate;
+      const paymentExists =
+        !!payment &&
+        (payment.status === "completed" || payment.status === "succeeded");
+      const dateAdvanced =
+        nextBilling !== null && nextBilling > staleBillingDate;
 
       if (paymentExists || dateAdvanced) {
         // Payment went through — correct the log to success
         await updateRecurringBillingLog(stale.id, {
-          status: 'success',
+          status: "success",
           failureReason: null,
           processedAt: new Date().toISOString(),
         });
-        console.log(`${LOG_PREFIX} Stale pending log ${stale.id} (sub ${stale.subscriptionId}) verified as success`);
+        console.log(
+          `${LOG_PREFIX} Stale pending log ${stale.id} (sub ${stale.subscriptionId}) verified as success`,
+        );
       } else {
         // No evidence of success — mark failed as terminal for this billing cycle
         await updateRecurringBillingLog(stale.id, {
-          status: 'failed',
-          failureReason: 'Stale pending entry — no matching payment or date advancement found',
+          status: "failed",
+          failureReason:
+            "Stale pending entry — no matching payment or date advancement found",
           processedAt: new Date().toISOString(),
         });
-        console.warn(`${LOG_PREFIX} Marked stale pending log ${stale.id} (sub ${stale.subscriptionId}) as failed (terminal for cycle)`);
+        console.warn(
+          `${LOG_PREFIX} Marked stale pending log ${stale.id} (sub ${stale.subscriptionId}) as failed (terminal for cycle)`,
+        );
       }
     }
 
@@ -1243,36 +1564,72 @@ async function runBillingCycle(options?: {
     if (dueSubscriptions.length === 0) {
       console.log(`${LOG_PREFIX} No subscriptions due for billing`);
       const completedAt = new Date().toISOString();
+      const durationMs = Date.now() - cycleStart;
+      const metrics = { processed: 0, skipped: 0, errors: 0 };
       schedulerStatusState.lastCycle.completedAt = completedAt;
-      schedulerStatusState.lastCycle.durationMs = Date.now() - cycleStart;
-      schedulerStatusState.lastCycle.metrics = { processed: 0, skipped: 0, errors: 0 };
+      schedulerStatusState.lastCycle.durationMs = durationMs;
+      schedulerStatusState.lastCycle.metrics = metrics;
+
+      await persistSchedulerHeartbeat({
+        source,
+        mode,
+        outcome: "completed",
+        startedAt: new Date(cycleStart).toISOString(),
+        completedAt,
+        durationMs,
+        lockAcquired: true,
+        dueCount,
+        metrics,
+        error: null,
+        requestedBy: options?.requestedBy || null,
+        paymentEnvironment: currentPaymentEnvironment,
+        achEnabledByFlag,
+        achEnabled,
+        achTestMode,
+      });
+
       return {
         source,
         mode,
         startedAt: new Date(cycleStart).toISOString(),
         completedAt,
-        durationMs: Date.now() - cycleStart,
+        durationMs,
         lockAcquired: true,
-        metrics: { processed: 0, skipped: 0, errors: 0 },
+        metrics,
         requestedBy: options?.requestedBy,
       };
     }
 
-    const cardDueCount = dueSubscriptions.filter((sub) => normalizePaymentMethodType(sub.paymentMethodType) === 'CreditCard').length;
-    const achDueCount = dueSubscriptions.filter((sub) => normalizePaymentMethodType(sub.paymentMethodType) === 'ACH').length;
+    const cardDueCount = dueSubscriptions.filter(
+      (sub) =>
+        normalizePaymentMethodType(sub.paymentMethodType) === "CreditCard",
+    ).length;
+    const achDueCount = dueSubscriptions.filter(
+      (sub) => normalizePaymentMethodType(sub.paymentMethodType) === "ACH",
+    ).length;
 
     console.log(
       `${LOG_PREFIX} Found ${dueSubscriptions.length} subscription(s) due ` +
-      `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achEnabledByFlag=${achEnabledByFlag}, paymentEnvironment=${currentPaymentEnvironment}, achTestMode=${achTestMode})`
+        `(card=${cardDueCount}, ach=${achDueCount}, achEnabled=${achEnabled}, achEnabledByFlag=${achEnabledByFlag}, paymentEnvironment=${currentPaymentEnvironment}, achTestMode=${achTestMode})`,
     );
 
     for (const due of dueSubscriptions) {
-      const dueGroupContactSource = due.payerType === 'group'
-        ? (due.payerContactSource === 'contact_person' ? 'contact_person' : (due.payerContactSource === 'responsible_person' ? 'responsible_person' : null))
-        : null;
-      const dueContactResolutionSucceeded = due.payerType === 'group'
-        ? Boolean(String(due.payerResponsibleEmail || '').trim() || String(due.payerContactEmail || '').trim() || String(due.payerEmail || '').trim())
-        : true;
+      const dueGroupContactSource =
+        due.payerType === "group"
+          ? due.payerContactSource === "contact_person"
+            ? "contact_person"
+            : due.payerContactSource === "responsible_person"
+              ? "responsible_person"
+              : null
+          : null;
+      const dueContactResolutionSucceeded =
+        due.payerType === "group"
+          ? Boolean(
+              String(due.payerResponsibleEmail || "").trim() ||
+              String(due.payerContactEmail || "").trim() ||
+              String(due.payerEmail || "").trim(),
+            )
+          : true;
 
       appendDueDecision({
         at: new Date().toISOString(),
@@ -1285,7 +1642,7 @@ async function runBillingCycle(options?: {
         payerDisplayName: due.payerDisplayName,
         amount: due.amount,
         nextBillingDate: due.nextBillingDate,
-        paymentMethodType: due.paymentMethodType || 'UNKNOWN',
+        paymentMethodType: due.paymentMethodType || "UNKNOWN",
         groupContactSource: dueGroupContactSource,
         contactResolutionSucceeded: dueContactResolutionSucceeded,
         selected: true,
@@ -1297,30 +1654,58 @@ async function runBillingCycle(options?: {
     // 4. Process each subscription
     for (const sub of dueSubscriptions) {
       try {
-        const processed = await processSubscription(sub, dryRun, achEnabled, achTestMode, source);
-        if (processed.outcome === 'processed') {
+        const processed = await processSubscription(
+          sub,
+          dryRun,
+          achEnabled,
+          achTestMode,
+          source,
+        );
+        if (processed.outcome === "processed") {
           successCount++;
         } else {
           skipCount++;
         }
       } catch (err: any) {
         failCount++;
-        console.error(`${LOG_PREFIX} Error processing subscription ${sub.subscriptionId}:`, err.message);
+        console.error(
+          `${LOG_PREFIX} Error processing subscription ${sub.subscriptionId}:`,
+          err.message,
+        );
       }
     }
 
     const elapsed = Date.now() - cycleStart;
     const completedAt = new Date().toISOString();
-    schedulerStatusState.lastCycle.completedAt = completedAt;
-    schedulerStatusState.lastCycle.durationMs = elapsed;
-    schedulerStatusState.lastCycle.metrics = {
+    const metrics = {
       processed: successCount,
       skipped: skipCount,
       errors: failCount,
     };
+    schedulerStatusState.lastCycle.completedAt = completedAt;
+    schedulerStatusState.lastCycle.durationMs = elapsed;
+    schedulerStatusState.lastCycle.metrics = metrics;
+
+    await persistSchedulerHeartbeat({
+      source,
+      mode,
+      outcome: "completed",
+      startedAt: new Date(cycleStart).toISOString(),
+      completedAt,
+      durationMs: elapsed,
+      lockAcquired: true,
+      dueCount,
+      metrics,
+      error: null,
+      requestedBy: options?.requestedBy || null,
+      paymentEnvironment: currentPaymentEnvironment,
+      achEnabledByFlag,
+      achEnabled,
+      achTestMode,
+    });
     console.log(
       `${LOG_PREFIX} ──── Cycle complete (${mode}) ────  ` +
-      `${successCount} processed, ${skipCount} skipped, ${failCount} errors, ${elapsed}ms`
+        `${successCount} processed, ${skipCount} skipped, ${failCount} errors, ${elapsed}ms`,
     );
     try {
       await sendRecurringCycleEmailIfNeeded({
@@ -1331,7 +1716,10 @@ async function runBillingCycle(options?: {
         completedAt,
       });
     } catch (emailError: any) {
-      console.error(`${LOG_PREFIX} Failed sending recurring cycle report email:`, emailError?.message || emailError);
+      console.error(
+        `${LOG_PREFIX} Failed sending recurring cycle report email:`,
+        emailError?.message || emailError,
+      );
     }
     return {
       source,
@@ -1340,27 +1728,57 @@ async function runBillingCycle(options?: {
       completedAt,
       durationMs: elapsed,
       lockAcquired: true,
-      metrics: {
-        processed: successCount,
-        skipped: skipCount,
-        errors: failCount,
-      },
+      metrics,
       requestedBy: options?.requestedBy,
     };
   } catch (cycleError: any) {
     const completedAt = new Date().toISOString();
-    schedulerStatusState.lastCycle.completedAt = completedAt;
-    schedulerStatusState.lastCycle.durationMs = Date.now() - cycleStart;
-    schedulerStatusState.lastCycle.metrics = {
+    const durationMs = Date.now() - cycleStart;
+    const metrics = {
       processed: successCount,
       skipped: skipCount,
       errors: failCount,
     };
-    schedulerStatusState.lastCycle.error = cycleError?.message || String(cycleError);
+    const errorMessage = cycleError?.message || String(cycleError);
+    schedulerStatusState.lastCycle.completedAt = completedAt;
+    schedulerStatusState.lastCycle.durationMs = durationMs;
+    schedulerStatusState.lastCycle.metrics = metrics;
+    schedulerStatusState.lastCycle.error = errorMessage;
+
+    await persistSchedulerHeartbeat({
+      source,
+      mode,
+      outcome: "failed",
+      startedAt: new Date(cycleStart).toISOString(),
+      completedAt,
+      durationMs,
+      lockAcquired: true,
+      dueCount,
+      metrics,
+      error: errorMessage,
+      requestedBy: options?.requestedBy || null,
+      paymentEnvironment: currentPaymentEnvironment,
+      achEnabledByFlag,
+      achEnabled,
+      achTestMode,
+    });
+
     throw cycleError;
   } finally {
     await releaseLock();
   }
+}
+
+function scheduleStartupCatchupRun(delayMs: number): void {
+  setTimeout(() => {
+    runBillingCycle({ source: "automatic" }).catch((err) => {
+      schedulerStatusState.lastCycle.error = err?.message || String(err);
+      console.error(
+        `${LOG_PREFIX} Unhandled startup catch-up cycle error:`,
+        err,
+      );
+    });
+  }, delayMs);
 }
 
 async function processSubscription(
@@ -1369,7 +1787,7 @@ async function processSubscription(
   achEnabled: boolean,
   achTestMode: boolean,
   source: SchedulerCycleSource,
-): Promise<{ outcome: 'processed' | 'skipped'; skipReason?: string }> {
+): Promise<{ outcome: "processed" | "skipped"; skipReason?: string }> {
   const payerContext = resolvePayerContext(sub);
   const groupPayerRecurringEnabled = isGroupPayerRecurringEnabled();
   const buildAttemptDiagBase = () => ({
@@ -1387,9 +1805,9 @@ async function processSubscription(
     contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
   });
 
-  if (payerContext.payerType === 'group' && !groupPayerRecurringEnabled) {
+  if (payerContext.payerType === "group" && !groupPayerRecurringEnabled) {
     console.warn(
-      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — group payer recurring is disabled (GROUP_PAYER_RECURRING_ENABLED !== 'true')`
+      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — group payer recurring is disabled (GROUP_PAYER_RECURRING_ENABLED !== 'true')`,
     );
     appendDueDecision({
       at: new Date().toISOString(),
@@ -1402,29 +1820,29 @@ async function processSubscription(
       payerDisplayName: payerContext.payerDisplayName,
       amount: sub.amount,
       nextBillingDate: sub.nextBillingDate,
-      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      paymentMethodType: sub.paymentMethodType || "UNKNOWN",
       groupContactSource: payerContext.groupContactSource,
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
       selected: true,
       skipped: true,
-      skipReason: 'group_payer_disabled',
+      skipReason: "group_payer_disabled",
     });
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
-      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      paymentMethodType: sub.paymentMethodType || "UNKNOWN",
       selected: true,
       skipped: true,
-      skipReason: 'group_payer_disabled',
-      chargeAttemptResult: 'skipped',
+      skipReason: "group_payer_disabled",
+      chargeAttemptResult: "skipped",
       billingEventId: null,
     });
-    return { outcome: 'skipped', skipReason: 'group_payer_disabled' };
+    return { outcome: "skipped", skipReason: "group_payer_disabled" };
   }
 
   const methodType = normalizePaymentMethodType(sub.paymentMethodType);
-  if (methodType === 'UNKNOWN') {
+  if (methodType === "UNKNOWN") {
     console.warn(
-      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — unsupported payment method type '${sub.paymentMethodType || 'null'}'`
+      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — unsupported payment method type '${sub.paymentMethodType || "null"}'`,
     );
     appendDueDecision({
       at: new Date().toISOString(),
@@ -1437,27 +1855,32 @@ async function processSubscription(
       payerDisplayName: payerContext.payerDisplayName,
       amount: sub.amount,
       nextBillingDate: sub.nextBillingDate,
-      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      paymentMethodType: sub.paymentMethodType || "UNKNOWN",
       groupContactSource: payerContext.groupContactSource,
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
       selected: true,
       skipped: true,
-      skipReason: 'unsupported_payment_method_type',
+      skipReason: "unsupported_payment_method_type",
     });
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
-      paymentMethodType: sub.paymentMethodType || 'UNKNOWN',
+      paymentMethodType: sub.paymentMethodType || "UNKNOWN",
       selected: true,
       skipped: true,
-      skipReason: 'unsupported_payment_method_type',
-      chargeAttemptResult: 'skipped',
+      skipReason: "unsupported_payment_method_type",
+      chargeAttemptResult: "skipped",
       billingEventId: null,
     });
-    return { outcome: 'skipped', skipReason: 'unsupported_payment_method_type' };
+    return {
+      outcome: "skipped",
+      skipReason: "unsupported_payment_method_type",
+    };
   }
 
-  if (payerContext.payerType === 'group' && !payerContext.payerEmail) {
-    console.warn(`${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — missing group billing contact email`);
+  if (payerContext.payerType === "group" && !payerContext.payerEmail) {
+    console.warn(
+      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — missing group billing contact email`,
+    );
     appendDueDecision({
       at: new Date().toISOString(),
       source,
@@ -1474,22 +1897,24 @@ async function processSubscription(
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
       selected: true,
       skipped: true,
-      skipReason: 'missing_group_contact',
+      skipReason: "missing_group_contact",
     });
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
       paymentMethodType: methodType,
       selected: true,
       skipped: true,
-      skipReason: 'missing_group_contact',
-      chargeAttemptResult: 'skipped',
+      skipReason: "missing_group_contact",
+      chargeAttemptResult: "skipped",
       billingEventId: null,
     });
-    return { outcome: 'skipped', skipReason: 'missing_group_contact' };
+    return { outcome: "skipped", skipReason: "missing_group_contact" };
   }
 
-  if (methodType === 'ACH' && !achEnabled) {
-    console.log(`${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — ACH_RECURRING_ENABLED is not true`);
+  if (methodType === "ACH" && !achEnabled) {
+    console.log(
+      `${LOG_PREFIX} Skipping subscription ${sub.subscriptionId} — ACH_RECURRING_ENABLED is not true`,
+    );
     appendDueDecision({
       at: new Date().toISOString(),
       source,
@@ -1506,28 +1931,34 @@ async function processSubscription(
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
       selected: true,
       skipped: true,
-      skipReason: 'ach_disabled',
+      skipReason: "ach_disabled",
     });
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
       paymentMethodType: methodType,
       selected: true,
       skipped: true,
-      skipReason: 'ach_disabled',
-      chargeAttemptResult: 'skipped',
+      skipReason: "ach_disabled",
+      chargeAttemptResult: "skipped",
       billingEventId: null,
     });
-    return { outcome: 'skipped', skipReason: 'ach_disabled' };
+    return { outcome: "skipped", skipReason: "ach_disabled" };
   }
 
   const billingDate = truncateBillingDate(sub.nextBillingDate);
-  const transactionId = generateTransactionId(sub.subscriptionId, new Date(billingDate));
+  const transactionId = generateTransactionId(
+    sub.subscriptionId,
+    new Date(billingDate),
+  );
 
   // 5. Idempotency check
-  const existing = await hasExistingBillingLogEntry(sub.subscriptionId, billingDate);
+  const existing = await hasExistingBillingLogEntry(
+    sub.subscriptionId,
+    billingDate,
+  );
   if (existing.exists) {
     console.log(
-      `${LOG_PREFIX} Subscription ${sub.subscriptionId} already has '${existing.status}' entry for ${billingDate} — skipping`
+      `${LOG_PREFIX} Subscription ${sub.subscriptionId} already has '${existing.status}' entry for ${billingDate} — skipping`,
     );
     appendDueDecision({
       at: new Date().toISOString(),
@@ -1545,27 +1976,30 @@ async function processSubscription(
       contactResolutionSucceeded: payerContext.contactResolutionSucceeded,
       selected: true,
       skipped: true,
-      skipReason: 'already_processed_for_cycle',
+      skipReason: "already_processed_for_cycle",
     });
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
       paymentMethodType: methodType,
       selected: true,
       skipped: true,
-      skipReason: 'already_processed_for_cycle',
-      chargeAttemptResult: 'skipped',
+      skipReason: "already_processed_for_cycle",
+      chargeAttemptResult: "skipped",
       billingEventId: null,
     });
-    return { outcome: 'skipped', skipReason: 'already_processed_for_cycle' };
+    return { outcome: "skipped", skipReason: "already_processed_for_cycle" };
   }
 
-  const existingAttemptCount = await getBillingLogAttemptCountForCycle(sub.subscriptionId, billingDate);
+  const existingAttemptCount = await getBillingLogAttemptCountForCycle(
+    sub.subscriptionId,
+    billingDate,
+  );
   const maxAttemptsPerCycle = getMaxAttemptsPerCycle();
   if (existingAttemptCount >= maxAttemptsPerCycle) {
     const skipReason = `max_attempts_reached_${maxAttemptsPerCycle}`;
     console.warn(
       `${LOG_PREFIX} Subscription ${sub.subscriptionId} reached ${existingAttemptCount} attempt(s) for ${billingDate} ` +
-      `(max ${maxAttemptsPerCycle}) — skipping`,
+        `(max ${maxAttemptsPerCycle}) — skipping`,
     );
     appendDueDecision({
       at: new Date().toISOString(),
@@ -1591,18 +2025,21 @@ async function processSubscription(
       selected: true,
       skipped: true,
       skipReason,
-      chargeAttemptResult: 'skipped',
+      chargeAttemptResult: "skipped",
       billingEventId: null,
     });
-    return { outcome: 'skipped', skipReason };
+    return { outcome: "skipped", skipReason };
   }
 
   // 6. Resolve card auth GUID (ACH does not require ORIG_AUTH_GUID for debit MIT)
   let authGuid: string | undefined;
-  if (methodType === 'CreditCard') {
+  if (methodType === "CreditCard") {
     const cardAuthGuidResult = resolveRecurringCardAuthGuid(sub);
-    if ('error' in cardAuthGuidResult) {
-      console.error(`${LOG_PREFIX} Failed to resolve auth GUID for subscription ${sub.subscriptionId}:`, cardAuthGuidResult.error);
+    if ("error" in cardAuthGuidResult) {
+      console.error(
+        `${LOG_PREFIX} Failed to resolve auth GUID for subscription ${sub.subscriptionId}:`,
+        cardAuthGuidResult.error,
+      );
       const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
       const billingEventId = await insertRecurringBillingLog({
         subscriptionId: sub.subscriptionId,
@@ -1612,7 +2049,7 @@ async function processSubscription(
         amount: sub.amount,
         billingDate,
         attemptNumber: 1,
-        status: 'failed',
+        status: "failed",
         failureReason: cardAuthGuidResult.error,
         nextRetryDate,
         processedAt: new Date().toISOString(),
@@ -1645,16 +2082,17 @@ async function processSubscription(
         selected: true,
         skipped: false,
         skipReason: null,
-        chargeAttemptResult: 'failed_auth_guid_resolution',
+        chargeAttemptResult: "failed_auth_guid_resolution",
         billingEventId,
       });
-      return { outcome: 'processed' };
+      return { outcome: "processed" };
     }
     authGuid = cardAuthGuidResult.authGuid;
   }
 
-  const achRuntimeData = methodType === 'ACH' ? resolveAchRuntimeData(sub) : null;
-  if (achRuntimeData && 'error' in achRuntimeData) {
+  const achRuntimeData =
+    methodType === "ACH" ? resolveAchRuntimeData(sub) : null;
+  if (achRuntimeData && "error" in achRuntimeData) {
     const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
     const billingEventId = await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
@@ -1664,7 +2102,7 @@ async function processSubscription(
       amount: sub.amount,
       billingDate,
       attemptNumber: 1,
-      status: 'failed',
+      status: "failed",
       epxTransactionId: transactionId,
       failureReason: achRuntimeData.error,
       nextRetryDate,
@@ -1692,29 +2130,32 @@ async function processSubscription(
       payerDisplayName: payerContext.payerDisplayName,
       amount: sub.amount,
     });
-    console.error(`${LOG_PREFIX} ACH runtime data missing for subscription ${sub.subscriptionId}: ${achRuntimeData.error}`);
+    console.error(
+      `${LOG_PREFIX} ACH runtime data missing for subscription ${sub.subscriptionId}: ${achRuntimeData.error}`,
+    );
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
       paymentMethodType: methodType,
       selected: true,
       skipped: false,
       skipReason: null,
-      chargeAttemptResult: 'failed_ach_runtime_data',
+      chargeAttemptResult: "failed_ach_runtime_data",
       billingEventId,
     });
-    return { outcome: 'processed' };
+    return { outcome: "processed" };
   }
 
   // 7. DRY RUN path
   if (dryRun) {
-    const methodLabel = methodType === 'ACH' ? 'ach' : 'card';
-    const achMaskSuffix = achRuntimeData && !('error' in achRuntimeData)
-      ? `, ${achRuntimeData.maskedSummary}`
-      : '';
+    const methodLabel = methodType === "ACH" ? "ach" : "card";
+    const achMaskSuffix =
+      achRuntimeData && !("error" in achRuntimeData)
+        ? `, ${achRuntimeData.maskedSummary}`
+        : "";
     console.log(
       `${LOG_PREFIX} DRY RUN — Would charge subscription ${sub.subscriptionId}, ` +
-      `payer ${payerContext.payerType}:${payerContext.payerAccountId} (${payerContext.payerDisplayName}), ` +
-      `amount $${sub.amount}, method ${methodLabel}${achMaskSuffix}`
+        `payer ${payerContext.payerType}:${payerContext.payerAccountId} (${payerContext.payerDisplayName}), ` +
+        `amount $${sub.amount}, method ${methodLabel}${achMaskSuffix}`,
     );
     const billingEventId = await insertRecurringBillingLog({
       subscriptionId: sub.subscriptionId,
@@ -1724,7 +2165,7 @@ async function processSubscription(
       amount: sub.amount,
       billingDate,
       attemptNumber: 1,
-      status: 'dry_run',
+      status: "dry_run",
       epxTransactionId: transactionId,
       processedAt: new Date().toISOString(),
     });
@@ -1734,10 +2175,10 @@ async function processSubscription(
       selected: true,
       skipped: false,
       skipReason: null,
-      chargeAttemptResult: 'dry_run',
+      chargeAttemptResult: "dry_run",
       billingEventId,
     });
-    return { outcome: 'processed' };
+    return { outcome: "processed" };
   }
 
   // 8. LIVE charge path — write pending log first
@@ -1749,16 +2190,21 @@ async function processSubscription(
     amount: sub.amount,
     billingDate,
     attemptNumber: 1,
-    status: 'pending',
+    status: "pending",
     epxTransactionId: transactionId,
   });
 
   try {
     const simulationMode = isSimulationModeEnabled();
-    const tranType = methodType === 'ACH' ? 'CKC2' : 'CCE1';
-    const achTestLabel = methodType === 'ACH' && achTestMode ? '[ACH_TEST_MODE] ' : '';
+    const tranType = methodType === "ACH" ? "CKC2" : "CCE1";
+    const achTestLabel =
+      methodType === "ACH" && achTestMode ? "[ACH_TEST_MODE] " : "";
     const result = simulationMode
-      ? buildMockRecurringEpxSuccess(transactionId, tranType, achTestLabel ? 'ACH_TEST_MODE' : methodType)
+      ? buildMockRecurringEpxSuccess(
+          transactionId,
+          tranType,
+          achTestLabel ? "ACH_TEST_MODE" : methodType,
+        )
       : await submitServerPostRecurringPayment({
           authGuid,
           amount: parseFloat(sub.amount),
@@ -1773,7 +2219,9 @@ async function processSubscription(
             groupId: sub.groupId,
           },
           bankAccountData:
-            methodType === 'ACH' && achRuntimeData && !('error' in achRuntimeData)
+            methodType === "ACH" &&
+            achRuntimeData &&
+            !("error" in achRuntimeData)
               ? achRuntimeData.bankAccountData
               : undefined,
         });
@@ -1781,26 +2229,28 @@ async function processSubscription(
     if (simulationMode) {
       console.warn(
         `${LOG_PREFIX} SIMULATED EPX success for subscription ${sub.subscriptionId} ` +
-        `(transaction ${transactionId})`
+          `(transaction ${transactionId})`,
       );
     }
 
-    if (methodType === 'ACH' && achTestMode) {
+    if (methodType === "ACH" && achTestMode) {
       console.warn(
         `${LOG_PREFIX} ACH test mode execution for subscription ${sub.subscriptionId} ` +
-        `(transaction ${transactionId})`
+          `(transaction ${transactionId})`,
       );
     }
 
     if (result.success) {
-      const successResponseMessage = methodType === 'ACH' && achTestMode
-        ? `${result.responseFields?.AUTH_RESP_TEXT || 'APPROVED'} [ACH_TEST_MODE]`
-        : result.responseFields?.AUTH_RESP_TEXT || null;
+      const successResponseMessage =
+        methodType === "ACH" && achTestMode
+          ? `${result.responseFields?.AUTH_RESP_TEXT || "APPROVED"} [ACH_TEST_MODE]`
+          : result.responseFields?.AUTH_RESP_TEXT || null;
 
-      if (methodType === 'ACH' && achTestMode) {
+      if (methodType === "ACH" && achTestMode) {
         await updateRecurringBillingLog(logId, {
-          status: 'ach_test_success',
-          epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
+          status: "ach_test_success",
+          epxTransactionId:
+            result.responseFields?.TRANSACTION_ID || transactionId,
           epxAuthCode: result.responseFields?.AUTH_CODE || null,
           epxResponseCode: result.responseFields?.AUTH_RESP || null,
           epxResponseMessage: successResponseMessage,
@@ -1810,7 +2260,7 @@ async function processSubscription(
 
         console.log(
           `${LOG_PREFIX} ✅ ACH test success for subscription ${sub.subscriptionId} ` +
-          `(transaction ${transactionId}) — post-success persistence intentionally skipped`
+            `(transaction ${transactionId}) — post-success persistence intentionally skipped`,
         );
         appendChargeAttempt({
           ...buildAttemptDiagBase(),
@@ -1818,10 +2268,10 @@ async function processSubscription(
           selected: true,
           skipped: false,
           skipReason: null,
-          chargeAttemptResult: 'ach_test_success',
+          chargeAttemptResult: "ach_test_success",
           billingEventId: logId,
         });
-        return { outcome: 'processed' };
+        return { outcome: "processed" };
       }
 
       const persistenceResult = await persistRecurringPostSuccess({
@@ -1840,12 +2290,15 @@ async function processSubscription(
       if (!persistenceResult.success) {
         const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
         await updateRecurringBillingLog(logId, {
-          status: 'failed',
-          epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
+          status: "failed",
+          epxTransactionId:
+            result.responseFields?.TRANSACTION_ID || transactionId,
           epxAuthCode: result.responseFields?.AUTH_CODE || null,
           epxResponseCode: result.responseFields?.AUTH_RESP || null,
           epxResponseMessage: successResponseMessage,
-          failureReason: persistenceResult.failureReason || 'Post-success persistence failed',
+          failureReason:
+            persistenceResult.failureReason ||
+            "Post-success persistence failed",
           nextRetryDate,
           processedAt: new Date().toISOString(),
         });
@@ -1855,7 +2308,9 @@ async function processSubscription(
           memberId: sub.memberId,
           paymentMethodType: methodType,
           responseCode: result.responseFields?.AUTH_RESP || null,
-          errorMessage: persistenceResult.failureReason || 'Post-success persistence failed',
+          errorMessage:
+            persistenceResult.failureReason ||
+            "Post-success persistence failed",
           nextRetryDate,
           payerType: payerContext.payerType,
           payerAccountId: payerContext.payerAccountId,
@@ -1866,7 +2321,9 @@ async function processSubscription(
           subscriptionId: sub.subscriptionId,
           memberId: sub.memberId,
           paymentMethodType: methodType,
-          errorMessage: persistenceResult.failureReason || 'Post-success persistence failed',
+          errorMessage:
+            persistenceResult.failureReason ||
+            "Post-success persistence failed",
           responseCode: result.responseFields?.AUTH_RESP || null,
           payerType: payerContext.payerType,
           payerAccountId: payerContext.payerAccountId,
@@ -1876,7 +2333,7 @@ async function processSubscription(
 
         console.error(
           `${LOG_PREFIX} ❌ Controlled persistence failure for subscription ${sub.subscriptionId}: ` +
-          `${persistenceResult.failureReason || 'unknown reason'}`
+            `${persistenceResult.failureReason || "unknown reason"}`,
         );
         appendChargeAttempt({
           ...buildAttemptDiagBase(),
@@ -1884,17 +2341,18 @@ async function processSubscription(
           selected: true,
           skipped: false,
           skipReason: null,
-          chargeAttemptResult: 'failed_post_success_persistence',
+          chargeAttemptResult: "failed_post_success_persistence",
           billingEventId: logId,
         });
-        return { outcome: 'processed' };
+        return { outcome: "processed" };
       }
 
       // Update log to success only after payment persistence + billing advancement + payout creation succeed.
       await updateRecurringBillingLog(logId, {
-        status: 'success',
+        status: "success",
         paymentId: persistenceResult.paymentId,
-        epxTransactionId: result.responseFields?.TRANSACTION_ID || transactionId,
+        epxTransactionId:
+          result.responseFields?.TRANSACTION_ID || transactionId,
         epxAuthCode: result.responseFields?.AUTH_CODE || null,
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
         epxResponseMessage: successResponseMessage,
@@ -1903,8 +2361,8 @@ async function processSubscription(
 
       console.log(
         `${LOG_PREFIX} ✅ Charged ${methodType} subscription ${sub.subscriptionId} — $${sub.amount} — ` +
-        `payer ${payerContext.payerType}:${payerContext.payerAccountId} — ` +
-        `auth ${result.responseFields?.AUTH_CODE || 'n/a'}`
+          `payer ${payerContext.payerType}:${payerContext.payerAccountId} — ` +
+          `auth ${result.responseFields?.AUTH_CODE || "n/a"}`,
       );
       appendChargeAttempt({
         ...buildAttemptDiagBase(),
@@ -1912,21 +2370,24 @@ async function processSubscription(
         selected: true,
         skipped: false,
         skipReason: null,
-        chargeAttemptResult: 'success',
+        chargeAttemptResult: "success",
         billingEventId: logId,
       });
     } else {
-      const failureResponseMessage = methodType === 'ACH' && achTestMode
-        ? `${result.error || result.responseFields?.AUTH_RESP_TEXT || 'EPX declined'} [ACH_TEST_MODE]`
-        : result.error || result.responseFields?.AUTH_RESP_TEXT || null;
-      const nextRetryDate = computeNextRetryDate(resolveRetryDelayDays(result.responseFields?.AUTH_RESP || null));
+      const failureResponseMessage =
+        methodType === "ACH" && achTestMode
+          ? `${result.error || result.responseFields?.AUTH_RESP_TEXT || "EPX declined"} [ACH_TEST_MODE]`
+          : result.error || result.responseFields?.AUTH_RESP_TEXT || null;
+      const nextRetryDate = computeNextRetryDate(
+        resolveRetryDelayDays(result.responseFields?.AUTH_RESP || null),
+      );
 
       // EPX declined
       await updateRecurringBillingLog(logId, {
-        status: 'failed',
+        status: "failed",
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
         epxResponseMessage: failureResponseMessage,
-        failureReason: failureResponseMessage || 'EPX declined',
+        failureReason: failureResponseMessage || "EPX declined",
         nextRetryDate,
         processedAt: new Date().toISOString(),
       });
@@ -1936,7 +2397,7 @@ async function processSubscription(
         memberId: sub.memberId,
         paymentMethodType: methodType,
         responseCode: result.responseFields?.AUTH_RESP || null,
-        errorMessage: failureResponseMessage || 'EPX declined',
+        errorMessage: failureResponseMessage || "EPX declined",
         nextRetryDate,
         payerType: payerContext.payerType,
         payerAccountId: payerContext.payerAccountId,
@@ -1947,7 +2408,7 @@ async function processSubscription(
         subscriptionId: sub.subscriptionId,
         memberId: sub.memberId,
         paymentMethodType: methodType,
-        errorMessage: failureResponseMessage || 'EPX declined',
+        errorMessage: failureResponseMessage || "EPX declined",
         responseCode: result.responseFields?.AUTH_RESP || null,
         payerType: payerContext.payerType,
         payerAccountId: payerContext.payerAccountId,
@@ -1957,7 +2418,7 @@ async function processSubscription(
 
       console.warn(
         `${LOG_PREFIX} ❌ Declined subscription ${sub.subscriptionId} — ` +
-        `code ${result.responseFields?.AUTH_RESP || 'n/a'}: ${result.error || 'unknown'}`
+          `code ${result.responseFields?.AUTH_RESP || "n/a"}: ${result.error || "unknown"}`,
       );
       appendChargeAttempt({
         ...buildAttemptDiagBase(),
@@ -1965,7 +2426,7 @@ async function processSubscription(
         selected: true,
         skipped: false,
         skipReason: null,
-        chargeAttemptResult: 'declined',
+        chargeAttemptResult: "declined",
         billingEventId: logId,
       });
     }
@@ -1973,8 +2434,8 @@ async function processSubscription(
     // Network / timeout / unexpected error
     const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
     await updateRecurringBillingLog(logId, {
-      status: 'failed',
-      failureReason: epxError.message || 'Unexpected error during EPX call',
+      status: "failed",
+      failureReason: epxError.message || "Unexpected error during EPX call",
       nextRetryDate,
       processedAt: new Date().toISOString(),
     });
@@ -1982,7 +2443,7 @@ async function processSubscription(
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentMethodType: methodType,
-      errorMessage: epxError.message || 'Unexpected error during EPX call',
+      errorMessage: epxError.message || "Unexpected error during EPX call",
       nextRetryDate,
       payerType: payerContext.payerType,
       payerAccountId: payerContext.payerAccountId,
@@ -1993,7 +2454,7 @@ async function processSubscription(
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentMethodType: methodType,
-      errorMessage: epxError.message || 'Unexpected error during EPX call',
+      errorMessage: epxError.message || "Unexpected error during EPX call",
       responseCode: null,
       payerType: payerContext.payerType,
       payerAccountId: payerContext.payerAccountId,
@@ -2002,7 +2463,7 @@ async function processSubscription(
     });
     console.error(
       `${LOG_PREFIX} ❌ Error charging subscription ${sub.subscriptionId}:`,
-      epxError.message
+      epxError.message,
     );
     appendChargeAttempt({
       ...buildAttemptDiagBase(),
@@ -2010,12 +2471,12 @@ async function processSubscription(
       selected: true,
       skipped: false,
       skipReason: null,
-      chargeAttemptResult: 'failed_epx_exception',
+      chargeAttemptResult: "failed_epx_exception",
       billingEventId: logId,
     });
   }
 
-  return { outcome: 'processed' };
+  return { outcome: "processed" };
 }
 
 // ────────────────────────────────────────
@@ -2023,9 +2484,11 @@ async function processSubscription(
 // ────────────────────────────────────────
 
 export function scheduleRecurringBilling(): void {
-  if (process.env.BILLING_SCHEDULER_ENABLED !== 'true') {
+  if (process.env.BILLING_SCHEDULER_ENABLED !== "true") {
     refreshSchedulerConfigState(false);
-    console.log(`${LOG_PREFIX} Scheduler disabled (BILLING_SCHEDULER_ENABLED !== 'true')`);
+    console.log(
+      `${LOG_PREFIX} Scheduler disabled (BILLING_SCHEDULER_ENABLED !== 'true')`,
+    );
     return;
   }
 
@@ -2035,19 +2498,30 @@ export function scheduleRecurringBilling(): void {
   const achEnabled = isAchRecurringEnabled();
   const achTestMode = isAchRecurringTestMode();
   const fixedTimeMode = isFixedTimeSchedulingEnabled();
-  const mode = dryRun ? 'DRY RUN' : 'LIVE';
+  const mode = dryRun ? "DRY RUN" : "LIVE";
 
   schedulerStatusState.initializedAt = new Date().toISOString();
   refreshSchedulerConfigState(true);
 
+  warnIfSchedulerHeartbeatIsStale().catch((error) => {
+    console.warn(
+      `${LOG_PREFIX} Failed stale-heartbeat preflight:`,
+      (error as Error)?.message || error,
+    );
+  });
+
   console.log(`${LOG_PREFIX} Scheduler initialized (${mode})`);
   if (!fixedTimeMode) {
-    console.log(`${LOG_PREFIX} Interval: ${Math.round(intervalMs / 60_000)} minutes`);
+    console.log(
+      `${LOG_PREFIX} Interval: ${Math.round(intervalMs / 60_000)} minutes`,
+    );
   }
   console.log(`${LOG_PREFIX} ACH recurring enabled: ${achEnabled}`);
   console.log(`${LOG_PREFIX} ACH recurring test mode: ${achTestMode}`);
   if (simulationMode) {
-    console.warn(`${LOG_PREFIX} EPX simulation mode is ENABLED — recurring charges will be simulated and no EPX request will be sent`);
+    console.warn(
+      `${LOG_PREFIX} EPX simulation mode is ENABLED — recurring charges will be simulated and no EPX request will be sent`,
+    );
   }
 
   if (fixedTimeMode) {
@@ -2056,17 +2530,19 @@ export function scheduleRecurringBilling(): void {
     const cronExpression = buildFixedScheduleCronExpression(fixedHours);
 
     if (!cron.validate(cronExpression)) {
-      console.error(`${LOG_PREFIX} Invalid fixed schedule cron '${cronExpression}', falling back to interval mode`);
+      console.error(
+        `${LOG_PREFIX} Invalid fixed schedule cron '${cronExpression}', falling back to interval mode`,
+      );
     } else {
       console.log(
-        `${LOG_PREFIX} Fixed-time schedule enabled at hour(s) ${fixedHours.join(', ')} ` +
-        `in ${timezone} (cron: ${cronExpression})`
+        `${LOG_PREFIX} Fixed-time schedule enabled at hour(s) ${fixedHours.join(", ")} ` +
+          `in ${timezone} (cron: ${cronExpression})`,
       );
 
       cron.schedule(
         cronExpression,
         () => {
-          runBillingCycle({ source: 'automatic' }).catch((err) => {
+          runBillingCycle({ source: "automatic" }).catch((err) => {
             schedulerStatusState.lastCycle.error = err?.message || String(err);
             console.error(`${LOG_PREFIX} Unhandled cycle error:`, err);
           });
@@ -2074,21 +2550,19 @@ export function scheduleRecurringBilling(): void {
         { timezone },
       );
 
+      // Always run a startup catch-up cycle, even in fixed-time mode.
+      scheduleStartupCatchupRun(getStartupCatchupDelayMs());
+
       return;
     }
   }
 
   // Run first cycle after a short delay (let server finish startup)
-  setTimeout(() => {
-    runBillingCycle({ source: 'automatic' }).catch((err) => {
-      schedulerStatusState.lastCycle.error = err?.message || String(err);
-      console.error(`${LOG_PREFIX} Unhandled cycle error:`, err);
-    });
-  }, 15_000);
+  scheduleStartupCatchupRun(getStartupCatchupDelayMs());
 
   // Schedule recurring cycles
   setInterval(() => {
-    runBillingCycle({ source: 'automatic' }).catch((err) => {
+    runBillingCycle({ source: "automatic" }).catch((err) => {
       schedulerStatusState.lastCycle.error = err?.message || String(err);
       console.error(`${LOG_PREFIX} Unhandled cycle error:`, err);
     });
@@ -2103,7 +2577,7 @@ export async function runRecurringBillingCycleOnce(options?: {
   schedulerStatusState.manualRunsTriggered += 1;
 
   return runBillingCycle({
-    source: 'manual',
+    source: "manual",
     dryRunOverride: forceDryRun,
     requestedBy: options?.requestedBy,
   });

@@ -15,6 +15,7 @@ import { storage } from "../storage";
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole, isAtLeastAdmin } from "../auth/roles";
 import { supabase } from "../lib/supabaseClient";
+import { query } from "../lib/neonDb";
 import { verifyRecaptcha, isRecaptchaEnabled } from "../utils/recaptcha";
 import { logEPX, getRecentEPXLogs } from "../services/epx-payment-logger";
 import { submitServerPostRecurringPayment } from "../services/epx-payment-service";
@@ -191,6 +192,13 @@ type PaymentRecord = {
   status?: string | null;
 } & Record<string, any>;
 
+type HostedFailureCategory =
+  | "insufficient_funds"
+  | "issuer_decline"
+  | "invalid_or_expired"
+  | "processor_unavailable"
+  | "unknown_decline";
+
 type HostedCallbackMetadata = {
   status?: string | null;
   amount?: string | number | null;
@@ -198,6 +206,8 @@ type HostedCallbackMetadata = {
   rawStatusMessage?: string | null;
   declineReason?: string | null;
   declineCode?: string | null;
+  failureCategory?: HostedFailureCategory | null;
+  retryable?: boolean | null;
   authGuidMasked?: string | null;
   authGuidSource?: string | null;
   updatedAt?: string;
@@ -218,6 +228,8 @@ type HostedPaymentUpdateOptions = {
   rawStatusMessage?: string | null;
   declineReason?: string | null;
   declineCode?: string | null;
+  failureCategory?: HostedFailureCategory | null;
+  retryable?: boolean | null;
   memberId?: number | null;
   bricTokenPresent?: boolean;
   paymentStatus?: string;
@@ -229,6 +241,8 @@ type HostedDeclineDetails = {
   failureReason: string;
   declineCode: string | null;
   rawStatusMessage: string | null;
+  failureCategory: HostedFailureCategory;
+  retryable: boolean;
 };
 
 const HOSTED_PENDING_ACTIVE_WINDOW_MINUTES = 20;
@@ -828,6 +842,8 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
     rawStatusMessage,
     declineReason,
     declineCode,
+    failureCategory,
+    retryable,
     memberId,
     bricTokenPresent,
     paymentStatus = "succeeded",
@@ -886,6 +902,12 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
       rawStatusMessage ?? existingHostedMeta.rawStatusMessage ?? null,
     declineReason: declineReason ?? existingHostedMeta.declineReason ?? null,
     declineCode: declineCode ?? existingHostedMeta.declineCode ?? null,
+    failureCategory:
+      failureCategory ?? existingHostedMeta.failureCategory ?? null,
+    retryable:
+      typeof retryable === "boolean"
+        ? retryable
+        : (existingHostedMeta.retryable ?? null),
     authGuidMasked: maskedAuthGuid,
     authGuidSource: authGuidSource ?? existingHostedMeta.authGuidSource ?? null,
     updatedAt: new Date().toISOString(),
@@ -1203,6 +1225,25 @@ const normalizeDeclineCode = (value: string | null): string | null => {
   return normalized.length > 0 ? normalized.slice(0, 32) : null;
 };
 
+const isGenericHostedStatusToken = (value: string | null): boolean => {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized === "FAILURE" ||
+    normalized === "FAILED" ||
+    normalized === "DECLINE" ||
+    normalized === "DECLINED" ||
+    normalized === "ERROR" ||
+    normalized === "UNKNOWN" ||
+    normalized === "STATUS"
+  );
+};
+
 const deriveDeclineCodeFromMessage = (
   message: string | null,
 ): string | null => {
@@ -1218,12 +1259,31 @@ const deriveDeclineCodeFromMessage = (
   return normalizeDeclineCode(codeMatch[1]);
 };
 
-const classifyHostedFailureReason = (
+const classifyHostedFailure = (
   rawStatusMessage: string | null,
   declineCode: string | null,
-): string => {
+): {
+  failureReason: string;
+  failureCategory: HostedFailureCategory;
+  retryable: boolean;
+} => {
   const upperMessage = String(rawStatusMessage || "").toUpperCase();
   const upperCode = String(declineCode || "").toUpperCase();
+
+  if (
+    upperCode === "91" ||
+    upperMessage.includes("NO REPLY") ||
+    upperMessage.includes("TIMEOUT") ||
+    upperMessage.includes("TIMED OUT") ||
+    upperMessage.includes("HOST UNAVAILABLE") ||
+    upperMessage.includes("PROCESSOR UNAVAILABLE")
+  ) {
+    return {
+      failureReason: "Processor did not reply (code 91)",
+      failureCategory: "processor_unavailable",
+      retryable: true,
+    };
+  }
 
   if (
     upperMessage.includes("INSUFF") ||
@@ -1231,7 +1291,11 @@ const classifyHostedFailureReason = (
     upperMessage.includes("NSF") ||
     upperCode === "51"
   ) {
-    return "Insufficient funds";
+    return {
+      failureReason: "Insufficient funds",
+      failureCategory: "insufficient_funds",
+      retryable: true,
+    };
   }
 
   if (
@@ -1239,7 +1303,11 @@ const classifyHostedFailureReason = (
     upperMessage.includes("DO NOT HONOR") ||
     upperCode === "05"
   ) {
-    return "Card declined by issuer";
+    return {
+      failureReason: "Card declined by issuer",
+      failureCategory: "issuer_decline",
+      retryable: false,
+    };
   }
 
   if (
@@ -1248,10 +1316,18 @@ const classifyHostedFailureReason = (
     upperCode === "14" ||
     upperCode === "54"
   ) {
-    return "Card information invalid or expired";
+    return {
+      failureReason: "Card information invalid or expired",
+      failureCategory: "invalid_or_expired",
+      retryable: false,
+    };
   }
 
-  return "Payment declined";
+  return {
+    failureReason: "Payment declined",
+    failureCategory: "unknown_decline",
+    retryable: false,
+  };
 };
 
 const extractHostedDeclineDetails = (
@@ -1282,18 +1358,18 @@ const extractHostedDeclineDetails = (
       payload?.result?.AUTH_RESP_CODE,
     ),
   );
-
-  const declineCode =
-    explicitCode || deriveDeclineCodeFromMessage(rawStatusMessage);
-  const failureReason = classifyHostedFailureReason(
-    rawStatusMessage,
-    declineCode,
-  );
+  const derivedCode = deriveDeclineCodeFromMessage(rawStatusMessage);
+  const declineCode = isGenericHostedStatusToken(explicitCode)
+    ? derivedCode || explicitCode
+    : explicitCode || derivedCode;
+  const classification = classifyHostedFailure(rawStatusMessage, declineCode);
 
   return {
-    failureReason,
+    failureReason: classification.failureReason,
     declineCode,
     rawStatusMessage,
+    failureCategory: classification.failureCategory,
+    retryable: classification.retryable,
   };
 };
 
@@ -1333,14 +1409,17 @@ const parseLegacyFailureReasonBlob = (
         parsed?.status,
       ),
     );
-    const declineCode =
-      explicitCode || deriveDeclineCodeFromMessage(rawStatusMessage);
-    const failureReason = classifyHostedFailureReason(
-      rawStatusMessage,
-      declineCode,
-    );
+    const derivedCode = deriveDeclineCodeFromMessage(rawStatusMessage);
+    const declineCode = isGenericHostedStatusToken(explicitCode)
+      ? derivedCode || explicitCode
+      : explicitCode || derivedCode;
+    const classification = classifyHostedFailure(rawStatusMessage, declineCode);
 
-    return { failureReason, declineCode, rawStatusMessage };
+    return {
+      failureReason: classification.failureReason,
+      declineCode,
+      rawStatusMessage,
+    };
   } catch {
     return {
       failureReason: trimmed || null,
@@ -3040,865 +3119,1000 @@ async function resolveRequestUser(req: AuthRequest): Promise<any | null> {
 /**
  * Create payment session for Hosted Checkout
  */
-router.post(
-  "/api/epx/hosted/create-payment",
-  async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    const requestStartTime = Date.now();
+const createHostedPaymentSessionHandler = async (
+  req: Request,
+  res: Response,
+) => {
+  const authReq = req as AuthRequest;
+  const requestStartTime = Date.now();
 
-    try {
-      const currentEnvironment = await paymentEnvironment.getEnvironment();
-      const authenticatedUser = await resolveRequestUser(authReq);
-      initializeService();
+  try {
+    const currentEnvironment = await paymentEnvironment.getEnvironment();
+    const authenticatedUser = await resolveRequestUser(authReq);
+    initializeService();
 
-      if (hostedCheckoutService) {
-        const activeConfig = hostedCheckoutService.getCheckoutConfig();
-        if (activeConfig.environment !== currentEnvironment) {
-          console.log(
-            "[EPX Hosted Checkout] Environment mismatch detected. Reinitializing service.",
-          );
-          initializeService(true);
-        }
-      }
-
-      if (!serviceInitialized || !hostedCheckoutService) {
-        return res.status(503).json({
-          success: false,
-          error: initError || "Hosted Checkout service not initialized",
-          configSource: hostedConfigSource,
-        });
-      }
-
-      const {
-        amount,
-        amountOverride,
-        amountOverrideReason,
-        customerId,
-        customerEmail,
-        customerName,
-        planId,
-        subscriptionId,
-        description,
-        billingAddress,
-        captchaToken,
-        retryPaymentId,
-        retryMemberId,
-        retryReason,
-        retryInitiatedBy,
-        groupId,
-        groupMemberId,
-        selectedGroupMemberIds,
-        paymentScope,
-        paymentMethodType,
-        deliveryMode,
-      } = req.body;
-
-      const normalizedRequestedPaymentMethodType =
-        String(paymentMethodType || "")
-          .trim()
-          .toUpperCase() === "ACH"
-          ? "ACH"
-          : "CreditCard";
-      const normalizedDeliveryMode =
-        typeof deliveryMode === "string"
-          ? deliveryMode.trim().toLowerCase()
-          : "";
-      const isPaymentLinkMode = normalizedDeliveryMode === "payment_link";
-
-      if (isPaymentLinkMode) {
-        if (
-          !authenticatedUser ||
-          !hasAtLeastRole(authenticatedUser.role, "agent")
-        ) {
-          return res.status(403).json({
-            success: false,
-            error:
-              "Authenticated agent/admin access is required to generate payment links",
-          });
-        }
-      }
-
-      const explicitGroupId = typeof groupId === "string" ? groupId.trim() : "";
-      const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
-      const explicitSelectedGroupMemberIds = parseNumericGroupMemberIdList(
-        selectedGroupMemberIds,
-      );
-      const hasGroupPaymentContext = Boolean(
-        explicitGroupId && explicitGroupMemberId,
-      );
-      const normalizedPaymentScope =
-        typeof paymentScope === "string"
-          ? paymentScope.trim().toLowerCase()
-          : null;
-      const isGroupInvoiceScope =
-        normalizedPaymentScope === "group_invoice" && Boolean(explicitGroupId);
-
-      const numericAmount =
-        typeof amount === "number"
-          ? amount
-          : amount !== undefined && amount !== null
-            ? parseFloat(String(amount))
-            : NaN;
-
-      const parsedAmountOverride =
-        typeof amountOverride === "number"
-          ? amountOverride
-          : amountOverride !== undefined && amountOverride !== null
-            ? parseFloat(String(amountOverride))
-            : NaN;
-
-      const hasAmountOverride =
-        Number.isFinite(parsedAmountOverride) && parsedAmountOverride > 0;
-      const normalizedAmountOverrideReason =
-        typeof amountOverrideReason === "string"
-          ? amountOverrideReason.trim() || null
-          : null;
-
-      if (!Number.isNaN(parsedAmountOverride) && !hasAmountOverride) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: "Amount override must be a positive number",
-          });
-      }
-
-      const normalizedBillingAddress = normalizeBillingAddress(billingAddress);
-
-      const parsedRetryPaymentId =
-        typeof retryPaymentId === "string"
-          ? parseInt(retryPaymentId, 10)
-          : retryPaymentId;
-
-      const parsedRetryMemberId =
-        typeof retryMemberId === "string"
-          ? parseInt(retryMemberId, 10)
-          : retryMemberId;
-
-      const isRetryRequest = Number.isFinite(parsedRetryPaymentId);
-      const requestUserId = authenticatedUser?.id || null;
-
-      let effectiveAmount = Number.isFinite(numericAmount)
-        ? numericAmount
-        : NaN;
-      let effectiveCustomerEmail: string | undefined = customerEmail;
-      let effectiveCustomerName: string | undefined =
-        customerName || "Customer";
-      let effectivePlanId: string | undefined = planId;
-      let effectiveDescription: string | undefined = description;
-      let effectiveBillingAddress = normalizedBillingAddress;
-      let derivedMemberId: number | null = null;
-      let derivedUserId: string | null = null;
-      let overrideApprovedBy: any = null;
-      let retryContext: {
-        originalPaymentId: number;
-        attemptNumber: number;
-        triggeredByUserId?: string | null;
-        timestamp: string;
-        reason?: string | null;
-      } | null = null;
-      let retrySourceMetadata: Record<string, any> | null = null;
-      let memberId: number | null = null;
-      let userId: string | null = null;
-
-      if (hasAmountOverride) {
-        overrideApprovedBy = authenticatedUser;
-        if (!overrideApprovedBy) {
-          overrideApprovedBy = await resolveRequestUser(authReq);
-        }
-
-        if (!overrideApprovedBy || !isAtLeastAdmin(overrideApprovedBy.role)) {
-          return res
-            .status(403)
-            .json({
-              success: false,
-              error: "Amount override requires admin access",
-            });
-        }
-
-        effectiveAmount = parsedAmountOverride!;
-        if (!derivedUserId && typeof overrideApprovedBy.id === "string") {
-          derivedUserId = overrideApprovedBy.id;
-        }
-      }
-
-      if (isRetryRequest) {
-        const originalPayment = await storage.getPaymentById(
-          parsedRetryPaymentId!,
+    if (hostedCheckoutService) {
+      const activeConfig = hostedCheckoutService.getCheckoutConfig();
+      if (activeConfig.environment !== currentEnvironment) {
+        console.log(
+          "[EPX Hosted Checkout] Environment mismatch detected. Reinitializing service.",
         );
-        if (!originalPayment) {
-          return res
-            .status(404)
-            .json({ success: false, error: "Original payment not found" });
-        }
+        initializeService(true);
+      }
+    }
 
-        retrySourceMetadata = parsePaymentMetadata(originalPayment.metadata);
-        const retryHistory = Array.isArray(retrySourceMetadata.retryHistory)
-          ? [...retrySourceMetadata.retryHistory]
-          : [];
-        const attemptNumber = retryHistory.length + 1;
-        const authUserId = requestUserId || undefined;
+    if (!serviceInitialized || !hostedCheckoutService) {
+      return res.status(503).json({
+        success: false,
+        error: initError || "Hosted Checkout service not initialized",
+        configSource: hostedConfigSource,
+      });
+    }
 
-        const paymentAmount = originalPayment.amount
-          ? parseFloat(originalPayment.amount)
+    const {
+      amount,
+      amountOverride,
+      amountOverrideReason,
+      customerId,
+      customerEmail,
+      customerName,
+      planId,
+      subscriptionId,
+      description,
+      billingAddress,
+      captchaToken,
+      retryPaymentId,
+      retryMemberId,
+      retryReason,
+      retryInitiatedBy,
+      groupId,
+      groupMemberId,
+      selectedGroupMemberIds,
+      paymentScope,
+      paymentMethodType,
+      deliveryMode,
+    } = req.body;
+
+    const normalizedRequestedPaymentMethodType =
+      String(paymentMethodType || "")
+        .trim()
+        .toUpperCase() === "ACH"
+        ? "ACH"
+        : "CreditCard";
+    const normalizedDeliveryMode =
+      typeof deliveryMode === "string" ? deliveryMode.trim().toLowerCase() : "";
+    const isPaymentLinkMode = normalizedDeliveryMode === "payment_link";
+
+    if (isPaymentLinkMode) {
+      if (
+        !authenticatedUser ||
+        !hasAtLeastRole(authenticatedUser.role, "agent")
+      ) {
+        return res.status(403).json({
+          success: false,
+          error:
+            "Authenticated agent/admin access is required to generate payment links",
+        });
+      }
+    }
+
+    const explicitGroupId = typeof groupId === "string" ? groupId.trim() : "";
+    const explicitGroupMemberId = parseNumericGroupMemberId(groupMemberId);
+    const explicitSelectedGroupMemberIds = parseNumericGroupMemberIdList(
+      selectedGroupMemberIds,
+    );
+    const hasGroupPaymentContext = Boolean(
+      explicitGroupId && explicitGroupMemberId,
+    );
+    const normalizedPaymentScope =
+      typeof paymentScope === "string"
+        ? paymentScope.trim().toLowerCase()
+        : null;
+    const isGroupInvoiceScope =
+      normalizedPaymentScope === "group_invoice" && Boolean(explicitGroupId);
+
+    const numericAmount =
+      typeof amount === "number"
+        ? amount
+        : amount !== undefined && amount !== null
+          ? parseFloat(String(amount))
           : NaN;
-        const metadataAmount = retrySourceMetadata.amount
-          ? parseFloat(String(retrySourceMetadata.amount))
+
+    const parsedAmountOverride =
+      typeof amountOverride === "number"
+        ? amountOverride
+        : amountOverride !== undefined && amountOverride !== null
+          ? parseFloat(String(amountOverride))
           : NaN;
-        if (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0) {
-          const derivedAmount =
-            Number.isFinite(paymentAmount) && paymentAmount > 0
-              ? paymentAmount
-              : Number.isFinite(metadataAmount) && metadataAmount > 0
-                ? metadataAmount
-                : NaN;
-          effectiveAmount = derivedAmount;
-        }
 
-        const resolvedMemberId =
-          parsedRetryMemberId ||
-          (typeof originalPayment.member_id === "number"
-            ? originalPayment.member_id
-            : originalPayment.member_id
-              ? parseInt(String(originalPayment.member_id), 10)
-              : undefined) ||
-          (typeof retrySourceMetadata.memberId === "number"
-            ? retrySourceMetadata.memberId
-            : undefined);
+    const hasAmountOverride =
+      Number.isFinite(parsedAmountOverride) && parsedAmountOverride > 0;
+    const normalizedAmountOverrideReason =
+      typeof amountOverrideReason === "string"
+        ? amountOverrideReason.trim() || null
+        : null;
 
-        if (Number.isFinite(resolvedMemberId as number)) {
-          derivedMemberId = Number(resolvedMemberId);
-        }
+    if (!Number.isNaN(parsedAmountOverride) && !hasAmountOverride) {
+      return res.status(400).json({
+        success: false,
+        error: "Amount override must be a positive number",
+      });
+    }
 
-        const memberRecord = derivedMemberId
-          ? await storage.getMember(derivedMemberId)
-          : null;
-        const memberRecordData = memberRecord
-          ? (memberRecord as Record<string, any>)
-          : null;
+    const normalizedBillingAddress = normalizeBillingAddress(billingAddress);
 
-        const metadataEmail =
-          retrySourceMetadata.customerEmail ||
-          retrySourceMetadata.customer_email;
-        if (!effectiveCustomerEmail) {
-          effectiveCustomerEmail =
-            metadataEmail || memberRecordData?.email || undefined;
-        }
+    const parsedRetryPaymentId =
+      typeof retryPaymentId === "string"
+        ? parseInt(retryPaymentId, 10)
+        : retryPaymentId;
 
-        const metadataName =
-          retrySourceMetadata.customerName || retrySourceMetadata.customer_name;
-        if ((!customerName || !customerName.trim()) && metadataName) {
-          effectiveCustomerName = metadataName;
-        } else if (
-          (!customerName || !customerName.trim()) &&
-          memberRecordData
-        ) {
-          const combinedName = [
-            memberRecordData.first_name || memberRecordData.firstName,
-            memberRecordData.last_name || memberRecordData.lastName,
-          ]
-            .filter(Boolean)
-            .join(" ")
-            .trim();
-          if (combinedName) {
-            effectiveCustomerName = combinedName;
-          }
-        }
+    const parsedRetryMemberId =
+      typeof retryMemberId === "string"
+        ? parseInt(retryMemberId, 10)
+        : retryMemberId;
 
-        if (!effectivePlanId && memberRecordData?.plan_id) {
-          effectivePlanId = String(memberRecordData.plan_id);
-        } else if (!effectivePlanId && retrySourceMetadata.planId) {
-          effectivePlanId = String(retrySourceMetadata.planId);
-        }
+    const isRetryRequest = Number.isFinite(parsedRetryPaymentId);
+    const requestUserId = authenticatedUser?.id || null;
 
-        if (!effectiveDescription) {
-          effectiveDescription =
-            retrySourceMetadata.description ||
-            `Retry of payment ${originalPayment.id}`;
-        }
+    let effectiveAmount = Number.isFinite(numericAmount) ? numericAmount : NaN;
+    let effectiveCustomerEmail: string | undefined = customerEmail;
+    let effectiveCustomerName: string | undefined = customerName || "Customer";
+    let effectivePlanId: string | undefined = planId;
+    let effectiveDescription: string | undefined = description;
+    let effectiveBillingAddress = normalizedBillingAddress;
+    let derivedMemberId: number | null = null;
+    let derivedUserId: string | null = null;
+    let overrideApprovedBy: any = null;
+    let retryContext: {
+      originalPaymentId: number;
+      attemptNumber: number;
+      triggeredByUserId?: string | null;
+      timestamp: string;
+      reason?: string | null;
+    } | null = null;
+    let retrySourceMetadata: Record<string, any> | null = null;
+    let memberId: number | null = null;
+    let userId: string | null = null;
 
-        if (!effectiveBillingAddress) {
-          const metadataAddress = normalizeBillingAddress(
-            retrySourceMetadata.billingAddress,
-          );
-          if (metadataAddress) {
-            effectiveBillingAddress = metadataAddress;
-          } else if (memberRecordData) {
-            effectiveBillingAddress = normalizeBillingAddress({
-              streetAddress: memberRecordData.address,
-              city: memberRecordData.city,
-              state: memberRecordData.state,
-              postalCode: memberRecordData.zip_code,
-            });
-          }
-        }
+    if (hasAmountOverride) {
+      overrideApprovedBy = authenticatedUser;
+      if (!overrideApprovedBy) {
+        overrideApprovedBy = await resolveRequestUser(authReq);
+      }
 
-        retryContext = {
-          originalPaymentId: originalPayment.id,
-          attemptNumber,
-          triggeredByUserId: retryInitiatedBy || authUserId || null,
-          timestamp: new Date().toISOString(),
-          reason: retryReason || null,
-        };
-
-        logEPX({
-          level: "info",
-          phase: "retry-payment",
-          message: "Retry hosted checkout session requested",
-          data: {
-            originalPaymentId: originalPayment.id,
-            attemptNumber,
-            memberId: derivedMemberId,
-            triggeredBy: retryContext.triggeredByUserId || "unknown",
-          },
+      if (!overrideApprovedBy || !isAtLeastAdmin(overrideApprovedBy.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "Amount override requires admin access",
         });
       }
 
-      if (
-        !isRetryRequest &&
-        (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)
-      ) {
-        return res
-          .status(400)
-          .json({ success: false, error: "A valid amount is required" });
+      effectiveAmount = parsedAmountOverride!;
+      if (!derivedUserId && typeof overrideApprovedBy.id === "string") {
+        derivedUserId = overrideApprovedBy.id;
+      }
+    }
+
+    if (isRetryRequest) {
+      if (!authenticatedUser || !isAtLeastAdmin(authenticatedUser.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "Admin access is required to start a hosted retry payment",
+        });
       }
 
-      if (
-        isRetryRequest &&
-        (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)
-      ) {
+      const originalPayment = await storage.getPaymentById(
+        parsedRetryPaymentId!,
+      );
+      if (!originalPayment) {
         return res
-          .status(400)
-          .json({
+          .status(404)
+          .json({ success: false, error: "Original payment not found" });
+      }
+
+      retrySourceMetadata = parsePaymentMetadata(originalPayment.metadata);
+      const originalStatus = String(originalPayment.status || "")
+        .trim()
+        .toLowerCase();
+      if (!["failed", "cancelled"].includes(originalStatus)) {
+        return res.status(409).json({
+          success: false,
+          code: "RETRY_NOT_ALLOWED_FOR_STATUS",
+          error: `Retry only allowed for failed/cancelled payments. Current status: ${originalPayment.status || "unknown"}`,
+        });
+      }
+
+      const hostedRetryMeta =
+        retrySourceMetadata?.hostedCallback &&
+        typeof retrySourceMetadata.hostedCallback === "object"
+          ? retrySourceMetadata.hostedCallback
+          : null;
+      const retryable =
+        hostedRetryMeta?.retryable === true ||
+        hostedRetryMeta?.failureCategory === "processor_unavailable";
+      if (!retryable) {
+        return res.status(409).json({
+          success: false,
+          code: "RETRY_NOT_RETRYABLE",
+          error:
+            "Retry is blocked because the original failure is not classified as retryable",
+          failureCategory: hostedRetryMeta?.failureCategory || null,
+        });
+      }
+
+      const existingRetryResult = await query(
+        `
+            SELECT id, status, transaction_id, created_at
+            FROM payments
+            WHERE metadata->>'retrySourcePaymentId' = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+          `,
+        [String(originalPayment.id)],
+      );
+      const existingRetry = existingRetryResult.rows?.[0];
+      if (existingRetry) {
+        const retryStatus = String(existingRetry.status || "")
+          .trim()
+          .toLowerCase();
+        if (
+          [
+            "pending",
+            "processing",
+            "succeeded",
+            "success",
+            "completed",
+          ].includes(retryStatus)
+        ) {
+          return res.status(409).json({
             success: false,
-            error: "Unable to resolve amount for retry payment",
+            code: "RETRY_ALREADY_EXISTS",
+            error:
+              "A retry payment already exists for this failed payment and is pending or completed",
+            existingRetryPaymentId: existingRetry.id,
+            existingRetryStatus: existingRetry.status,
+            existingRetryTransactionId: existingRetry.transaction_id || null,
           });
-      }
-
-      if (!effectiveCustomerEmail) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: "Unable to resolve customer email for payment",
-          });
-      }
-
-      // Determine whether the customerId refers to a member (numeric) or a staff user (uuid)
-      memberId = derivedMemberId;
-      userId = derivedUserId;
-
-      if (!memberId) {
-        if (typeof customerId === "number") {
-          memberId = customerId;
-        } else if (typeof customerId === "string") {
-          if (/^\d+$/.test(customerId)) {
-            memberId = parseInt(customerId, 10);
-          } else if (customerId.includes("-")) {
-            userId = customerId;
-          }
         }
       }
 
-      // Guardrails to avoid duplicate charges from repeated checkout launches.
-      if (memberId) {
+      const retryHistory = Array.isArray(retrySourceMetadata.retryHistory)
+        ? [...retrySourceMetadata.retryHistory]
+        : [];
+      const attemptNumber = retryHistory.length + 1;
+      const authUserId = requestUserId || undefined;
+
+      const paymentAmount = originalPayment.amount
+        ? parseFloat(originalPayment.amount)
+        : NaN;
+      const metadataAmount = retrySourceMetadata.amount
+        ? parseFloat(String(retrySourceMetadata.amount))
+        : NaN;
+      if (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0) {
+        const derivedAmount =
+          Number.isFinite(paymentAmount) && paymentAmount > 0
+            ? paymentAmount
+            : Number.isFinite(metadataAmount) && metadataAmount > 0
+              ? metadataAmount
+              : NaN;
+        effectiveAmount = derivedAmount;
+      }
+
+      const resolvedMemberId =
+        parsedRetryMemberId ||
+        (typeof originalPayment.member_id === "number"
+          ? originalPayment.member_id
+          : originalPayment.member_id
+            ? parseInt(String(originalPayment.member_id), 10)
+            : undefined) ||
+        (typeof retrySourceMetadata.memberId === "number"
+          ? retrySourceMetadata.memberId
+          : undefined);
+
+      if (Number.isFinite(resolvedMemberId as number)) {
+        derivedMemberId = Number(resolvedMemberId);
+      }
+
+      if (derivedMemberId) {
         const latestEnrollmentPayment =
-          await storage.getLatestEnrollmentPayment(memberId);
-
+          await storage.getLatestEnrollmentPayment(derivedMemberId);
         if (latestEnrollmentPayment) {
-          const latestStatus = String(
-            latestEnrollmentPayment.status || "",
-          ).toLowerCase();
-          const latestTransactionId =
-            latestEnrollmentPayment.transaction_id || null;
-
+          const latestStatus = String(latestEnrollmentPayment.status || "")
+            .trim()
+            .toLowerCase();
+          const latestPaymentId = Number(latestEnrollmentPayment.id);
           if (
-            !isRetryRequest &&
+            latestPaymentId !== Number(originalPayment.id) &&
             ["succeeded", "success", "completed"].includes(latestStatus)
           ) {
             return res.status(409).json({
               success: false,
-              code: "PAYMENT_ALREADY_COMPLETED",
+              code: "RETRY_MEMBER_ALREADY_PAID",
+              error:
+                "Retry blocked because member already has a newer successful enrollment payment",
+              existingPaymentId: latestEnrollmentPayment.id,
+              existingTransactionId:
+                latestEnrollmentPayment.transaction_id || null,
+            });
+          }
+        }
+      }
+
+      const memberRecord = derivedMemberId
+        ? await storage.getMember(derivedMemberId)
+        : null;
+      const memberRecordData = memberRecord
+        ? (memberRecord as Record<string, any>)
+        : null;
+
+      const metadataEmail =
+        retrySourceMetadata.customerEmail || retrySourceMetadata.customer_email;
+      if (!effectiveCustomerEmail) {
+        effectiveCustomerEmail =
+          metadataEmail || memberRecordData?.email || undefined;
+      }
+
+      const metadataName =
+        retrySourceMetadata.customerName || retrySourceMetadata.customer_name;
+      if ((!customerName || !customerName.trim()) && metadataName) {
+        effectiveCustomerName = metadataName;
+      } else if ((!customerName || !customerName.trim()) && memberRecordData) {
+        const combinedName = [
+          memberRecordData.first_name || memberRecordData.firstName,
+          memberRecordData.last_name || memberRecordData.lastName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        if (combinedName) {
+          effectiveCustomerName = combinedName;
+        }
+      }
+
+      if (!effectivePlanId && memberRecordData?.plan_id) {
+        effectivePlanId = String(memberRecordData.plan_id);
+      } else if (!effectivePlanId && retrySourceMetadata.planId) {
+        effectivePlanId = String(retrySourceMetadata.planId);
+      }
+
+      if (!effectiveDescription) {
+        effectiveDescription =
+          retrySourceMetadata.description ||
+          `Retry of payment ${originalPayment.id}`;
+      }
+
+      if (!effectiveBillingAddress) {
+        const metadataAddress = normalizeBillingAddress(
+          retrySourceMetadata.billingAddress,
+        );
+        if (metadataAddress) {
+          effectiveBillingAddress = metadataAddress;
+        } else if (memberRecordData) {
+          effectiveBillingAddress = normalizeBillingAddress({
+            streetAddress: memberRecordData.address,
+            city: memberRecordData.city,
+            state: memberRecordData.state,
+            postalCode: memberRecordData.zip_code,
+          });
+        }
+      }
+
+      retryContext = {
+        originalPaymentId: originalPayment.id,
+        attemptNumber,
+        triggeredByUserId: retryInitiatedBy || authUserId || null,
+        timestamp: new Date().toISOString(),
+        reason: retryReason || null,
+      };
+
+      logEPX({
+        level: "info",
+        phase: "retry-payment",
+        message: "Retry hosted checkout session requested",
+        data: {
+          originalPaymentId: originalPayment.id,
+          attemptNumber,
+          memberId: derivedMemberId,
+          triggeredBy: retryContext.triggeredByUserId || "unknown",
+        },
+      });
+    }
+
+    if (
+      !isRetryRequest &&
+      (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, error: "A valid amount is required" });
+    }
+
+    if (
+      isRetryRequest &&
+      (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Unable to resolve amount for retry payment",
+      });
+    }
+
+    if (!effectiveCustomerEmail) {
+      return res.status(400).json({
+        success: false,
+        error: "Unable to resolve customer email for payment",
+      });
+    }
+
+    // Determine whether the customerId refers to a member (numeric) or a staff user (uuid)
+    memberId = derivedMemberId;
+    userId = derivedUserId;
+
+    if (!memberId) {
+      if (typeof customerId === "number") {
+        memberId = customerId;
+      } else if (typeof customerId === "string") {
+        if (/^\d+$/.test(customerId)) {
+          memberId = parseInt(customerId, 10);
+        } else if (customerId.includes("-")) {
+          userId = customerId;
+        }
+      }
+    }
+
+    // Guardrails to avoid duplicate charges from repeated checkout launches.
+    if (memberId) {
+      const latestEnrollmentPayment =
+        await storage.getLatestEnrollmentPayment(memberId);
+
+      if (latestEnrollmentPayment) {
+        const latestStatus = String(
+          latestEnrollmentPayment.status || "",
+        ).toLowerCase();
+        const latestTransactionId =
+          latestEnrollmentPayment.transaction_id || null;
+
+        if (
+          !isRetryRequest &&
+          ["succeeded", "success", "completed"].includes(latestStatus)
+        ) {
+          return res.status(409).json({
+            success: false,
+            code: "PAYMENT_ALREADY_COMPLETED",
+            message:
+              "This enrollment already has a successful payment. Open payment history before creating a new charge.",
+            existingPaymentId: latestEnrollmentPayment.id,
+            existingTransactionId: latestTransactionId,
+          });
+        }
+
+        if (["pending", "processing"].includes(latestStatus)) {
+          const createdAtMs = latestEnrollmentPayment.created_at
+            ? new Date(
+                latestEnrollmentPayment.created_at as unknown as string,
+              ).getTime()
+            : NaN;
+          const withinIntentWindow = Number.isFinite(createdAtMs)
+            ? Date.now() - createdAtMs <
+              HOSTED_PENDING_ACTIVE_WINDOW_MINUTES * 60 * 1000
+            : true;
+
+          const resumeSamePendingIntent =
+            isRetryRequest &&
+            Number(parsedRetryPaymentId) === Number(latestEnrollmentPayment.id);
+
+          if (withinIntentWindow && !resumeSamePendingIntent) {
+            return res.status(409).json({
+              success: false,
+              code: "PAYMENT_INTENT_ACTIVE",
               message:
-                "This enrollment already has a successful payment. Open payment history before creating a new charge.",
+                "A payment session is already in progress for this enrollment. Please complete or fail that attempt before starting another.",
               existingPaymentId: latestEnrollmentPayment.id,
               existingTransactionId: latestTransactionId,
             });
           }
 
-          if (["pending", "processing"].includes(latestStatus)) {
-            const createdAtMs = latestEnrollmentPayment.created_at
-              ? new Date(
-                  latestEnrollmentPayment.created_at as unknown as string,
-                ).getTime()
-              : NaN;
-            const withinIntentWindow = Number.isFinite(createdAtMs)
-              ? Date.now() - createdAtMs <
-                HOSTED_PENDING_ACTIVE_WINDOW_MINUTES * 60 * 1000
-              : true;
-
-            const resumeSamePendingIntent =
-              isRetryRequest &&
-              Number(parsedRetryPaymentId) ===
-                Number(latestEnrollmentPayment.id);
-
-            if (withinIntentWindow && !resumeSamePendingIntent) {
-              return res.status(409).json({
-                success: false,
-                code: "PAYMENT_INTENT_ACTIVE",
-                message:
-                  "A payment session is already in progress for this enrollment. Please complete or fail that attempt before starting another.",
-                existingPaymentId: latestEnrollmentPayment.id,
-                existingTransactionId: latestTransactionId,
-              });
-            }
-
-            if (withinIntentWindow && resumeSamePendingIntent) {
-              logEPX({
-                level: "info",
-                phase: "create-payment",
-                message:
-                  "Resuming existing active payment intent by explicit retry",
-                data: {
-                  memberId,
-                  paymentId: latestEnrollmentPayment.id,
-                  transactionId: latestTransactionId,
-                },
-              });
-            }
+          if (withinIntentWindow && resumeSamePendingIntent) {
+            logEPX({
+              level: "info",
+              phase: "create-payment",
+              message:
+                "Resuming existing active payment intent by explicit retry",
+              data: {
+                memberId,
+                paymentId: latestEnrollmentPayment.id,
+                transactionId: latestTransactionId,
+              },
+            });
           }
         }
       }
+    }
 
-      logEPX({
-        level: "info",
-        phase: "create-payment",
-        message: "Create payment request received",
-        data: {
-          requestedAmount: numericAmount,
-          effectiveAmount,
-          customerId,
-          customerEmail: effectiveCustomerEmail,
-          planId: effectivePlanId,
-          hasBillingAddress: !!effectiveBillingAddress,
-          isRetryRequest,
-          retryPaymentId: parsedRetryPaymentId || null,
-          groupId: explicitGroupId || null,
-          groupMemberId: explicitGroupMemberId,
-          paymentScope: normalizedPaymentScope,
-          requestedPaymentMethodType: normalizedRequestedPaymentMethodType,
-          amountOverride: hasAmountOverride ? parsedAmountOverride : null,
-          overrideRequestedBy: overrideApprovedBy?.id || requestUserId || null,
-        },
-      });
-
-      // Server-side reCAPTCHA verification (production only or when enabled)
-      if (isRecaptchaEnabled() && !isPaymentLinkMode) {
-        const verifyResult = await verifyRecaptcha(
-          captchaToken || "",
-          "hosted_checkout",
-        );
-        logEPX({
-          level: verifyResult.success ? "info" : "warn",
-          phase: "recaptcha",
-          message: "Token verification",
-          data: verifyResult,
-        });
-        if (!verifyResult.success) {
-          return res
-            .status(400)
-            .json({
-              success: false,
-              error: "Captcha verification failed",
-              code: "RECAPTCHA_FAILED",
-            });
-        }
-      }
-
-      // Generate order number (transaction ID)
-      const orderNumber = Date.now().toString().slice(-10);
-      const shortInvoiceNo = buildShortInvoiceNo(
-        effectiveCustomerName,
-        effectiveDescription,
-        orderNumber,
-      );
-
-      // Create checkout session
-      const sessionResponse = hostedCheckoutService.createCheckoutSession(
+    logEPX({
+      level: "info",
+      phase: "create-payment",
+      message: "Create payment request received",
+      data: {
+        requestedAmount: numericAmount,
         effectiveAmount,
-        orderNumber,
-        effectiveCustomerEmail,
-        effectiveCustomerName || "Customer",
-        effectiveBillingAddress,
+        customerId,
+        customerEmail: effectiveCustomerEmail,
+        planId: effectivePlanId,
+        hasBillingAddress: !!effectiveBillingAddress,
+        isRetryRequest,
+        retryPaymentId: parsedRetryPaymentId || null,
+        groupId: explicitGroupId || null,
+        groupMemberId: explicitGroupMemberId,
+        paymentScope: normalizedPaymentScope,
+        requestedPaymentMethodType: normalizedRequestedPaymentMethodType,
+        amountOverride: hasAmountOverride ? parsedAmountOverride : null,
+        overrideRequestedBy: overrideApprovedBy?.id || requestUserId || null,
+      },
+    });
+
+    // Server-side reCAPTCHA verification (production only or when enabled)
+    if (isRecaptchaEnabled() && !isPaymentLinkMode) {
+      const verifyResult = await verifyRecaptcha(
+        captchaToken || "",
+        "hosted_checkout",
       );
-
-      if (!sessionResponse.success) {
-        logEPX({
-          level: "error",
-          phase: "create-payment",
-          message: "Session creation failed",
-          data: { error: sessionResponse.error },
-        });
-        return res.status(400).json(sessionResponse);
-      }
-
-      // Store payment record in pending state
-      try {
-        const paymentMetadata: Record<string, any> = {
-          planId: effectivePlanId,
-          paymentType: "hosted-checkout",
-          environment: currentEnvironment,
-          customerEmail: effectiveCustomerEmail,
-          customerName: effectiveCustomerName,
-          description: effectiveDescription,
-          orderNumber,
-          originalCustomerId: customerId,
-          billingAddress: effectiveBillingAddress || null,
-          requestedAmount: Number.isFinite(numericAmount)
-            ? numericAmount
-            : null,
-        };
-
-        paymentMetadata.requestedPaymentMethodType =
-          normalizedRequestedPaymentMethodType;
-        paymentMetadata.deliveryMode = isPaymentLinkMode
-          ? "payment_link"
-          : "embedded_checkout";
-        paymentMetadata.shortInvoiceNo = shortInvoiceNo;
-
-        if (hasGroupPaymentContext) {
-          paymentMetadata.groupPaymentContext = {
-            groupId: explicitGroupId,
-            groupMemberId: explicitGroupMemberId,
-          };
-        }
-
-        if (isGroupInvoiceScope) {
-          paymentMetadata.groupInvoiceContext = {
-            groupId: explicitGroupId,
-            selectedGroupMemberIds: explicitSelectedGroupMemberIds,
-          };
-          paymentMetadata.paymentScope = "group_invoice";
-        }
-
-        if (hasAmountOverride) {
-          paymentMetadata.amountOverride = {
-            amount: parsedAmountOverride,
-            approvedByUserId: overrideApprovedBy?.id || null,
-            approvedByEmail: overrideApprovedBy?.email || null,
-            approvedByRole: overrideApprovedBy?.role || null,
-            reason: normalizedAmountOverrideReason,
-            requestedAt: new Date().toISOString(),
-          };
-          paymentMetadata.testPayment = true;
-        }
-
-        if (retryContext) {
-          paymentMetadata.retryContext = retryContext;
-          paymentMetadata.retrySourcePaymentId = retryContext.originalPaymentId;
-          paymentMetadata.retryAttemptNumber = retryContext.attemptNumber;
-          paymentMetadata.retryReason = retryContext.reason;
-          paymentMetadata.retryInitiatedBy =
-            retryContext.triggeredByUserId || null;
-        }
-
-        if (retrySourceMetadata) {
-          paymentMetadata.retrySourceMetadata = retrySourceMetadata;
-        }
-
-        const resolvedSubscriptionId =
-          parseSubscriptionId(subscriptionId) ||
-          (memberId
-            ? parseSubscriptionId(
-                (await resolveMemberSubscriptionForSuccessfulPayment(memberId))
-                  ?.id,
-              )
-            : null);
-
-        const paymentData = {
-          memberId,
-          userId,
-          subscriptionId: resolvedSubscriptionId
-            ? String(resolvedSubscriptionId)
-            : null,
-          amount: effectiveAmount.toString(),
-          currency: "USD",
-          status: "pending" as const,
-          paymentMethod:
-            normalizedRequestedPaymentMethodType === "ACH"
-              ? ("ach" as const)
-              : ("card" as const),
-          paymentMethodType: normalizedRequestedPaymentMethodType,
-          transactionId: orderNumber,
-          metadata: paymentMetadata,
-        };
-
-        logEPX({
-          level: "info",
-          phase: "create-payment",
-          message: "Attempting to insert payment row",
-          data: {
-            transactionId: orderNumber,
-            amount: paymentData.amount,
-            userId,
-            memberId,
-            metadataKeys: Object.keys(paymentData.metadata || {}),
-          },
-        });
-
-        const createdPayment = await storage.createPayment(paymentData);
-
-        if (memberId) {
-          await storage.createAdminNotification({
-            type: "payment_initiated",
-            title: "Payment Session Started",
-            message: `Hosted checkout started for member #${memberId} (${effectiveCustomerName || effectiveCustomerEmail}).`,
-            memberId,
-            metadata: {
-              paymentId: createdPayment?.id,
-              transactionId: orderNumber,
-              amount: effectiveAmount,
-              retryContext,
-            },
-          });
-        }
-
-        logEPX({
-          level: "info",
-          phase: "create-payment",
-          message: "Payment record created successfully",
-          data: {
-            transactionId: orderNumber,
-            paymentId: createdPayment?.id,
-            status: createdPayment?.status,
-            environment:
-              createdPayment?.metadata?.environment ||
-              paymentData.metadata?.environment,
-          },
-        });
-      } catch (storageError: any) {
-        logEPX({
-          level: "error",
-          phase: "create-payment",
-          message: "Storage createPayment failed (non-fatal)",
-          data: {
-            error: storageError?.message,
-            stack: storageError?.stack,
-            transactionId: orderNumber,
-          },
-        });
-        // Continue even if storage fails - payment can still process
-      }
-
-      // Get checkout configuration
-      const config = hostedCheckoutService.getCheckoutConfig();
-
-      // Return data needed for frontend
-      const paymentEnvSuffix =
-        currentEnvironment === "production" ? "PRODUCTION" : "SANDBOX";
-      const achPublicKeyOverride =
-        process.env[`EPX_PUBLIC_KEY_ACH_${paymentEnvSuffix}`] ||
-        process.env.EPX_PUBLIC_KEY_ACH ||
-        null;
-      const achTerminalProfileOverride =
-        process.env[`EPX_TERMINAL_PROFILE_ID_ACH_${paymentEnvSuffix}`] ||
-        process.env.EPX_TERMINAL_PROFILE_ID_ACH ||
-        null;
-
-      const effectiveHostedPublicKey =
-        normalizedRequestedPaymentMethodType === "ACH" && achPublicKeyOverride
-          ? achPublicKeyOverride
-          : sessionResponse.publicKey;
-
-      const effectiveHostedTerminalProfileId =
-        normalizedRequestedPaymentMethodType === "ACH" &&
-        achTerminalProfileOverride
-          ? achTerminalProfileOverride
-          : config.terminalProfileId;
-
-      const responsePayload: {
-        success: boolean;
-        transactionId: string;
-        sessionId: string | undefined;
-        publicKey: string | undefined;
-        scriptUrl: string;
-        terminalProfileId: string;
-        environment: "sandbox" | "production";
-        captchaMode: string;
-        paymentMethod: "hosted-checkout";
-        retryContext: Record<string, any> | undefined;
-        overrideApplied: boolean | undefined;
-        overrideAmount: number | undefined;
-        requestedAmount: number | undefined;
-        testPayment: boolean | undefined;
-        hostedPaymentLink?: string;
-        formData: {
-          amount: string;
-          orderNumber: string;
-          invoiceNumber: string;
-          email: string;
-          billingName: string;
-        } & Record<string, any>;
-      } = {
-        success: true,
-        transactionId: orderNumber,
-        sessionId: sessionResponse.sessionId,
-        publicKey: effectiveHostedPublicKey,
-        scriptUrl: config.scriptUrl,
-        terminalProfileId: effectiveHostedTerminalProfileId,
-        environment: config.environment,
-        captchaMode: config.captchaMode,
-        paymentMethod: "hosted-checkout",
-        retryContext: retryContext || undefined,
-        overrideApplied: hasAmountOverride || undefined,
-        overrideAmount: hasAmountOverride ? effectiveAmount : undefined,
-        requestedAmount: Number.isFinite(numericAmount)
-          ? numericAmount
-          : undefined,
-        testPayment: hasAmountOverride || undefined,
-        formData: {
-          amount: effectiveAmount.toFixed(2),
-          orderNumber,
-          invoiceNumber: orderNumber,
-          email: effectiveCustomerEmail,
-          billingName: effectiveCustomerName || "Customer",
-          ...(effectiveBillingAddress || {}),
-        },
-      };
-
-      if (isPaymentLinkMode) {
-        responsePayload.formData.invoiceNumber = shortInvoiceNo;
-        responsePayload.hostedPaymentLink = buildHostedPaymentLink({
-          scriptUrl: config.scriptUrl,
-          environment: config.environment,
-          terminalProfileId: effectiveHostedTerminalProfileId,
-          amount: effectiveAmount.toFixed(2),
-          invoiceNo: shortInvoiceNo,
-          description: effectiveDescription,
-          billingName: effectiveCustomerName || "Customer",
-          email: effectiveCustomerEmail,
-          billingAddress: effectiveBillingAddress,
-        });
-      }
-
-      // Log the payload we send to frontend (which frontend will use to call EPX)
-      console.log(
-        "[EPX Hosted Checkout - REQUEST TO FRONTEND]",
-        JSON.stringify(
-          {
-            transactionId: orderNumber,
-            amount: effectiveAmount.toFixed(2),
-            email: effectiveCustomerEmail,
-            billingName: effectiveCustomerName || "Customer",
-            publicKey: effectiveHostedPublicKey,
-            terminalProfileId: effectiveHostedTerminalProfileId,
-            requestedPaymentMethodType: normalizedRequestedPaymentMethodType,
-            environment: config.environment,
-            billingAddress: effectiveBillingAddress,
-          },
-          null,
-          2,
-        ),
-      );
-
       logEPX({
-        level: "info",
-        phase: "create-payment",
-        message: "Create payment response ready",
-        data: {
-          transactionId: orderNumber,
-          hasBillingAddress: !!effectiveBillingAddress,
-          retry: !!retryContext,
-          testPayment: hasAmountOverride,
-        },
+        level: verifyResult.success ? "info" : "warn",
+        phase: "recaptcha",
+        message: "Token verification",
+        data: verifyResult,
       });
-
-      if (certificationLoggingEnabled) {
-        try {
-          certificationLogger.logCertificationEntry({
-            transactionId: orderNumber,
-            customerId:
-              (memberId && String(memberId)) ||
-              userId ||
-              (customerId ? String(customerId) : undefined),
-            amount: effectiveAmount,
-            environment: currentEnvironment,
-            purpose: "hosted-checkout-create-payment",
-            request: {
-              timestamp: new Date(requestStartTime).toISOString(),
-              method: "POST",
-              endpoint: "/api/epx/hosted/create-payment",
-              url: `${req.protocol}://${req.get("host")}/api/epx/hosted/create-payment`,
-              headers: {
-                "content-type": req.get("content-type") || "application/json",
-                "user-agent": req.get("user-agent") || "unknown",
-              },
-              body: {
-                amount: numericAmount,
-                effectiveAmount,
-                customerId,
-                customerEmail,
-                effectiveCustomerEmail,
-                customerName,
-                effectiveCustomerName,
-                planId,
-                subscriptionId,
-                description,
-                effectiveDescription,
-                billingAddress: normalizedBillingAddress,
-                effectiveBillingAddress,
-                captchaToken: captchaToken || null,
-                retryPaymentId: parsedRetryPaymentId || null,
-                retryMemberId: parsedRetryMemberId || null,
-                retryContext,
-                retryReason: retryContext?.reason || retryReason || null,
-                amountOverride: hasAmountOverride ? parsedAmountOverride : null,
-                amountOverrideReason: normalizedAmountOverrideReason,
-                overrideApprovedBy: overrideApprovedBy?.id || null,
-                deliveryMode: isPaymentLinkMode
-                  ? "payment_link"
-                  : "embedded_checkout",
-                shortInvoiceNo,
-              },
-              ipAddress: req.ip,
-              userAgent: req.get("user-agent") || undefined,
-            },
-            response: {
-              statusCode: 200,
-              headers: {
-                "content-type": "application/json",
-              },
-              body: responsePayload,
-              processingTimeMs: Date.now() - requestStartTime,
-            },
-            metadata: {
-              billingAddressPresent: !!effectiveBillingAddress,
-              paymentMethod: "hosted-checkout",
-              retryAttemptNumber: retryContext?.attemptNumber || null,
-              testPayment: hasAmountOverride || null,
-            },
-          });
-        } catch (certError: any) {
-          logEPX({
-            level: "warn",
-            phase: "create-payment",
-            message: "Certification logging failed",
-            data: { error: certError.message },
-          });
-        }
+      if (!verifyResult.success) {
+        return res.status(400).json({
+          success: false,
+          error: "Captcha verification failed",
+          code: "RECAPTCHA_FAILED",
+        });
       }
+    }
 
-      res.json(responsePayload);
-    } catch (error: any) {
+    // Generate order number (transaction ID)
+    const orderNumber = Date.now().toString().slice(-10);
+    const shortInvoiceNo = buildShortInvoiceNo(
+      effectiveCustomerName,
+      effectiveDescription,
+      orderNumber,
+    );
+
+    // Create checkout session
+    const sessionResponse = hostedCheckoutService.createCheckoutSession(
+      effectiveAmount,
+      orderNumber,
+      effectiveCustomerEmail,
+      effectiveCustomerName || "Customer",
+      effectiveBillingAddress,
+    );
+
+    if (!sessionResponse.success) {
       logEPX({
         level: "error",
         phase: "create-payment",
-        message: "Unhandled exception during create-payment",
+        message: "Session creation failed",
+        data: { error: sessionResponse.error },
+      });
+      return res.status(400).json(sessionResponse);
+    }
+
+    // Store payment record in pending state
+    try {
+      const paymentMetadata: Record<string, any> = {
+        planId: effectivePlanId,
+        paymentType: "hosted-checkout",
+        environment: currentEnvironment,
+        customerEmail: effectiveCustomerEmail,
+        customerName: effectiveCustomerName,
+        description: effectiveDescription,
+        orderNumber,
+        originalCustomerId: customerId,
+        billingAddress: effectiveBillingAddress || null,
+        requestedAmount: Number.isFinite(numericAmount) ? numericAmount : null,
+      };
+
+      paymentMetadata.requestedPaymentMethodType =
+        normalizedRequestedPaymentMethodType;
+      paymentMetadata.deliveryMode = isPaymentLinkMode
+        ? "payment_link"
+        : "embedded_checkout";
+      paymentMetadata.shortInvoiceNo = shortInvoiceNo;
+
+      if (hasGroupPaymentContext) {
+        paymentMetadata.groupPaymentContext = {
+          groupId: explicitGroupId,
+          groupMemberId: explicitGroupMemberId,
+        };
+      }
+
+      if (isGroupInvoiceScope) {
+        paymentMetadata.groupInvoiceContext = {
+          groupId: explicitGroupId,
+          selectedGroupMemberIds: explicitSelectedGroupMemberIds,
+        };
+        paymentMetadata.paymentScope = "group_invoice";
+      }
+
+      if (hasAmountOverride) {
+        paymentMetadata.amountOverride = {
+          amount: parsedAmountOverride,
+          approvedByUserId: overrideApprovedBy?.id || null,
+          approvedByEmail: overrideApprovedBy?.email || null,
+          approvedByRole: overrideApprovedBy?.role || null,
+          reason: normalizedAmountOverrideReason,
+          requestedAt: new Date().toISOString(),
+        };
+        paymentMetadata.testPayment = true;
+      }
+
+      if (retryContext) {
+        paymentMetadata.retryContext = retryContext;
+        paymentMetadata.retrySourcePaymentId = retryContext.originalPaymentId;
+        paymentMetadata.retryAttemptNumber = retryContext.attemptNumber;
+        paymentMetadata.retryReason = retryContext.reason;
+        paymentMetadata.retryInitiatedBy =
+          retryContext.triggeredByUserId || null;
+      }
+
+      if (retrySourceMetadata) {
+        paymentMetadata.retrySourceMetadata = retrySourceMetadata;
+      }
+
+      const resolvedSubscriptionId =
+        parseSubscriptionId(subscriptionId) ||
+        (memberId
+          ? parseSubscriptionId(
+              (await resolveMemberSubscriptionForSuccessfulPayment(memberId))
+                ?.id,
+            )
+          : null);
+
+      const paymentData = {
+        memberId,
+        userId,
+        subscriptionId: resolvedSubscriptionId
+          ? String(resolvedSubscriptionId)
+          : null,
+        amount: effectiveAmount.toString(),
+        currency: "USD",
+        status: "pending" as const,
+        paymentMethod:
+          normalizedRequestedPaymentMethodType === "ACH"
+            ? ("ach" as const)
+            : ("card" as const),
+        paymentMethodType: normalizedRequestedPaymentMethodType,
+        transactionId: orderNumber,
+        metadata: paymentMetadata,
+      };
+
+      logEPX({
+        level: "info",
+        phase: "create-payment",
+        message: "Attempting to insert payment row",
+        data: {
+          transactionId: orderNumber,
+          amount: paymentData.amount,
+          userId,
+          memberId,
+          metadataKeys: Object.keys(paymentData.metadata || {}),
+        },
+      });
+
+      const createdPayment = await storage.createPayment(paymentData);
+
+      if (memberId) {
+        await storage.createAdminNotification({
+          type: "payment_initiated",
+          title: "Payment Session Started",
+          message: `Hosted checkout started for member #${memberId} (${effectiveCustomerName || effectiveCustomerEmail}).`,
+          memberId,
+          metadata: {
+            paymentId: createdPayment?.id,
+            transactionId: orderNumber,
+            amount: effectiveAmount,
+            retryContext,
+          },
+        });
+      }
+
+      logEPX({
+        level: "info",
+        phase: "create-payment",
+        message: "Payment record created successfully",
+        data: {
+          transactionId: orderNumber,
+          paymentId: createdPayment?.id,
+          status: createdPayment?.status,
+          environment:
+            createdPayment?.metadata?.environment ||
+            paymentData.metadata?.environment,
+        },
+      });
+    } catch (storageError: any) {
+      logEPX({
+        level: "error",
+        phase: "create-payment",
+        message: "Storage createPayment failed (non-fatal)",
+        data: {
+          error: storageError?.message,
+          stack: storageError?.stack,
+          transactionId: orderNumber,
+        },
+      });
+      // Continue even if storage fails - payment can still process
+    }
+
+    // Get checkout configuration
+    const config = hostedCheckoutService.getCheckoutConfig();
+
+    // Return data needed for frontend
+    const paymentEnvSuffix =
+      currentEnvironment === "production" ? "PRODUCTION" : "SANDBOX";
+    const achPublicKeyOverride =
+      process.env[`EPX_PUBLIC_KEY_ACH_${paymentEnvSuffix}`] ||
+      process.env.EPX_PUBLIC_KEY_ACH ||
+      null;
+    const achTerminalProfileOverride =
+      process.env[`EPX_TERMINAL_PROFILE_ID_ACH_${paymentEnvSuffix}`] ||
+      process.env.EPX_TERMINAL_PROFILE_ID_ACH ||
+      null;
+
+    const effectiveHostedPublicKey =
+      normalizedRequestedPaymentMethodType === "ACH" && achPublicKeyOverride
+        ? achPublicKeyOverride
+        : sessionResponse.publicKey;
+
+    const effectiveHostedTerminalProfileId =
+      normalizedRequestedPaymentMethodType === "ACH" &&
+      achTerminalProfileOverride
+        ? achTerminalProfileOverride
+        : config.terminalProfileId;
+
+    const responsePayload: {
+      success: boolean;
+      transactionId: string;
+      sessionId: string | undefined;
+      publicKey: string | undefined;
+      scriptUrl: string;
+      terminalProfileId: string;
+      environment: "sandbox" | "production";
+      captchaMode: string;
+      paymentMethod: "hosted-checkout";
+      retryContext: Record<string, any> | undefined;
+      overrideApplied: boolean | undefined;
+      overrideAmount: number | undefined;
+      requestedAmount: number | undefined;
+      testPayment: boolean | undefined;
+      hostedPaymentLink?: string;
+      formData: {
+        amount: string;
+        orderNumber: string;
+        invoiceNumber: string;
+        email: string;
+        billingName: string;
+      } & Record<string, any>;
+    } = {
+      success: true,
+      transactionId: orderNumber,
+      sessionId: sessionResponse.sessionId,
+      publicKey: effectiveHostedPublicKey,
+      scriptUrl: config.scriptUrl,
+      terminalProfileId: effectiveHostedTerminalProfileId,
+      environment: config.environment,
+      captchaMode: config.captchaMode,
+      paymentMethod: "hosted-checkout",
+      retryContext: retryContext || undefined,
+      overrideApplied: hasAmountOverride || undefined,
+      overrideAmount: hasAmountOverride ? effectiveAmount : undefined,
+      requestedAmount: Number.isFinite(numericAmount)
+        ? numericAmount
+        : undefined,
+      testPayment: hasAmountOverride || undefined,
+      formData: {
+        amount: effectiveAmount.toFixed(2),
+        orderNumber,
+        invoiceNumber: orderNumber,
+        email: effectiveCustomerEmail,
+        billingName: effectiveCustomerName || "Customer",
+        ...(effectiveBillingAddress || {}),
+      },
+    };
+
+    if (isPaymentLinkMode) {
+      responsePayload.formData.invoiceNumber = shortInvoiceNo;
+      responsePayload.hostedPaymentLink = buildHostedPaymentLink({
+        scriptUrl: config.scriptUrl,
+        environment: config.environment,
+        terminalProfileId: effectiveHostedTerminalProfileId,
+        amount: effectiveAmount.toFixed(2),
+        invoiceNo: shortInvoiceNo,
+        description: effectiveDescription,
+        billingName: effectiveCustomerName || "Customer",
+        email: effectiveCustomerEmail,
+        billingAddress: effectiveBillingAddress,
+      });
+    }
+
+    // Log the payload we send to frontend (which frontend will use to call EPX)
+    console.log(
+      "[EPX Hosted Checkout - REQUEST TO FRONTEND]",
+      JSON.stringify(
+        {
+          transactionId: orderNumber,
+          amount: effectiveAmount.toFixed(2),
+          email: effectiveCustomerEmail,
+          billingName: effectiveCustomerName || "Customer",
+          publicKey: effectiveHostedPublicKey,
+          terminalProfileId: effectiveHostedTerminalProfileId,
+          requestedPaymentMethodType: normalizedRequestedPaymentMethodType,
+          environment: config.environment,
+          billingAddress: effectiveBillingAddress,
+        },
+        null,
+        2,
+      ),
+    );
+
+    logEPX({
+      level: "info",
+      phase: "create-payment",
+      message: "Create payment response ready",
+      data: {
+        transactionId: orderNumber,
+        hasBillingAddress: !!effectiveBillingAddress,
+        retry: !!retryContext,
+        testPayment: hasAmountOverride,
+      },
+    });
+
+    if (certificationLoggingEnabled) {
+      try {
+        certificationLogger.logCertificationEntry({
+          transactionId: orderNumber,
+          customerId:
+            (memberId && String(memberId)) ||
+            userId ||
+            (customerId ? String(customerId) : undefined),
+          amount: effectiveAmount,
+          environment: currentEnvironment,
+          purpose: "hosted-checkout-create-payment",
+          request: {
+            timestamp: new Date(requestStartTime).toISOString(),
+            method: "POST",
+            endpoint: "/api/epx/hosted/create-payment",
+            url: `${req.protocol}://${req.get("host")}/api/epx/hosted/create-payment`,
+            headers: {
+              "content-type": req.get("content-type") || "application/json",
+              "user-agent": req.get("user-agent") || "unknown",
+            },
+            body: {
+              amount: numericAmount,
+              effectiveAmount,
+              customerId,
+              customerEmail,
+              effectiveCustomerEmail,
+              customerName,
+              effectiveCustomerName,
+              planId,
+              subscriptionId,
+              description,
+              effectiveDescription,
+              billingAddress: normalizedBillingAddress,
+              effectiveBillingAddress,
+              captchaToken: captchaToken || null,
+              retryPaymentId: parsedRetryPaymentId || null,
+              retryMemberId: parsedRetryMemberId || null,
+              retryContext,
+              retryReason: retryContext?.reason || retryReason || null,
+              amountOverride: hasAmountOverride ? parsedAmountOverride : null,
+              amountOverrideReason: normalizedAmountOverrideReason,
+              overrideApprovedBy: overrideApprovedBy?.id || null,
+              deliveryMode: isPaymentLinkMode
+                ? "payment_link"
+                : "embedded_checkout",
+              shortInvoiceNo,
+            },
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+          },
+          response: {
+            statusCode: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+            body: responsePayload,
+            processingTimeMs: Date.now() - requestStartTime,
+          },
+          metadata: {
+            billingAddressPresent: !!effectiveBillingAddress,
+            paymentMethod: "hosted-checkout",
+            retryAttemptNumber: retryContext?.attemptNumber || null,
+            testPayment: hasAmountOverride || null,
+          },
+        });
+      } catch (certError: any) {
+        logEPX({
+          level: "warn",
+          phase: "create-payment",
+          message: "Certification logging failed",
+          data: { error: certError.message },
+        });
+      }
+    }
+
+    res.json(responsePayload);
+  } catch (error: any) {
+    logEPX({
+      level: "error",
+      phase: "create-payment",
+      message: "Unhandled exception during create-payment",
+      data: { error: error?.message },
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || "Failed to create payment session",
+    });
+  }
+};
+
+router.post(
+  "/api/epx/hosted/create-payment",
+  createHostedPaymentSessionHandler,
+);
+
+router.post(
+  "/api/admin/epx/hosted/retry-payment/:paymentId",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user || !isAtLeastAdmin(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "Admin access required",
+        });
+      }
+
+      const paymentId = Number.parseInt(req.params.paymentId, 10);
+      if (!Number.isFinite(paymentId) || paymentId <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Valid paymentId is required",
+        });
+      }
+
+      const existingBody =
+        req.body && typeof req.body === "object" ? req.body : {};
+      req.body = {
+        ...existingBody,
+        retryPaymentId: paymentId,
+        retryReason:
+          typeof existingBody.retryReason === "string" &&
+          existingBody.retryReason.trim()
+            ? existingBody.retryReason.trim()
+            : "admin_retry",
+        retryInitiatedBy: req.user.email || req.user.id,
+        deliveryMode:
+          typeof existingBody.deliveryMode === "string" &&
+          existingBody.deliveryMode.trim()
+            ? existingBody.deliveryMode
+            : "payment_link",
+      };
+
+      return createHostedPaymentSessionHandler(req as Request, res);
+    } catch (error: any) {
+      logEPX({
+        level: "error",
+        phase: "retry-payment",
+        message: "Admin hosted retry endpoint failed",
         data: { error: error?.message },
       });
-      res.status(500).json({
+
+      return res.status(500).json({
         success: false,
-        error: error.message || "Failed to create payment session",
+        error: error?.message || "Failed to initiate hosted retry payment",
       });
     }
   },
@@ -4437,6 +4651,8 @@ router.post(
           failureReason,
           rawMessage: declineDetails.rawStatusMessage || statusMessage || null,
           declineCode: declineDetails.declineCode,
+          failureCategory: declineDetails.failureCategory,
+          retryable: declineDetails.retryable,
         },
       });
 
@@ -4456,6 +4672,8 @@ router.post(
               declineDetails.rawStatusMessage || statusMessage || null,
             declineReason: failureReason,
             declineCode: declineDetails.declineCode,
+            failureCategory: declineDetails.failureCategory,
+            retryable: declineDetails.retryable,
             memberId: memberId || null,
             bricTokenPresent: false,
             paymentStatus: "failed",
@@ -4493,6 +4711,8 @@ router.post(
               rawMessage:
                 declineDetails.rawStatusMessage || statusMessage || null,
               declineCode: declineDetails.declineCode,
+              failureCategory: declineDetails.failureCategory,
+              retryable: declineDetails.retryable,
               enrollingAgentId:
                 memberRecord?.enrolledByAgentId ||
                 memberRecord?.enrolled_by_agent_id ||
@@ -5765,6 +5985,8 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
           failureReason: declineDetails.failureReason,
           declineCode: declineDetails.declineCode,
           rawStatusMessage: declineDetails.rawStatusMessage,
+          failureCategory: declineDetails.failureCategory,
+          retryable: declineDetails.retryable,
         },
       });
 
@@ -5784,6 +6006,8 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
           rawStatusMessage: declineDetails.rawStatusMessage,
           declineReason: declineDetails.failureReason,
           declineCode: declineDetails.declineCode,
+          failureCategory: declineDetails.failureCategory,
+          retryable: declineDetails.retryable,
           bricTokenPresent: false,
           paymentStatus: "failed",
           tranType: callbackResolvedTranType,
@@ -5814,6 +6038,8 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
                 failureReason: declineDetails.failureReason,
                 rawStatusMessage: declineDetails.rawStatusMessage,
                 declineCode: declineDetails.declineCode,
+                failureCategory: declineDetails.failureCategory,
+                retryable: declineDetails.retryable,
                 planId: paymentRecordForLogging.metadata?.planId || null,
                 enrollingAgentId:
                   memberRecord?.enrollingAgentId ||
@@ -5995,6 +6221,12 @@ router.get(
         legacyFailureBlob.rawStatusMessage ||
         null;
 
+      const failureCategory = hostedMeta?.failureCategory || null;
+      const retryable =
+        typeof hostedMeta?.retryable === "boolean"
+          ? hostedMeta.retryable
+          : null;
+
       const isProcessing = isHostedPendingStatus(payment.status);
 
       res.json({
@@ -6009,6 +6241,8 @@ router.get(
         failureReason,
         declineCode,
         rawStatusMessage,
+        failureCategory,
+        retryable,
       });
     } catch (error: any) {
       logEPX({
@@ -6110,25 +6344,21 @@ router.post(
       }
 
       if (!paymentRecord && !providedAuthGuid) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            error:
-              "Unable to find payment with stored EPX auth GUID. Provide a transaction/member linked to a completed payment or paste the AUTH_GUID manually.",
-          });
+        return res.status(404).json({
+          success: false,
+          error:
+            "Unable to find payment with stored EPX auth GUID. Provide a transaction/member linked to a completed payment or paste the AUTH_GUID manually.",
+        });
       }
 
       const resolvedAuthGuid = providedAuthGuid || paymentRecord?.epx_auth_guid;
 
       if (!resolvedAuthGuid) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error:
-              "No EPX AUTH GUID available. Paste it manually or select a payment that captured it.",
-          });
+        return res.status(400).json({
+          success: false,
+          error:
+            "No EPX AUTH GUID available. Paste it manually or select a payment that captured it.",
+        });
       }
 
       const memberRecord = paymentRecord?.member_id
@@ -6147,12 +6377,10 @@ router.post(
               : NaN;
 
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            error: "Invalid amount supplied for Server Post test",
-          });
+        return res.status(400).json({
+          success: false,
+          error: "Invalid amount supplied for Server Post test",
+        });
       }
 
       const transactionReference =
