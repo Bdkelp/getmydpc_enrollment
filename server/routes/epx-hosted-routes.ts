@@ -246,6 +246,7 @@ type HostedDeclineDetails = {
 };
 
 const HOSTED_PENDING_ACTIVE_WINDOW_MINUTES = 20;
+const GROUP_INVOICE_SUPERSEDE_LOOKBACK_HOURS = 96;
 const lineageSnapshotsEnabled =
   process.env.ENABLE_LINEAGE_SNAPSHOTS !== "false";
 
@@ -883,6 +884,12 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
   }
 
   const metadataBase = parsePaymentMetadata(paymentRecord.metadata);
+  const normalizedPaymentStatus = String(paymentStatus || "")
+    .trim()
+    .toLowerCase();
+  const isSuccessfulUpdate = ["succeeded", "success", "completed"].includes(
+    normalizedPaymentStatus,
+  );
   const existingHostedMeta: HostedCallbackMetadata =
     typeof metadataBase.hostedCallback === "object" &&
     metadataBase.hostedCallback
@@ -895,17 +902,28 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
 
   const hostedCallbackMetadata: HostedCallbackMetadata = {
     ...existingHostedMeta,
-    status: callbackStatus ?? existingHostedMeta.status ?? null,
+    status:
+      callbackStatus ??
+      (isSuccessfulUpdate ? "Success" : (existingHostedMeta.status ?? null)),
     amount: amount ?? existingHostedMeta.amount ?? null,
-    message: callbackMessage ?? existingHostedMeta.message ?? null,
-    rawStatusMessage:
-      rawStatusMessage ?? existingHostedMeta.rawStatusMessage ?? null,
-    declineReason: declineReason ?? existingHostedMeta.declineReason ?? null,
-    declineCode: declineCode ?? existingHostedMeta.declineCode ?? null,
-    failureCategory:
-      failureCategory ?? existingHostedMeta.failureCategory ?? null,
-    retryable:
-      typeof retryable === "boolean"
+    message:
+      callbackMessage ??
+      (isSuccessfulUpdate ? null : (existingHostedMeta.message ?? null)),
+    rawStatusMessage: isSuccessfulUpdate
+      ? null
+      : (rawStatusMessage ?? existingHostedMeta.rawStatusMessage ?? null),
+    declineReason: isSuccessfulUpdate
+      ? null
+      : (declineReason ?? existingHostedMeta.declineReason ?? null),
+    declineCode: isSuccessfulUpdate
+      ? null
+      : (declineCode ?? existingHostedMeta.declineCode ?? null),
+    failureCategory: isSuccessfulUpdate
+      ? null
+      : (failureCategory ?? existingHostedMeta.failureCategory ?? null),
+    retryable: isSuccessfulUpdate
+      ? null
+      : typeof retryable === "boolean"
         ? retryable
         : (existingHostedMeta.retryable ?? null),
     authGuidMasked: maskedAuthGuid,
@@ -996,6 +1014,199 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
   }
 
   return { paymentRecord, maskedAuthGuid };
+}
+
+function areSameGroupInvoiceSelection(
+  baselineIds: number[],
+  candidateIds: number[],
+): boolean {
+  const normalizedBaseline = Array.from(new Set(baselineIds)).sort(
+    (left, right) => left - right,
+  );
+  const normalizedCandidate = Array.from(new Set(candidateIds)).sort(
+    (left, right) => left - right,
+  );
+
+  if (normalizedBaseline.length === 0) {
+    return true;
+  }
+
+  if (normalizedBaseline.length !== normalizedCandidate.length) {
+    return false;
+  }
+
+  for (let index = 0; index < normalizedBaseline.length; index += 1) {
+    if (normalizedBaseline[index] !== normalizedCandidate[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function archiveSupersededGroupInvoiceAttempts(options: {
+  successfulPayment: PaymentRecord;
+  groupId: string;
+  selectedGroupMemberIds: number[];
+  phase: "hosted-complete" | "callback";
+}): Promise<number> {
+  const normalizedGroupId = String(options.groupId || "").trim();
+  const succeededPaymentId = Number(options.successfulPayment?.id);
+
+  if (!normalizedGroupId || !Number.isFinite(succeededPaymentId)) {
+    return 0;
+  }
+
+  const succeededPaymentAmount = Number.parseFloat(
+    String(options.successfulPayment?.amount ?? "NaN"),
+  );
+  const succeededCreatedAt = new Date(
+    options.successfulPayment?.created_at || new Date().toISOString(),
+  );
+  const statusesEligibleForSupersede = [
+    "failed",
+    "pending",
+    "processing",
+    "declined",
+    "canceled",
+    "cancelled",
+  ];
+
+  const candidateResult = await query(
+    `
+      SELECT id, status, amount, transaction_id, created_at, metadata
+      FROM payments
+      WHERE id <> $1
+        AND status = ANY($2::text[])
+        AND COALESCE(LOWER(metadata->>'attentionArchived'), 'false') <> 'true'
+        AND created_at >= NOW() - ($3 * INTERVAL '1 hour')
+        AND (
+          (metadata->'groupInvoiceContext'->>'groupId') = $4
+          OR (metadata->>'groupId') = $4
+        )
+      ORDER BY created_at DESC
+      LIMIT 100
+    `,
+    [
+      succeededPaymentId,
+      statusesEligibleForSupersede,
+      GROUP_INVOICE_SUPERSEDE_LOOKBACK_HOURS,
+      normalizedGroupId,
+    ],
+  );
+
+  const candidates: PaymentRecord[] = Array.isArray(candidateResult.rows)
+    ? candidateResult.rows
+    : [];
+
+  let archivedCount = 0;
+  const archivedAtIso = new Date().toISOString();
+
+  for (const candidate of candidates) {
+    const candidateId = Number(candidate.id);
+    if (!Number.isFinite(candidateId) || candidateId <= 0) {
+      continue;
+    }
+
+    const candidateCreatedAt = new Date(candidate.created_at || archivedAtIso);
+    if (candidateCreatedAt.getTime() > succeededCreatedAt.getTime()) {
+      continue;
+    }
+
+    const candidateMetadata = parsePaymentMetadata(candidate.metadata);
+    const candidateGroupInvoiceContext =
+      extractGroupInvoiceContext(candidateMetadata);
+
+    if (!candidateGroupInvoiceContext) {
+      continue;
+    }
+
+    if (
+      !areSameGroupInvoiceSelection(
+        options.selectedGroupMemberIds,
+        candidateGroupInvoiceContext.selectedGroupMemberIds,
+      )
+    ) {
+      continue;
+    }
+
+    const candidateAmount = Number.parseFloat(
+      String(candidate.amount ?? "NaN"),
+    );
+    const amountComparable =
+      Number.isFinite(candidateAmount) &&
+      Number.isFinite(succeededPaymentAmount);
+    if (
+      amountComparable &&
+      Math.abs(candidateAmount - succeededPaymentAmount) > 0.01
+    ) {
+      continue;
+    }
+
+    const normalizedCandidateStatus = String(candidate.status || "")
+      .trim()
+      .toLowerCase();
+
+    const updatedMetadata: Record<string, any> = {
+      ...candidateMetadata,
+      attentionArchived: true,
+      attentionArchivedAt: archivedAtIso,
+      attentionArchivedBy: "system:auto-supersede",
+      attentionArchivedReason: "superseded_by_successful_group_payment",
+      supersededByPaymentId: succeededPaymentId,
+      supersededByTransactionId:
+        options.successfulPayment.transaction_id || null,
+      supersededAt: archivedAtIso,
+      supersededPhase: options.phase,
+    };
+
+    if (
+      normalizedCandidateStatus === "pending" ||
+      normalizedCandidateStatus === "processing"
+    ) {
+      updatedMetadata.pendingResolution = {
+        ...(candidateMetadata.pendingResolution &&
+        typeof candidateMetadata.pendingResolution === "object"
+          ? candidateMetadata.pendingResolution
+          : {}),
+        source: "auto-supersede-group-invoice",
+        reason: "superseded_by_successful_group_payment",
+        resolvedAt: archivedAtIso,
+      };
+    }
+
+    try {
+      await storage.updatePayment(candidateId, { metadata: updatedMetadata });
+      archivedCount += 1;
+    } catch (archiveError: any) {
+      logEPX({
+        level: "warn",
+        phase: options.phase,
+        message: "Unable to archive superseded group invoice payment attempt",
+        data: {
+          paymentId: candidateId,
+          error: archiveError?.message,
+          groupId: normalizedGroupId,
+        },
+      });
+    }
+  }
+
+  if (archivedCount > 0) {
+    logEPX({
+      level: "info",
+      phase: options.phase,
+      message:
+        "Archived superseded group invoice attempts after successful payment",
+      data: {
+        groupId: normalizedGroupId,
+        successfulPaymentId: succeededPaymentId,
+        archivedCount,
+      },
+    });
+  }
+
+  return archivedCount;
 }
 
 function loadHostedConfig(): {
@@ -4454,6 +4665,30 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
             });
           }
         }
+
+        if (groupInvoiceContext && persistResult.paymentRecord) {
+          try {
+            await archiveSupersededGroupInvoiceAttempts({
+              successfulPayment: persistResult.paymentRecord,
+              groupId: groupInvoiceContext.groupId,
+              selectedGroupMemberIds:
+                groupInvoiceContext.selectedGroupMemberIds,
+              phase: "hosted-complete",
+            });
+          } catch (supersedeError: any) {
+            logEPX({
+              level: "warn",
+              phase: "hosted-complete",
+              message:
+                "Unable to archive superseded group invoice attempts after complete",
+              data: {
+                error: supersedeError?.message,
+                paymentId: persistResult.paymentRecord.id,
+                groupId: groupInvoiceContext.groupId,
+              },
+            });
+          }
+        }
       }
 
       if (isAdHocAdminCompletion && persistResult.paymentRecord?.id) {
@@ -5360,6 +5595,33 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
               groupId: groupInvoiceContext.groupId,
               selectedGroupMemberIds:
                 groupInvoiceContext.selectedGroupMemberIds,
+            },
+          });
+        }
+      }
+
+      if (
+        !groupPaymentContext &&
+        groupInvoiceContext &&
+        paymentRecordForLogging
+      ) {
+        try {
+          await archiveSupersededGroupInvoiceAttempts({
+            successfulPayment: paymentRecordForLogging,
+            groupId: groupInvoiceContext.groupId,
+            selectedGroupMemberIds: groupInvoiceContext.selectedGroupMemberIds,
+            phase: "callback",
+          });
+        } catch (supersedeError: any) {
+          logEPX({
+            level: "warn",
+            phase: "callback",
+            message:
+              "Unable to archive superseded group invoice attempts after callback success",
+            data: {
+              error: supersedeError?.message,
+              paymentId: paymentRecordForLogging.id,
+              groupId: groupInvoiceContext.groupId,
             },
           });
         }

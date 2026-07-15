@@ -7945,7 +7945,7 @@ export async function upsertMemberPaymentToken(
         created_at,
         last_used_at
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, true, NOW(), NOW()
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, true, true, NOW(), NOW()
       )
       ON CONFLICT (bric_token)
       DO UPDATE SET
