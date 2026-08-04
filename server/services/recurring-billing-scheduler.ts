@@ -14,6 +14,15 @@
  *   ACH_RECURRING_ENABLED – must be 'true' to process ACH subscriptions
  *   ACH_RECURRING_ALLOW_PRODUCTION – must be 'true' to allow ACH recurring when payment environment is production
  *   ACH_RECURRING_TEST_MODE – defaults to true; tags ACH logs for internal/certification runs
+ *   RECURRING_BILLING_REPORT_EMAIL_ENABLED – 'true' to email a per-cycle success/failure summary
+ *   RECURRING_BILLING_REPORT_RECIPIENTS – comma-separated recipients for all recurring billing alert emails
+ *     (cycle report, payment failure alerts, scheduler-not-running alerts). Defaults to info@mypremierplans.com
+ *   RECURRING_BILLING_FAILURE_ALERT_EMAIL_ENABLED – 'false' to disable immediate email alerts on payment
+ *     failures (enabled by default)
+ *   RECURRING_BILLING_STALE_ALERT_COOLDOWN_MINUTES – minimum minutes between repeat "scheduler not running"
+ *     alert emails while the condition persists (default: 360)
+ *   RECURRING_BILLING_STALE_CHECK_INTERVAL_MS – how often the watchdog checks heartbeat staleness,
+ *     independent of the main billing cycle interval (default: 900000 = 15 minutes)
  */
 
 import { supabase } from "../lib/supabaseClient";
@@ -35,7 +44,11 @@ import {
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import { persistRecurringPostSuccess } from "./recurring-post-success-persistence";
 import { paymentEnvironment } from "./payment-environment-service";
-import { sendRecurringBillingCycleReport } from "../email";
+import {
+  sendRecurringBillingCycleReport,
+  sendRecurringPaymentFailureAlert,
+  sendBillingSchedulerNotRunningAlert,
+} from "../email";
 import cron from "node-cron";
 
 const LOG_PREFIX = "[Recurring Billing]";
@@ -49,6 +62,10 @@ const SCHEDULER_HEARTBEAT_SETTING_KEY =
   "recurring_billing_scheduler_heartbeat_v1";
 const DEFAULT_SCHEDULER_STALE_ALERT_MINUTES = 180;
 const DEFAULT_STARTUP_CATCHUP_DELAY_MS = 5_000;
+const STALE_ALERT_LAST_SENT_SETTING_KEY =
+  "recurring_billing_stale_alert_last_sent_v1";
+const DEFAULT_STALE_ALERT_COOLDOWN_MINUTES = 360;
+const DEFAULT_STALE_CHECK_INTERVAL_MS = 900_000; // 15 minutes — independent of the billing cycle interval
 
 type SchedulerMode = "DRY RUN" | "LIVE";
 type SchedulerCycleSource = "automatic" | "manual";
@@ -195,6 +212,34 @@ const SUCCESS_RESULTS = new Set(["success", "ach_test_success"]);
 
 function isRecurringCycleEmailEnabled(): boolean {
   return process.env.RECURRING_BILLING_REPORT_EMAIL_ENABLED === "true";
+}
+
+function isRecurringFailureAlertEmailEnabled(): boolean {
+  return process.env.RECURRING_BILLING_FAILURE_ALERT_EMAIL_ENABLED !== "false";
+}
+
+function getStaleAlertCooldownMinutes(): number {
+  const parsed = Number.parseInt(
+    process.env.RECURRING_BILLING_STALE_ALERT_COOLDOWN_MINUTES ||
+      String(DEFAULT_STALE_ALERT_COOLDOWN_MINUTES),
+    10,
+  );
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_STALE_ALERT_COOLDOWN_MINUTES;
+  }
+  return Math.max(15, parsed);
+}
+
+function getStaleCheckIntervalMs(): number {
+  const parsed = Number.parseInt(
+    process.env.RECURRING_BILLING_STALE_CHECK_INTERVAL_MS ||
+      String(DEFAULT_STALE_CHECK_INTERVAL_MS),
+    10,
+  );
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_STALE_CHECK_INTERVAL_MS;
+  }
+  return Math.max(60_000, parsed);
 }
 
 function getRecurringCycleEmailRecipients(): string[] {
@@ -428,9 +473,63 @@ async function warnIfSchedulerHeartbeatIsStale(): Promise<void> {
         lastCompletedAt: record.value.completedAt,
       },
     );
+
+    await sendStaleSchedulerAlertIfNotThrottled({
+      elapsedMinutes,
+      staleThresholdMinutes: staleMinutes,
+      lastOutcome: record.value.outcome,
+      lastStartedAt: record.value.startedAt,
+      lastCompletedAt: record.value.completedAt,
+    });
   } catch (error: any) {
     console.warn(
       `${LOG_PREFIX} Unable to evaluate scheduler heartbeat staleness:`,
+      error?.message || error,
+    );
+  }
+}
+
+async function sendStaleSchedulerAlertIfNotThrottled(options: {
+  elapsedMinutes: number;
+  staleThresholdMinutes: number;
+  lastOutcome: SchedulerCycleOutcome | null;
+  lastStartedAt: string | null;
+  lastCompletedAt: string | null;
+}): Promise<void> {
+  try {
+    const cooldownMs = getStaleAlertCooldownMinutes() * 60_000;
+    const lastSentRecord = await getPlatformSetting<string>(
+      STALE_ALERT_LAST_SENT_SETTING_KEY,
+    );
+    const lastSentAt = lastSentRecord?.value
+      ? Date.parse(lastSentRecord.value)
+      : NaN;
+    if (Number.isFinite(lastSentAt) && Date.now() - lastSentAt < cooldownMs) {
+      return; // Already alerted recently — avoid spamming while the issue persists.
+    }
+
+    const sent = await sendBillingSchedulerNotRunningAlert({
+      recipients: getRecurringCycleEmailRecipients(),
+      elapsedMinutes: options.elapsedMinutes,
+      staleThresholdMinutes: options.staleThresholdMinutes,
+      lastOutcome: options.lastOutcome,
+      lastStartedAt: options.lastStartedAt,
+      lastCompletedAt: options.lastCompletedAt,
+    });
+
+    if (sent) {
+      await upsertPlatformSetting(
+        STALE_ALERT_LAST_SENT_SETTING_KEY,
+        new Date().toISOString(),
+      );
+    } else {
+      console.warn(
+        `${LOG_PREFIX} Billing scheduler not-running alert email was not sent`,
+      );
+    }
+  } catch (error: any) {
+    console.error(
+      `${LOG_PREFIX} Failed sending billing scheduler not-running alert email:`,
       error?.message || error,
     );
   }
@@ -1052,6 +1151,34 @@ async function createRecurringFailureAdminNotification(options: {
   } catch (error: any) {
     console.warn(
       `${LOG_PREFIX} Failed to create admin notification for recurring failure:`,
+      error?.message || error,
+    );
+  }
+
+  if (!isRecurringFailureAlertEmailEnabled()) {
+    return;
+  }
+
+  try {
+    const sent = await sendRecurringPaymentFailureAlert({
+      recipients: getRecurringCycleEmailRecipients(),
+      subscriptionId: options.subscriptionId,
+      memberId: options.memberId,
+      payerDisplayName: options.payerDisplayName,
+      amount: options.amount,
+      paymentMethodType: options.paymentMethodType,
+      responseCode: options.responseCode || null,
+      errorMessage: options.errorMessage,
+      nextRetryDate: options.nextRetryDate,
+    });
+    if (!sent) {
+      console.warn(
+        `${LOG_PREFIX} Recurring payment failure alert email was not sent for subscription ${options.subscriptionId}`,
+      );
+    }
+  } catch (error: any) {
+    console.error(
+      `${LOG_PREFIX} Failed sending recurring payment failure alert email:`,
       error?.message || error,
     );
   }
@@ -2523,6 +2650,18 @@ export function scheduleRecurringBilling(): void {
       `${LOG_PREFIX} EPX simulation mode is ENABLED — recurring charges will be simulated and no EPX request will be sent`,
     );
   }
+
+  // Independent watchdog: keeps checking heartbeat staleness even if the
+  // main billing cycle (interval or cron) stops firing.
+  const staleCheckIntervalMs = getStaleCheckIntervalMs();
+  setInterval(() => {
+    warnIfSchedulerHeartbeatIsStale().catch((error) => {
+      console.warn(
+        `${LOG_PREFIX} Failed periodic stale-heartbeat check:`,
+        (error as Error)?.message || error,
+      );
+    });
+  }, staleCheckIntervalMs);
 
   if (fixedTimeMode) {
     const fixedHours = getFixedScheduleHours();

@@ -28,7 +28,14 @@ import {
 } from "@/lib/planStartDates";
 import { displaySSN } from "@shared/display-ssn";
 import { isPlanStartDateAllowed } from "@shared/planStartDates";
-import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
+import {
+  RX_ADDON_MONTHLY_PRICE,
+  RX_ADDON_PROGRAM_NAME,
+  RX_ADDON_CONTACT_PHONE,
+  RX_ADDON_CONTACT_EMAIL,
+  RX_ADDON_CONTACT_WEBSITE_DISPLAY,
+  RX_ADDON_DISCLAIMER,
+} from "@shared/pricing";
 
 const PROGRESS_STEP_TITLES: Record<number, string> = {
   1: "Personal Info",
@@ -1659,7 +1666,7 @@ export default function Registration() {
                             })}
                         </div>
                         
-                        {/* RxValet Add-on */}
+                        {/* BestChoiceRx $5 Enhanced Medication Program Add-on */}
                         <div className="mt-8 border-t pt-6">
                           <h4 className="text-lg font-semibold text-gray-900 mb-4">Optional Add-on</h4>
                           <Card className={`cursor-pointer transition-all ${
@@ -1669,7 +1676,7 @@ export default function Registration() {
                             <CardContent className="p-6">
                               <div className="flex items-center justify-between">
                                 <div>
-                                  <h5 className="font-semibold text-gray-900">BestChoice Rx Pro Premium-5 Medication Program</h5>
+                                  <h5 className="font-semibold text-gray-900">{RX_ADDON_PROGRAM_NAME}</h5>
                                   <p className="text-sm text-gray-600 mt-1">Acute and ACA medications no-cost, plus 200 chronic drugs for only $5/fill</p>
                                 </div>
                                 <div className="text-right">
@@ -1683,6 +1690,10 @@ export default function Registration() {
                                   )}
                                 </div>
                               </div>
+                              <p className="text-xs text-gray-500 mt-4 border-t pt-3">
+                                {RX_ADDON_DISCLAIMER} Questions? Contact {RX_ADDON_CONTACT_PHONE} ·{" "}
+                                {RX_ADDON_CONTACT_EMAIL} · {RX_ADDON_CONTACT_WEBSITE_DISPLAY}
+                              </p>
                             </CardContent>
                           </Card>
                         </div>
@@ -1769,7 +1780,7 @@ export default function Registration() {
                           <div className="mt-2 space-y-1">
                             <div className="text-sm">
                               Plan: ${selectedPlan?.price}
-                              {addRxValet && <span> + RxValet: ${RX_ADDON_MONTHLY_PRICE}</span>}
+                              {addRxValet && <span> + {RX_ADDON_PROGRAM_NAME}: ${RX_ADDON_MONTHLY_PRICE}</span>}
                             </div>
                             <div className="text-sm">
                               Subtotal: ${(parseFloat(selectedPlan?.price || "0") + (addRxValet ? RX_ADDON_MONTHLY_PRICE : 0)).toFixed(2)}
@@ -1798,7 +1809,7 @@ export default function Registration() {
                               </span>
                             </div>
                           </div>
-                          {addRxValet && <span className="block text-sm text-gray-600 mt-1">Includes BestChoice Rx Pro Premium-5</span>}
+                          {addRxValet && <span className="block text-sm text-gray-600 mt-1">Includes {RX_ADDON_PROGRAM_NAME}</span>}
                         </div>
                       </div>
                     </div>

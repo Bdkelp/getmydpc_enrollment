@@ -821,7 +821,7 @@ import {
   PERFORMANCE_GOALS_SETTING_KEY,
 } from "@shared/performanceGoals";
 import type { PerformanceGoals } from "@shared/performanceGoals";
-import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
+import { RX_ADDON_MONTHLY_PRICE, RX_ADDON_PROGRAM_NAME } from "@shared/pricing";
 
 type UserLookupOptions = {
   fallbackEmail?: string | null;
@@ -11173,7 +11173,7 @@ export const storage = {
       }
 
       const PBM_PRODUCT_PLAN_ID = -1000;
-      const PBM_PRODUCT_PLAN_NAME = "BestChoice Rx Pro Premium-5 (PBM Add-on)";
+      const PBM_PRODUCT_PLAN_NAME = `${RX_ADDON_PROGRAM_NAME} (PBM Add-on)`;
 
       const individualPbmMembers = activeMembers.filter((member) =>
         Boolean(member.add_rx_valet),

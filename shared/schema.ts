@@ -191,7 +191,7 @@ export const members = pgTable(
       precision: 10,
       scale: 2,
     }), // Total price including add-ons
-    addRxValet: boolean("add_rx_valet").default(false), // ProChoice Rx add-on ($21/month)
+    addRxValet: boolean("add_rx_valet").default(false), // BestChoiceRx $5 Enhanced Medication Program add-on ($30/month)
     // Status
     isActive: boolean("is_active").default(true),
     status: varchar("status", { length: 20 }).default("pending_activation"), // pending_activation, active, cancelled, suspended, pending

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { hasAtLeastRole } from "@/lib/roles";
 import { apiRequest } from "@/lib/queryClient";
+import { RX_ADDON_PROGRAM_NAME } from "@shared/pricing";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
@@ -732,7 +733,7 @@ const defaultGroupProfileForm: GroupProfile = {
   selectedPlanId: "",
   selectedPlanName: "",
   selectedPlanTier: "",
-  pbmProgram: "BestChoice Rx Pro Premium-5 Medication Program (optional add-on)",
+  pbmProgram: `${RX_ADDON_PROGRAM_NAME} (optional add-on)`,
   pbmEnabled: false,
   pbmAmount: "",
   businessAddressLine1: "",

@@ -10,6 +10,13 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { hasAtLeastRole } from "@/lib/roles";
+import {
+  RX_ADDON_PROGRAM_NAME,
+  RX_ADDON_CONTACT_PHONE,
+  RX_ADDON_CONTACT_EMAIL,
+  RX_ADDON_CONTACT_WEBSITE_DISPLAY,
+  RX_ADDON_DISCLAIMER,
+} from "@shared/pricing";
 
 const CONFIRMATION_CACHE_KEY = "confirmationPayloadV1";
 const CONFIRMATION_CACHE_TTL_MS = 1000 * 60 * 60;
@@ -272,7 +279,7 @@ export default function Confirmation() {
     "Generic medications (when applicable)",
     ...(planName.includes("Plus") ? ["Specialist referrals", "Mental health support"] : []),
     ...(planName.includes("Elite") ? ["Premium provider network", "Executive health services", "Concierge support"] : []),
-    ...(membershipData?.addRxValet ? ["BestChoice Rx Pro Premium-5 prescription savings"] : [])
+    ...(membershipData?.addRxValet ? [`${RX_ADDON_PROGRAM_NAME} prescription savings`] : [])
   ] : [];
 
   // Print function
@@ -519,6 +526,20 @@ export default function Confirmation() {
                   ))}
                 </ul>
               </div>
+
+              {membershipData?.addRxValet && (
+                <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-gray-900">{RX_ADDON_PROGRAM_NAME}</p>
+                  <p className="text-xs text-gray-600 mt-1">{RX_ADDON_DISCLAIMER}</p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Questions? Contact {RX_ADDON_CONTACT_PHONE} ·{" "}
+                    <a href={`mailto:${RX_ADDON_CONTACT_EMAIL}`} className="text-blue-600 hover:underline">
+                      {RX_ADDON_CONTACT_EMAIL}
+                    </a>{" "}
+                    · {RX_ADDON_CONTACT_WEBSITE_DISPLAY}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Payment Details */}

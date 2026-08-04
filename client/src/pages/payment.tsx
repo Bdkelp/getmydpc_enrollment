@@ -18,7 +18,7 @@ import { CancellationPolicyModal } from "@/components/CancellationPolicyModal";
 import EPXHostedPayment from "@/components/EPXHostedPayment"; // Hosted Checkout (active)
 import BankAccountForm from "@/components/BankAccountForm"; // ACH payment option
 import { isAdminOrAbove } from "@/lib/roles";
-import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
+import { RX_ADDON_MONTHLY_PRICE, RX_ADDON_PROGRAM_NAME } from "@shared/pricing";
 
 export default function Payment() {
   const [, setLocation] = useLocation();
@@ -364,7 +364,7 @@ export default function Payment() {
                           )}
                           {sessionStorage.getItem("rxValet") === "yes" && (
                             <div className="flex justify-between text-sm">
-                              <span>RxValet Add-on</span>
+                              <span>{RX_ADDON_PROGRAM_NAME}</span>
                               <span>${rxAddOnDisplay}</span>
                           </div>
                         )}
@@ -543,7 +543,7 @@ export default function Payment() {
                     
                   {sessionStorage.getItem("rxValet") === "yes" && (
                     <div className="flex justify-between">
-                      <span className="text-french-blue-900">RxValet Add-on</span>
+                      <span className="text-french-blue-900">{RX_ADDON_PROGRAM_NAME}</span>
                         <span className="text-deep-twilight-900">${rxAddOnDisplay}</span>
                     </div>
                   )}

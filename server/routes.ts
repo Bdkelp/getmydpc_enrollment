@@ -7404,7 +7404,7 @@ export async function registerRoutes(app: any) {
         totalMonthlyPrice: totalMonthlyPrice
           ? parseFloat(totalMonthlyPrice)
           : null,
-        addRxValet: addRxValet || false, // ProChoice Rx add-on ($21/month)
+        addRxValet: addRxValet || false, // BestChoiceRx $5 Enhanced Medication Program add-on ($30/month)
       });
 
       if (!member) {

@@ -1,23 +1,29 @@
-import sgMail from '@sendgrid/mail';
+import sgMail from "@sendgrid/mail";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
-const COMPANY_EMAIL = (process.env.COMPANY_EMAIL || 'support@mypremierplans.com').trim();
-const SENDGRID_FROM_EMAIL = (process.env.SENDGRID_FROM_EMAIL || COMPANY_EMAIL).trim();
+const COMPANY_EMAIL = (
+  process.env.COMPANY_EMAIL || "support@mypremierplans.com"
+).trim();
+const SENDGRID_FROM_EMAIL = (
+  process.env.SENDGRID_FROM_EMAIL || COMPANY_EMAIL
+).trim();
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
-  console.log('[Email] SendGrid transporter initialized');
+  console.log("[Email] SendGrid transporter initialized");
 } else {
-  console.warn('[Email] SENDGRID_API_KEY not configured. Emails will not be sent.');
+  console.warn(
+    "[Email] SENDGRID_API_KEY not configured. Emails will not be sent.",
+  );
 }
 
 export interface EmailVerificationData {
@@ -26,9 +32,13 @@ export interface EmailVerificationData {
   verificationUrl: string;
 }
 
-export async function sendEmailVerification(data: EmailVerificationData): Promise<boolean> {
+export async function sendEmailVerification(
+  data: EmailVerificationData,
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
-    console.warn('[Email] Skipping email verification - SendGrid not configured');
+    console.warn(
+      "[Email] Skipping email verification - SendGrid not configured",
+    );
     return false;
   }
 
@@ -36,7 +46,7 @@ export async function sendEmailVerification(data: EmailVerificationData): Promis
     await sgMail.send({
       to: data.email,
       from: SENDGRID_FROM_EMAIL,
-      subject: 'Verify Your MyPremierPlans Account',
+      subject: "Verify Your MyPremierPlans Account",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
           <div style="background: #0f172a; color: #fff; padding: 24px; border-radius: 12px 12px 0 0;">
@@ -57,13 +67,13 @@ export async function sendEmailVerification(data: EmailVerificationData): Promis
             MyPremierPlans · Direct Primary Care Enrollment Platform
           </div>
         </div>
-      `
+      `,
     });
 
-    console.log('[Email] Verification email sent via SendGrid to:', data.email);
+    console.log("[Email] Verification email sent via SendGrid to:", data.email);
     return true;
   } catch (error) {
-    console.error('[Email] Failed to send verification email:', error);
+    console.error("[Email] Failed to send verification email:", error);
     return false;
   }
 }
@@ -75,9 +85,11 @@ interface CredentialEmailData {
   setPasswordUrl: string;
 }
 
-export async function sendUserCredentialsEmail(data: CredentialEmailData): Promise<boolean> {
+export async function sendUserCredentialsEmail(
+  data: CredentialEmailData,
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
-    console.warn('[Email] Skipping credential email - SendGrid not configured');
+    console.warn("[Email] Skipping credential email - SendGrid not configured");
     return false;
   }
 
@@ -85,7 +97,7 @@ export async function sendUserCredentialsEmail(data: CredentialEmailData): Promi
     await sgMail.send({
       to: data.email,
       from: SENDGRID_FROM_EMAIL,
-      subject: 'Your MyPremierPlans Account Is Ready',
+      subject: "Your MyPremierPlans Account Is Ready",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
           <div style="background: #0f172a; color: #fff; padding: 24px; border-radius: 12px 12px 0 0;">
@@ -106,13 +118,16 @@ export async function sendUserCredentialsEmail(data: CredentialEmailData): Promi
             Need help? Contact support@mypremierplans.com
           </div>
         </div>
-      `
+      `,
     });
 
-    console.log('[Email] Credential setup email sent via SendGrid to:', data.email);
+    console.log(
+      "[Email] Credential setup email sent via SendGrid to:",
+      data.email,
+    );
     return true;
   } catch (error) {
-    console.error('[Email] Failed to send credential email:', error);
+    console.error("[Email] Failed to send credential email:", error);
     return false;
   }
 }
@@ -124,9 +139,11 @@ interface WelcomeWithPasswordData {
   loginUrl: string;
 }
 
-export async function sendWelcomeWithPassword(data: WelcomeWithPasswordData): Promise<boolean> {
+export async function sendWelcomeWithPassword(
+  data: WelcomeWithPasswordData,
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
-    console.warn('[Email] Skipping welcome email - SendGrid not configured');
+    console.warn("[Email] Skipping welcome email - SendGrid not configured");
     return false;
   }
 
@@ -134,7 +151,7 @@ export async function sendWelcomeWithPassword(data: WelcomeWithPasswordData): Pr
     await sgMail.send({
       to: data.email,
       from: SENDGRID_FROM_EMAIL,
-      subject: 'Welcome to MyPremierPlans - Your Account Details',
+      subject: "Welcome to MyPremierPlans - Your Account Details",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
           <div style="background: #0f172a; color: #fff; padding: 24px; border-radius: 12px 12px 0 0;">
@@ -175,13 +192,16 @@ export async function sendWelcomeWithPassword(data: WelcomeWithPasswordData): Pr
             Need help? Contact support@mypremierplans.com
           </div>
         </div>
-      `
+      `,
     });
 
-    console.log('[Email] Welcome email with password sent via SendGrid to:', data.email);
+    console.log(
+      "[Email] Welcome email with password sent via SendGrid to:",
+      data.email,
+    );
     return true;
   } catch (error) {
-    console.error('[Email] Failed to send welcome email:', error);
+    console.error("[Email] Failed to send welcome email:", error);
     return false;
   }
 }
@@ -199,8 +219,8 @@ export interface RecurringBillingCycleReportRow {
 
 export interface RecurringBillingCycleReportData {
   recipients: string[];
-  mode: 'LIVE' | 'DRY RUN';
-  source: 'automatic' | 'manual';
+  mode: "LIVE" | "DRY RUN";
+  source: "automatic" | "manual";
   startedAt: string;
   completedAt: string;
   dueCount: number;
@@ -212,31 +232,44 @@ export async function sendRecurringBillingCycleReport(
   data: RecurringBillingCycleReportData,
 ): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
-    console.warn('[Email] Skipping recurring billing cycle report - SendGrid not configured');
+    console.warn(
+      "[Email] Skipping recurring billing cycle report - SendGrid not configured",
+    );
     return false;
   }
 
-  const recipients = (data.recipients || []).map((entry) => String(entry || '').trim()).filter(Boolean);
+  const recipients = (data.recipients || [])
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
   if (recipients.length === 0) {
-    console.warn('[Email] Skipping recurring billing cycle report - no recipients configured');
+    console.warn(
+      "[Email] Skipping recurring billing cycle report - no recipients configured",
+    );
     return false;
   }
 
   const succeededRows = data.succeeded || [];
   const unsuccessfulRows = data.unsuccessful || [];
 
-  const renderRows = (rows: RecurringBillingCycleReportRow[], emptyLabel: string) => {
+  const renderRows = (
+    rows: RecurringBillingCycleReportRow[],
+    emptyLabel: string,
+  ) => {
     if (!rows.length) {
       return `<p style="font-size: 14px; color: #6b7280; margin: 8px 0 0;">${escapeHtml(emptyLabel)}</p>`;
     }
 
     const rowHtml = rows
       .map((row) => {
-        const payer = escapeHtml((row.payerDisplayName || `Member ${row.memberId}`).toString());
-        const amount = escapeHtml(String(row.amount || '0.00'));
-        const method = escapeHtml(String(row.paymentMethodType || 'UNKNOWN'));
-        const result = escapeHtml(String(row.result || 'unknown'));
-        const skipReason = row.skipReason ? ` (${escapeHtml(String(row.skipReason))})` : '';
+        const payer = escapeHtml(
+          (row.payerDisplayName || `Member ${row.memberId}`).toString(),
+        );
+        const amount = escapeHtml(String(row.amount || "0.00"));
+        const method = escapeHtml(String(row.paymentMethodType || "UNKNOWN"));
+        const result = escapeHtml(String(row.result || "unknown"));
+        const skipReason = row.skipReason
+          ? ` (${escapeHtml(String(row.skipReason))})`
+          : "";
         return `
           <tr>
             <td style="padding: 8px; border-bottom: 1px solid #e5e7eb;">${row.subscriptionId}</td>
@@ -248,7 +281,7 @@ export async function sendRecurringBillingCycleReport(
           </tr>
         `;
       })
-      .join('');
+      .join("");
 
     return `
       <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px;">
@@ -292,19 +325,177 @@ export async function sendRecurringBillingCycleReport(
             <p style="margin: 0 0 18px; font-size: 14px; color: #111827;"><strong>Successful:</strong> ${succeededRows.length} &nbsp; <strong>Unsuccessful:</strong> ${unsuccessfulRows.length}</p>
 
             <h3 style="margin: 18px 0 8px; color: #065f46;">Successful Transactions</h3>
-            ${renderRows(succeededRows, 'No successful transactions in this cycle.')}
+            ${renderRows(succeededRows, "No successful transactions in this cycle.")}
 
             <h3 style="margin: 24px 0 8px; color: #991b1b;">Unsuccessful / Skipped Transactions</h3>
-            ${renderRows(unsuccessfulRows, 'No unsuccessful or skipped transactions in this cycle.')}
+            ${renderRows(unsuccessfulRows, "No unsuccessful or skipped transactions in this cycle.")}
           </div>
         </div>
       `,
     });
 
-    console.log('[Email] Recurring billing cycle report sent to:', recipients.join(', '));
+    console.log(
+      "[Email] Recurring billing cycle report sent to:",
+      recipients.join(", "),
+    );
     return true;
   } catch (error) {
-    console.error('[Email] Failed to send recurring billing cycle report:', error);
+    console.error(
+      "[Email] Failed to send recurring billing cycle report:",
+      error,
+    );
+    return false;
+  }
+}
+
+export interface RecurringPaymentFailureAlertData {
+  recipients: string[];
+  subscriptionId: number;
+  memberId: number;
+  payerDisplayName?: string | null;
+  amount?: string | null;
+  paymentMethodType?: string | null;
+  responseCode?: string | null;
+  errorMessage: string;
+  nextRetryDate?: string | null;
+}
+
+export async function sendRecurringPaymentFailureAlert(
+  data: RecurringPaymentFailureAlertData,
+): Promise<boolean> {
+  if (!SENDGRID_API_KEY) {
+    console.warn(
+      "[Email] Skipping recurring payment failure alert - SendGrid not configured",
+    );
+    return false;
+  }
+
+  const recipients = (data.recipients || [])
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+  if (recipients.length === 0) {
+    console.warn(
+      "[Email] Skipping recurring payment failure alert - no recipients configured",
+    );
+    return false;
+  }
+
+  const payer = escapeHtml(
+    (data.payerDisplayName || `Member ${data.memberId}`).toString(),
+  );
+  const amount = escapeHtml(String(data.amount || "0.00"));
+  const method = escapeHtml(String(data.paymentMethodType || "UNKNOWN"));
+  const errorMessage = escapeHtml(data.errorMessage);
+  const responseCode = escapeHtml(String(data.responseCode || "N/A"));
+  const nextRetryDate = data.nextRetryDate
+    ? escapeHtml(new Date(data.nextRetryDate).toLocaleString())
+    : "N/A";
+
+  try {
+    await sgMail.send({
+      to: recipients,
+      from: SENDGRID_FROM_EMAIL,
+      subject: `[Recurring Billing] Payment FAILED — subscription ${data.subscriptionId} (${payer})`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+          <div style="background: #991b1b; color: #fff; padding: 20px; border-radius: 10px 10px 0 0;">
+            <h2 style="margin: 0; font-size: 20px;">Recurring Payment Failed</h2>
+          </div>
+          <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background: #fff;">
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Subscription:</strong> ${data.subscriptionId}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Member:</strong> ${data.memberId} — ${payer}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Amount:</strong> $${amount}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Method:</strong> ${method}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Response Code:</strong> ${responseCode}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Next Retry:</strong> ${nextRetryDate}</p>
+            <p style="margin: 12px 0 0; font-size: 14px; color: #991b1b;"><strong>Error:</strong> ${errorMessage}</p>
+          </div>
+        </div>
+      `,
+    });
+
+    console.log(
+      "[Email] Recurring payment failure alert sent to:",
+      recipients.join(", "),
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      "[Email] Failed to send recurring payment failure alert:",
+      error,
+    );
+    return false;
+  }
+}
+
+export interface BillingSchedulerNotRunningAlertData {
+  recipients: string[];
+  elapsedMinutes: number;
+  staleThresholdMinutes: number;
+  lastOutcome?: string | null;
+  lastStartedAt?: string | null;
+  lastCompletedAt?: string | null;
+}
+
+export async function sendBillingSchedulerNotRunningAlert(
+  data: BillingSchedulerNotRunningAlertData,
+): Promise<boolean> {
+  if (!SENDGRID_API_KEY) {
+    console.warn(
+      "[Email] Skipping billing scheduler not-running alert - SendGrid not configured",
+    );
+    return false;
+  }
+
+  const recipients = (data.recipients || [])
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+  if (recipients.length === 0) {
+    console.warn(
+      "[Email] Skipping billing scheduler not-running alert - no recipients configured",
+    );
+    return false;
+  }
+
+  const lastOutcome = escapeHtml(String(data.lastOutcome || "unknown"));
+  const lastStartedAt = data.lastStartedAt
+    ? escapeHtml(new Date(data.lastStartedAt).toLocaleString())
+    : "N/A";
+  const lastCompletedAt = data.lastCompletedAt
+    ? escapeHtml(new Date(data.lastCompletedAt).toLocaleString())
+    : "N/A";
+
+  try {
+    await sgMail.send({
+      to: recipients,
+      from: SENDGRID_FROM_EMAIL,
+      subject: `[Recurring Billing] ALERT — scheduler has not run in ${data.elapsedMinutes} minute(s)`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+          <div style="background: #991b1b; color: #fff; padding: 20px; border-radius: 10px 10px 0 0;">
+            <h2 style="margin: 0; font-size: 20px;">Recurring Billing Scheduler Not Running</h2>
+          </div>
+          <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background: #fff;">
+            <p style="margin: 0 0 8px; font-size: 14px;">No completed billing cycle has been recorded in <strong>${data.elapsedMinutes} minute(s)</strong> (alert threshold: ${data.staleThresholdMinutes} minutes).</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Last cycle outcome:</strong> ${lastOutcome}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Last started:</strong> ${lastStartedAt}</p>
+            <p style="margin: 0 0 8px; font-size: 14px;"><strong>Last completed:</strong> ${lastCompletedAt}</p>
+            <p style="margin: 12px 0 0; font-size: 14px; color: #991b1b;">Memberships due for billing may not be getting charged. Check the server logs and scheduler status.</p>
+          </div>
+        </div>
+      `,
+    });
+
+    console.log(
+      "[Email] Billing scheduler not-running alert sent to:",
+      recipients.join(", "),
+    );
+    return true;
+  } catch (error) {
+    console.error(
+      "[Email] Failed to send billing scheduler not-running alert:",
+      error,
+    );
     return false;
   }
 }
@@ -312,26 +503,32 @@ export async function sendRecurringBillingCycleReport(
 export interface AnalyticsReportEmailData {
   recipient: string;
   reportType: string;
-  format: 'csv' | 'xlsx' | 'pdf';
+  format: "csv" | "xlsx" | "pdf";
   fileBuffer: Buffer;
   timeRange?: string;
 }
 
-export async function sendAnalyticsReportEmail(data: AnalyticsReportEmailData): Promise<boolean> {
+export async function sendAnalyticsReportEmail(
+  data: AnalyticsReportEmailData,
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
-    console.warn('[Email] Skipping analytics report email - SendGrid not configured');
+    console.warn(
+      "[Email] Skipping analytics report email - SendGrid not configured",
+    );
     return false;
   }
 
-  const recipient = String(data.recipient || '').trim();
+  const recipient = String(data.recipient || "").trim();
   if (!recipient) {
-    console.warn('[Email] Skipping analytics report email - recipient missing');
+    console.warn("[Email] Skipping analytics report email - recipient missing");
     return false;
   }
 
-  const safeReportType = String(data.reportType || 'overview').trim().toLowerCase();
-  const safeFormat = (data.format || 'csv') as 'csv' | 'xlsx' | 'pdf';
-  const safeTimeRange = String(data.timeRange || '30');
+  const safeReportType = String(data.reportType || "overview")
+    .trim()
+    .toLowerCase();
+  const safeFormat = (data.format || "csv") as "csv" | "xlsx" | "pdf";
+  const safeTimeRange = String(data.timeRange || "30");
   const filename = `${safeReportType}_report_${new Date().toISOString().slice(0, 10)}.${safeFormat}`;
 
   try {
@@ -356,23 +553,28 @@ export async function sendAnalyticsReportEmail(data: AnalyticsReportEmailData): 
       `,
       attachments: [
         {
-          content: data.fileBuffer.toString('base64'),
+          content: data.fileBuffer.toString("base64"),
           filename,
           type:
-            safeFormat === 'csv'
-              ? 'text/csv'
-              : safeFormat === 'xlsx'
-                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                : 'application/pdf',
-          disposition: 'attachment',
+            safeFormat === "csv"
+              ? "text/csv"
+              : safeFormat === "xlsx"
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : "application/pdf",
+          disposition: "attachment",
         },
       ],
     });
 
-    console.log('[Email] Analytics report email sent to:', recipient, 'file:', filename);
+    console.log(
+      "[Email] Analytics report email sent to:",
+      recipient,
+      "file:",
+      filename,
+    );
     return true;
   } catch (error) {
-    console.error('[Email] Failed to send analytics report email:', error);
+    console.error("[Email] Failed to send analytics report email:", error);
     return false;
   }
 }

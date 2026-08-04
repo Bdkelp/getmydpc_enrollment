@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { CheckCircle, ArrowRight, ArrowLeft, X, Users, FileText, CreditCard, BarChart3, MessageSquare, Calendar } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { hasAtLeastRole, Role } from '@/lib/roles';
+import { RX_ADDON_PROGRAM_NAME } from '@shared/pricing';
 
 interface OnboardingStep {
   id: string;
@@ -228,7 +229,7 @@ export function OnboardingWizard({ userRole, isOpen, onClose, onComplete }: Onbo
                     <span className="font-semibold">$20-40</span>
                   </div>
                   <div className="flex justify-between text-yellow-800">
-                    <span>RxValet Add-on:</span>
+                    <span>{RX_ADDON_PROGRAM_NAME}:</span>
                     <span className="font-semibold">+$2.50</span>
                   </div>
                 </div>
