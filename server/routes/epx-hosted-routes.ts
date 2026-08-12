@@ -7678,4 +7678,144 @@ router.post(
   },
 );
 
+/**
+ * ADMIN: Update an existing family member on an enrollment
+ */
+router.patch(
+  "/api/admin/members/:id/family-member/:familyMemberId",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user || !isAtLeastAdmin(req.user.role)) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Admin access required" });
+      }
+
+      const { familyMemberId } = req.params;
+      const {
+        firstName,
+        lastName,
+        middleName,
+        dateOfBirth,
+        gender,
+        ssn,
+        email,
+        phone,
+        relationship,
+        memberType,
+        isActive,
+      } = req.body;
+
+      if (firstName === "" || lastName === "") {
+        return res.status(400).json({
+          success: false,
+          error: "firstName and lastName cannot be empty",
+        });
+      }
+
+      const updatedFamilyMember = await storage.updateFamilyMember(
+        familyMemberId,
+        {
+          firstName,
+          lastName,
+          middleName,
+          dateOfBirth,
+          gender,
+          ssn,
+          email,
+          phone,
+          relationship,
+          memberType,
+          isActive,
+        },
+      );
+
+      logEPX({
+        level: "info",
+        phase: "admin-update-family",
+        message: "Family member updated by admin",
+        data: {
+          primaryMemberId: req.params.id,
+          familyMemberId,
+          adminUserId: req.user.id,
+          adminEmail: req.user.email,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Updated ${updatedFamilyMember.firstName} ${updatedFamilyMember.lastName}`,
+        data: updatedFamilyMember,
+      });
+    } catch (error: any) {
+      logEPX({
+        level: "error",
+        phase: "admin-update-family",
+        message: "Failed to update family member",
+        data: {
+          error: error?.message,
+          familyMemberId: req.params.familyMemberId,
+        },
+      });
+      res.status(500).json({
+        success: false,
+        error: error.message || "Failed to update family member",
+      });
+    }
+  },
+);
+
+/**
+ * ADMIN: Remove a family member from an enrollment
+ */
+router.delete(
+  "/api/admin/members/:id/family-member/:familyMemberId",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user || !isAtLeastAdmin(req.user.role)) {
+        return res
+          .status(403)
+          .json({ success: false, error: "Admin access required" });
+      }
+
+      const { familyMemberId } = req.params;
+
+      await storage.deleteFamilyMember(familyMemberId);
+
+      logEPX({
+        level: "info",
+        phase: "admin-remove-family",
+        message: "Family member removed by admin",
+        data: {
+          primaryMemberId: req.params.id,
+          familyMemberId,
+          adminUserId: req.user.id,
+          adminEmail: req.user.email,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: "Family member removed",
+      });
+    } catch (error: any) {
+      logEPX({
+        level: "error",
+        phase: "admin-remove-family",
+        message: "Failed to remove family member",
+        data: {
+          error: error?.message,
+          familyMemberId: req.params.familyMemberId,
+        },
+      });
+      res.status(500).json({
+        success: false,
+        error: error.message || "Failed to remove family member",
+      });
+    }
+  },
+);
+
 export default router;

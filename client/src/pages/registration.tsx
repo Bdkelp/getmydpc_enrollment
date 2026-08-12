@@ -515,6 +515,16 @@ export default function Registration() {
         }
       });
     } else if (currentStep === 5) {
+      // Spouse info is required whenever this step is shown; block silent data loss
+      const spouse = familyMembers[0];
+      if (!spouse?.firstName?.trim() || !spouse?.lastName?.trim() || !spouse?.dateOfBirth) {
+        toast({
+          title: "Spouse information required",
+          description: "Please provide your spouse's first name, last name, and date of birth.",
+          variant: "destructive",
+        });
+        return;
+      }
       // Spouse step complete; decide if we need children info
       if (coverageType === "Family") {
         setCurrentStep(6);
@@ -522,6 +532,27 @@ export default function Registration() {
         setCurrentStep(7);
       }
     } else if (currentStep === 6) {
+      // At least one complete child is required whenever this step is shown
+      const children = familyMembers.filter((m, i) => i > 0 || (i === 0 && m.relationship !== "spouse"));
+      const completeChildren = children.filter(
+        (child) => child?.firstName?.trim() && child?.lastName?.trim() && child?.dateOfBirth
+      );
+      if (completeChildren.length === 0) {
+        toast({
+          title: "Child information required",
+          description: "Please add at least one child with first name, last name, and date of birth.",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (completeChildren.length < children.length) {
+        toast({
+          title: "Incomplete child information",
+          description: "Please fill in first name, last name, and date of birth for every child, or remove the incomplete entry.",
+          variant: "destructive",
+        });
+        return;
+      }
       // Children info complete
       setCurrentStep(7);
     } else if (currentStep === 7) {
@@ -599,12 +630,35 @@ export default function Registration() {
       console.warn("[Registration] Form planId not set, using selectedPlanId");
       form.setValue('planId', selectedPlanId);
     }
-    
+
+    // Include only valid family members (require name + DOB so partial rows aren't silently dropped/kept)
+    const validFamilyMembers = familyMembers.filter(
+      (member) => member?.firstName?.trim() && member?.lastName?.trim() && member?.dateOfBirth
+    );
+
+    // Final safety net: block submission if the selected coverage requires dependents that weren't captured
+    if (includesSpouseStep(coverageType) && !validFamilyMembers.some((m) => m.relationship === "spouse")) {
+      toast({
+        title: "Spouse information required",
+        description: `The ${coverageType} plan requires spouse information. Please go back and complete it.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (includesChildrenStep(coverageType) && !validFamilyMembers.some((m) => m.relationship === "child")) {
+      toast({
+        title: "Child information required",
+        description: `The ${coverageType} plan requires at least one child. Please go back and complete it.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Add the selected plan ID and family members to the form data
     const submissionData = {
       ...data,
       planId: selectedPlanId,
-      familyMembers: familyMembers.filter(member => member && member.firstName), // Include only valid family members
+      familyMembers: validFamilyMembers,
     };
     
     console.log("[Registration] Submitting data:", submissionData);

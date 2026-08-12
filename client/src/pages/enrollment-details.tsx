@@ -24,7 +24,8 @@ import {
   FileText,
   Users,
   Eye,
-  EyeOff
+  EyeOff,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatPhoneNumber, cleanPhoneNumber, formatZipCode } from "@/lib/formatters";
@@ -288,6 +290,18 @@ export default function EnrollmentDetails() {
     email: '',
     phone: ''
   });
+  const [editingFamilyMemberId, setEditingFamilyMemberId] = useState<string | null>(null);
+  const [editedFamilyMember, setEditedFamilyMember] = useState({
+    firstName: '',
+    lastName: '',
+    middleName: '',
+    dateOfBirth: '',
+    gender: '',
+    relationship: 'spouse',
+    email: '',
+    phone: ''
+  });
+  const [deletingFamilyMemberId, setDeletingFamilyMemberId] = useState<string | null>(null);
   const [selectedPaymentId, setSelectedPaymentId] = useState<number | null>(null);
   const [newPaymentStatus, setNewPaymentStatus] = useState('');
   const [paymentUpdateNote, setPaymentUpdateNote] = useState('');
@@ -538,6 +552,55 @@ export default function EnrollmentDetails() {
       toast({
         title: "Failed to Add Family Member",
         description: error.message || "An error occurred while adding the family member.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Update family member mutation
+  const updateFamilyMemberMutation = useMutation({
+    mutationFn: async ({ familyMemberId, data }: { familyMemberId: string; data: typeof editedFamilyMember }) => {
+      return apiRequest(`/api/admin/members/${enrollmentId}/family-member/${familyMemberId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Family Member Updated",
+        description: "Family member information has been updated.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      setEditingFamilyMemberId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Update Family Member",
+        description: error.message || "An error occurred while updating the family member.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Remove family member mutation
+  const deleteFamilyMemberMutation = useMutation({
+    mutationFn: async (familyMemberId: string) => {
+      return apiRequest(`/api/admin/members/${enrollmentId}/family-member/${familyMemberId}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: "Family Member Removed",
+        description: "Family member has been removed from this enrollment.",
+      });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      setDeletingFamilyMemberId(null);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Remove Family Member",
+        description: error.message || "An error occurred while removing the family member.",
         variant: "destructive",
       });
     },
@@ -1789,32 +1852,183 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   <div className="space-y-4">
                     {enrollment.familyMembers.map((member) => (
                       <div key={member.id} className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-semibold">
-                            {member.firstName} {member.lastName}
-                          </h4>
-                          <Badge variant={member.isActive ? "default" : "secondary"}>
-                            {member.isActive ? "Active" : "Inactive"}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            <span className="text-gray-600">Relationship:</span> {member.relationship}
-                          </div>
-                          <div>
-                            <span className="text-gray-600">DOB:</span> {formatDateDisplay(member.dateOfBirth, 'MM/dd/yyyy', 'Not provided')}
-                          </div>
-                          {member.email && (
-                            <div>
-                              <span className="text-gray-600">Email:</span> {member.email}
+                        {editingFamilyMemberId === member.id ? (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">First Name *</label>
+                                <Input
+                                  value={editedFamilyMember.firstName}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, firstName: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Last Name *</label>
+                                <Input
+                                  value={editedFamilyMember.lastName}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, lastName: e.target.value })}
+                                />
+                              </div>
                             </div>
-                          )}
-                          {member.phone && (
                             <div>
-                              <span className="text-gray-600">Phone:</span> {formatPhoneNumber(member.phone)}
+                              <label className="block text-sm font-medium mb-1">Middle Name</label>
+                              <Input
+                                value={editedFamilyMember.middleName}
+                                onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, middleName: e.target.value })}
+                              />
                             </div>
-                          )}
-                        </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Relationship *</label>
+                              <Select
+                                value={editedFamilyMember.relationship}
+                                onValueChange={(value) => setEditedFamilyMember({ ...editedFamilyMember, relationship: value })}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="spouse">Spouse</SelectItem>
+                                  <SelectItem value="child">Child</SelectItem>
+                                  <SelectItem value="dependent">Dependent</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Date of Birth</label>
+                                <Input
+                                  type="date"
+                                  value={editedFamilyMember.dateOfBirth}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, dateOfBirth: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Gender</label>
+                                <Select
+                                  value={editedFamilyMember.gender}
+                                  onValueChange={(value) => setEditedFamilyMember({ ...editedFamilyMember, gender: value })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select gender" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="male">Male</SelectItem>
+                                    <SelectItem value="female">Female</SelectItem>
+                                    <SelectItem value="other">Other</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Email</label>
+                                <Input
+                                  type="email"
+                                  value={editedFamilyMember.email}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, email: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Phone</label>
+                                <Input
+                                  type="tel"
+                                  value={editedFamilyMember.phone}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, phone: e.target.value })}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => setEditingFamilyMemberId(null)}>
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => updateFamilyMemberMutation.mutate({ familyMemberId: member.id, data: editedFamilyMember })}
+                                disabled={!editedFamilyMember.firstName || !editedFamilyMember.lastName || updateFamilyMemberMutation.isPending}
+                              >
+                                {updateFamilyMemberMutation.isPending ? 'Saving...' : 'Save Changes'}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-semibold">
+                                {member.firstName} {member.lastName}
+                              </h4>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={member.isActive ? "default" : "secondary"}>
+                                  {member.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                                {canAddFamilyMembersCta && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditingFamilyMemberId(member.id);
+                                        setEditedFamilyMember({
+                                          firstName: member.firstName || '',
+                                          lastName: member.lastName || '',
+                                          middleName: member.middleName || '',
+                                          dateOfBirth: member.dateOfBirth || '',
+                                          gender: member.gender || '',
+                                          relationship: member.relationship || 'dependent',
+                                          email: member.email || '',
+                                          phone: member.phone || ''
+                                        });
+                                      }}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <AlertDialog open={deletingFamilyMemberId === member.id} onOpenChange={(open) => setDeletingFamilyMemberId(open ? member.id : null)}>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Remove {member.firstName} {member.lastName}?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This will permanently remove this dependent from the enrollment. This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => deleteFamilyMemberMutation.mutate(member.id)}
+                                            disabled={deleteFamilyMemberMutation.isPending}
+                                          >
+                                            {deleteFamilyMemberMutation.isPending ? 'Removing...' : 'Remove'}
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div>
+                                <span className="text-gray-600">Relationship:</span> {member.relationship}
+                              </div>
+                              <div>
+                                <span className="text-gray-600">DOB:</span> {formatDateDisplay(member.dateOfBirth, 'MM/dd/yyyy', 'Not provided')}
+                              </div>
+                              {member.email && (
+                                <div>
+                                  <span className="text-gray-600">Email:</span> {member.email}
+                                </div>
+                              )}
+                              {member.phone && (
+                                <div>
+                                  <span className="text-gray-600">Phone:</span> {formatPhoneNumber(member.phone)}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>

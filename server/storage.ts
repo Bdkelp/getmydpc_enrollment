@@ -938,6 +938,11 @@ export interface IStorage {
     primaryMemberOrUserId: string | number,
   ): Promise<FamilyMember[]>;
   addFamilyMember(member: InsertFamilyMember): Promise<FamilyMember>;
+  updateFamilyMember(
+    id: number | string,
+    updates: Partial<InsertFamilyMember>,
+  ): Promise<FamilyMember>;
+  deleteFamilyMember(id: number | string): Promise<void>;
 
   // Admin operations
   getAllUsers(
@@ -8345,6 +8350,76 @@ export async function addFamilyMember(
   return mapFamilyMemberRowToRecord(data as any) as FamilyMember;
 }
 
+export async function updateFamilyMember(
+  id: number | string,
+  updates: Partial<InsertFamilyMember>,
+): Promise<FamilyMember> {
+  const numericId = Number(id);
+  if (!Number.isFinite(numericId)) {
+    throw new Error("Invalid family member id");
+  }
+
+  const payload: Record<string, any> = {};
+  if (updates.firstName !== undefined) payload.first_name = updates.firstName;
+  if (updates.lastName !== undefined) payload.last_name = updates.lastName;
+  if (updates.middleName !== undefined)
+    payload.middle_name = updates.middleName || null;
+  if (updates.dateOfBirth !== undefined)
+    payload.date_of_birth = updates.dateOfBirth || null;
+  if (updates.gender !== undefined) payload.gender = updates.gender || null;
+  if (updates.ssn !== undefined) payload.ssn = updates.ssn || null;
+  if (updates.email !== undefined) payload.email = updates.email || null;
+  if (updates.phone !== undefined) payload.phone = updates.phone || null;
+  if (updates.relationship !== undefined)
+    payload.relationship = updates.relationship || null;
+  if (updates.memberType !== undefined)
+    payload.member_type = updates.memberType;
+  if (updates.address !== undefined) payload.address = updates.address || null;
+  if (updates.address2 !== undefined)
+    payload.address2 = updates.address2 || null;
+  if (updates.city !== undefined) payload.city = updates.city || null;
+  if (updates.state !== undefined) payload.state = updates.state || null;
+  if (updates.zipCode !== undefined) payload.zip_code = updates.zipCode || null;
+  if (updates.isActive !== undefined) payload.is_active = updates.isActive;
+
+  if (Object.keys(payload).length === 0) {
+    throw new Error("No fields provided to update");
+  }
+
+  const { data, error } = await supabase
+    .from("family_members")
+    .update(payload)
+    .eq("id", numericId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error updating family member:", error);
+    throw new Error(`Failed to update family member: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("Family member not found");
+  }
+  return mapFamilyMemberRowToRecord(data as any) as FamilyMember;
+}
+
+export async function deleteFamilyMember(id: number | string): Promise<void> {
+  const numericId = Number(id);
+  if (!Number.isFinite(numericId)) {
+    throw new Error("Invalid family member id");
+  }
+
+  const { error } = await supabase
+    .from("family_members")
+    .delete()
+    .eq("id", numericId);
+
+  if (error) {
+    console.error("Error deleting family member:", error);
+    throw new Error(`Failed to delete family member: ${error.message}`);
+  }
+}
+
 // Clear test data function (as provided in the snippet)
 export async function clearTestData(): Promise<void> {
   try {
@@ -10105,6 +10180,8 @@ export const storage = {
 
   getFamilyMembers,
   addFamilyMember,
+  updateFamilyMember,
+  deleteFamilyMember,
 
   createLead,
   updateLead,
