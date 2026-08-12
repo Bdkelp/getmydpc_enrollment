@@ -253,16 +253,6 @@ const formatDateForInput = (value?: string | null) => {
   return format(parsed, "yyyy-MM-dd");
 };
 
-const canManageFamilyMembers = (value?: string | null) => {
-  if (!value) return false;
-  const normalized = value.toLowerCase();
-  return (
-    normalized.includes("spouse") ||
-    normalized.includes("children") ||
-    normalized.includes("family")
-  );
-};
-
 export default function EnrollmentDetails() {
   const [, setLocation] = useLocation();
   const [, params] = useRoute("/admin/enrollment/:id");
@@ -882,7 +872,6 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
   const coverageTypeLabel = formatCoverageLabel(enrollment.memberType);
   const formattedPhone = formatPhoneDisplay(enrollment.phone, "Not provided");
   const formattedEmergencyPhone = formatPhoneDisplay(enrollment.emergencyContactPhone, "Not provided");
-  const canAddFamilyMembersCta = canManageFamilyMembers(enrollment.memberType);
   const monthlyPremiumValue = Number(enrollment.totalMonthlyPrice ?? enrollment.planPrice ?? 0);
   const monthlyPremiumDisplay = Number.isFinite(monthlyPremiumValue)
     ? monthlyPremiumValue.toFixed(2)
@@ -1701,12 +1690,11 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                     <Users className="h-5 w-5 mr-2 text-blue-600" />
                     Family Members
                   </span>
-                  {canAddFamilyMembersCta && (
-                    <Dialog open={showAddFamilyDialog} onOpenChange={setShowAddFamilyDialog}>
+                  <Dialog open={showAddFamilyDialog} onOpenChange={setShowAddFamilyDialog}>
                       <DialogTrigger asChild>
                         <Button size="sm">
                           <UserPlus className="h-4 w-4 mr-2" />
-                          Add Member
+                          Add Family Member
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1843,8 +1831,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                           </div>
                         </div>
                       </DialogContent>
-                    </Dialog>
-                  )}
+                  </Dialog>
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -1960,28 +1947,26 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                                 <Badge variant={member.isActive ? "default" : "secondary"}>
                                   {member.isActive ? "Active" : "Inactive"}
                                 </Badge>
-                                {canAddFamilyMembersCta && (
-                                  <>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        setEditingFamilyMemberId(member.id);
-                                        setEditedFamilyMember({
-                                          firstName: member.firstName || '',
-                                          lastName: member.lastName || '',
-                                          middleName: member.middleName || '',
-                                          dateOfBirth: member.dateOfBirth || '',
-                                          gender: member.gender || '',
-                                          relationship: member.relationship || 'dependent',
-                                          email: member.email || '',
-                                          phone: member.phone || ''
-                                        });
-                                      }}
-                                    >
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
-                                    <AlertDialog open={deletingFamilyMemberId === member.id} onOpenChange={(open) => setDeletingFamilyMemberId(open ? member.id : null)}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingFamilyMemberId(member.id);
+                                    setEditedFamilyMember({
+                                      firstName: member.firstName || '',
+                                      lastName: member.lastName || '',
+                                      middleName: member.middleName || '',
+                                      dateOfBirth: member.dateOfBirth || '',
+                                      gender: member.gender || '',
+                                      relationship: member.relationship || 'dependent',
+                                      email: member.email || '',
+                                      phone: member.phone || ''
+                                    });
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <AlertDialog open={deletingFamilyMemberId === member.id} onOpenChange={(open) => setDeletingFamilyMemberId(open ? member.id : null)}>
                                       <AlertDialogTrigger asChild>
                                         <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
                                           <Trash2 className="h-4 w-4" />
@@ -2004,9 +1989,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                                           </AlertDialogAction>
                                         </AlertDialogFooter>
                                       </AlertDialogContent>
-                                    </AlertDialog>
-                                  </>
-                                )}
+                                  </AlertDialog>
                               </div>
                             </div>
                             <div className="grid grid-cols-2 gap-2 text-sm">
