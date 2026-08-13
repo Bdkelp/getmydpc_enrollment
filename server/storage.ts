@@ -16,6 +16,12 @@ import {
   formatSSN as formatSSNNumber,
 } from "./utils/encryption";
 import crypto from "crypto";
+import {
+  RECURRING_BILLING_ATTEMPT_STATUSES,
+  RECURRING_BILLING_IDEMPOTENCY_STATUSES,
+  RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS,
+  RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES,
+} from "../shared/recurringBillingPolicy";
 
 // Encryption utilities for sensitive data
 const ENCRYPTION_KEY =
@@ -7786,7 +7792,13 @@ export async function getSubscriptionsDueForBilling(
         LIMIT 1
       ) p_auth ON true
       LEFT JOIN LATERAL (
-        SELECT COALESCE(rbl.next_retry_date, rbl.created_at + INTERVAL '2 day') AS next_retry_date
+        SELECT
+          COALESCE(rbl.next_retry_date, rbl.created_at + INTERVAL '2 day') AS next_retry_date,
+          CASE
+            WHEN COALESCE(rbl.epx_response_code, '') = ANY($4::text[]) THEN false
+            WHEN COALESCE(rbl.failure_reason, '') ILIKE ANY($5::text[]) THEN false
+            ELSE true
+          END AS retryable
         FROM recurring_billing_log rbl
         WHERE rbl.subscription_id = s.id
           AND rbl.status = 'failed'
@@ -7795,6 +7807,8 @@ export async function getSubscriptionsDueForBilling(
       ) retry_gate ON true
       WHERE s.status = ANY($3::text[])
         AND s.member_id IS NOT NULL
+        AND m.status = 'active'
+        AND COALESCE(m.is_active, true) = true
         AND (
           (gp.payer_type = 'group' AND (t_group.id IS NOT NULL OR t_member.id IS NOT NULL))
           OR
@@ -7805,11 +7819,20 @@ export async function getSubscriptionsDueForBilling(
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND (
           retry_gate.next_retry_date IS NULL
-          OR retry_gate.next_retry_date <= $1::timestamptz
+          OR (
+            retry_gate.retryable = true
+            AND retry_gate.next_retry_date <= $1::timestamptz
+          )
         )
       ORDER BY s.next_billing_date ASC, s.id ASC
     `,
-    [now.toISOString(), supportedPaymentMethodTypes, billingReadyStatuses],
+    [
+      now.toISOString(),
+      supportedPaymentMethodTypes,
+      billingReadyStatuses,
+      [...RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES],
+      [...RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS],
+    ],
   );
 
   const rows = result.rows || [];
@@ -8160,7 +8183,7 @@ export async function hasExistingBillingLogEntry(
     .select("id, status")
     .eq("subscription_id", subscriptionId)
     .eq("billing_date", billingDate)
-    .in("status", ["success", "pending", "failed", "ach_test_success"])
+    .in("status", [...RECURRING_BILLING_IDEMPOTENCY_STATUSES])
     .limit(1);
 
   if (error) {
@@ -8183,7 +8206,7 @@ export async function getBillingLogAttemptCountForCycle(
     .select("id", { count: "exact", head: true })
     .eq("subscription_id", subscriptionId)
     .eq("billing_date", billingDate)
-    .in("status", ["failed", "pending", "success", "ach_test_success"]);
+    .in("status", [...RECURRING_BILLING_ATTEMPT_STATUSES]);
 
   if (error) {
     console.error(

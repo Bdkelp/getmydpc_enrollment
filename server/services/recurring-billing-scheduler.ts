@@ -50,6 +50,10 @@ import {
   sendBillingSchedulerNotRunningAlert,
 } from "../email";
 import cron from "node-cron";
+import {
+  filterRecurringBillingSubscriptions,
+  getNextRecurringBillingAttemptNumber,
+} from "../../shared/recurringBillingPolicy";
 
 const LOG_PREFIX = "[Recurring Billing]";
 const ADVISORY_LOCK_KEY = 123456789; // Arbitrary fixed int64 for pg_try_advisory_lock
@@ -1285,7 +1289,6 @@ async function finalizeScheduledMemberCancellations() {
         .from("subscriptions")
         .update({
           status: "cancelled",
-          cancelled_at: timestamp,
           updated_at: timestamp,
           pending_reason: null,
           pending_details: null,
@@ -1491,6 +1494,7 @@ async function runBillingCycle(options?: {
   dryRunOverride?: boolean;
   source?: SchedulerCycleSource;
   requestedBy?: string;
+  subscriptionIds?: number[];
 }): Promise<RecurringSchedulerRunResult> {
   const cycleStart = Date.now();
   const source: SchedulerCycleSource = options?.source || "automatic";
@@ -1507,6 +1511,7 @@ async function runBillingCycle(options?: {
     currentPaymentEnvironment,
   );
   const mode = dryRun ? "DRY RUN" : "LIVE";
+  const targetedRun = options?.subscriptionIds !== undefined;
 
   refreshSchedulerConfigState();
   schedulerStatusState.lastCycle.source = source;
@@ -1601,7 +1606,7 @@ async function runBillingCycle(options?: {
 
   try {
     // 2. Finalize scheduled cancellations that reached end-of-paid-period.
-    if (!dryRun) {
+    if (!dryRun && !targetedRun) {
       const cancellationFinalizationResult =
         await finalizeScheduledMemberCancellations();
       if (
@@ -1629,9 +1634,9 @@ async function runBillingCycle(options?: {
     }
 
     // 3. Verify and resolve stale 'pending' entries
-    const staleLogs = await getStalePendingBillingLogs(
-      STALE_PENDING_THRESHOLD_MINUTES,
-    );
+    const staleLogs = targetedRun
+      ? []
+      : await getStalePendingBillingLogs(STALE_PENDING_THRESHOLD_MINUTES);
     for (const stale of staleLogs) {
       // Check whether the payment actually succeeded (EPX may have responded after crash)
       const txId = generateTransactionId(
@@ -1683,9 +1688,13 @@ async function runBillingCycle(options?: {
 
     // 4. Query due subscriptions (single query, ACH inclusion hard-gated)
     const now = new Date();
-    const dueSubscriptions = await getSubscriptionsDueForBilling(now, {
+    const allDueSubscriptions = await getSubscriptionsDueForBilling(now, {
       includeACH: achEnabled,
     });
+    const dueSubscriptions = filterRecurringBillingSubscriptions(
+      allDueSubscriptions,
+      options?.subscriptionIds,
+    );
     dueCount = dueSubscriptions.length;
 
     if (dueSubscriptions.length === 0) {
@@ -2157,6 +2166,8 @@ async function processSubscription(
     });
     return { outcome: "skipped", skipReason };
   }
+  const attemptNumber =
+    getNextRecurringBillingAttemptNumber(existingAttemptCount);
 
   // 6. Resolve card auth GUID (ACH does not require ORIG_AUTH_GUID for debit MIT)
   let authGuid: string | undefined;
@@ -2175,7 +2186,7 @@ async function processSubscription(
         paymentMethodType: methodType,
         amount: sub.amount,
         billingDate,
-        attemptNumber: 1,
+        attemptNumber,
         status: "failed",
         failureReason: cardAuthGuidResult.error,
         nextRetryDate,
@@ -2228,7 +2239,7 @@ async function processSubscription(
       paymentMethodType: methodType,
       amount: sub.amount,
       billingDate,
-      attemptNumber: 1,
+      attemptNumber,
       status: "failed",
       epxTransactionId: transactionId,
       failureReason: achRuntimeData.error,
@@ -2291,7 +2302,7 @@ async function processSubscription(
       paymentMethodType: methodType,
       amount: sub.amount,
       billingDate,
-      attemptNumber: 1,
+      attemptNumber,
       status: "dry_run",
       epxTransactionId: transactionId,
       processedAt: new Date().toISOString(),
@@ -2316,7 +2327,7 @@ async function processSubscription(
     paymentMethodType: methodType,
     amount: sub.amount,
     billingDate,
-    attemptNumber: 1,
+    attemptNumber,
     status: "pending",
     epxTransactionId: transactionId,
   });
@@ -2711,6 +2722,7 @@ export function scheduleRecurringBilling(): void {
 export async function runRecurringBillingCycleOnce(options?: {
   forceDryRun?: boolean;
   requestedBy?: string;
+  subscriptionIds?: number[];
 }): Promise<RecurringSchedulerRunResult> {
   const forceDryRun = options?.forceDryRun !== false;
   schedulerStatusState.manualRunsTriggered += 1;
@@ -2719,5 +2731,6 @@ export async function runRecurringBillingCycleOnce(options?: {
     source: "manual",
     dryRunOverride: forceDryRun,
     requestedBy: options?.requestedBy,
+    subscriptionIds: options?.subscriptionIds,
   });
 }

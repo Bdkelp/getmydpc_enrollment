@@ -18,7 +18,7 @@
     "build:all": "npm run build",
     "check": "tsc",
     "test": "npm run test:scheduler",
-    "test:scheduler": "node scripts/test-recurring-scheduler-smoke.mjs",
+    "test:scheduler": "tsx scripts/test-recurring-scheduler-policy.ts",
     "test:lifecycle-summary-api": "node scripts/test-lifecycle-summary-api-contract.mjs",
     "test:group-assignment-hardening": "tsx scripts/test-group-assignment-hardening.ts",
     "test:registration-assignment-hardening": "tsx scripts/test-registration-assignment-hardening.ts",
