@@ -10715,10 +10715,39 @@ export async function registerRoutes(app: any) {
         }
 
         const { batchId } = req.params;
-        await markBatchAsPaid(batchId);
-        return res.status(200).json({ message: "Payout batch marked as paid" });
+        const quickBooksReference = String(req.body?.quickBooksReference || "").trim();
+        const paidDate = String(req.body?.paidDate || "").trim();
+
+        if (!quickBooksReference) {
+          return res.status(400).json({
+            error: "QuickBooks payment reference is required",
+          });
+        }
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) {
+          return res.status(400).json({
+            error: "Payment date must use YYYY-MM-DD format",
+          });
+        }
+        if (paidDate > formatLocalDate(new Date())) {
+          return res.status(400).json({
+            error: "Payment date cannot be in the future",
+          });
+        }
+
+        await markBatchAsPaid(batchId, {
+          paidAt: paidDate,
+          quickBooksReference,
+          confirmedBy: req.user?.email || req.user?.id || null,
+        });
+        return res.status(200).json({ message: "Payout batch manually confirmed paid" });
       } catch (error: any) {
         console.error("Error marking payout batch paid:", error);
+        if (
+          error?.message?.includes("Invalid batch state") ||
+          error?.message?.includes("no queued ledger rows")
+        ) {
+          return res.status(409).json({ error: error.message });
+        }
         if (
           error?.message &&
           error.message.includes("Payout batch totals mismatch")

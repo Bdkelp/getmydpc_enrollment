@@ -1102,7 +1102,14 @@ export async function prepareBatchForExport(batchId: string, format: 'quickbooks
   );
 }
 
-export async function markBatchAsPaid(batchId: string): Promise<void> {
+export async function markBatchAsPaid(
+  batchId: string,
+  confirmation: {
+    paidAt: string;
+    quickBooksReference: string;
+    confirmedBy?: string | null;
+  },
+): Promise<void> {
   await assertBatchHeaderTotalsMatch(batchId, 'mark-paid');
 
   const { data: batch, error: batchError } = await supabase
@@ -1122,9 +1129,26 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
     return;
   }
 
-  if (!['draft', 'ready', 'exported'].includes(batchStatus)) {
-    throw new Error(`Invalid batch state for paid transition: ${batch?.status || 'unknown'}. Batch must be draft, ready, or exported.`);
+  if (batchStatus !== 'exported') {
+    throw new Error(`Invalid batch state for paid transition: ${batch?.status || 'unknown'}. Export the batch to QuickBooks before marking it paid.`);
   }
+
+  const quickBooksReference = String(confirmation?.quickBooksReference || '').trim();
+  const paidAt = parseLocalDate(confirmation?.paidAt || '');
+  if (!quickBooksReference) {
+    throw new Error('QuickBooks payment reference is required.');
+  }
+  if (Number.isNaN(paidAt.getTime())) {
+    throw new Error('A valid QuickBooks payment date is required.');
+  }
+  const paidAtIso = paidAt.toISOString();
+  const auditMetadata = {
+    paymentMethod: 'quickbooks-manual',
+    quickBooksReference,
+    confirmedBy: confirmation?.confirmedBy || null,
+    confirmedAt: new Date().toISOString(),
+    paidAt: paidAtIso,
+  };
 
   const { data: rows, error: rowsError } = await supabase
     .from('commission_ledger')
@@ -1163,23 +1187,7 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
 
   const payableRows = (rows || []).filter((row: any) => row.status === 'queued');
   if (payableRows.length === 0) {
-    // If nothing remains queued (for example all rows were detached as non-payable),
-    // treat this as a no-op paid transition to avoid hard-failing the admin workflow.
-    const { error: batchUpdateError } = await supabase
-      .from('commission_payout_batches')
-      .update({
-        status: 'paid',
-        paid_at: new Date().toISOString(),
-      })
-      .eq('id', batchId)
-      .neq('status', 'paid');
-
-    if (batchUpdateError) {
-      throw new Error(`Failed to mark payout batch as paid: ${batchUpdateError.message}`);
-    }
-
-    await recalculateBatchTotals(batchId);
-    return;
+    throw new Error('Payout batch has no queued ledger rows to mark as paid.');
   }
 
   const payableIds = payableRows.map((row: any) => row.id);
@@ -1226,7 +1234,8 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
       from_status: 'queued',
       to_status: 'paid',
       payout_batch_id: batchId,
-      reason: 'Batch marked as paid',
+      reason: 'Manually confirmed paid after QuickBooks export',
+      metadata: auditMetadata,
     }))
   );
 
@@ -1241,7 +1250,7 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
       .from('agent_commissions')
       .update({
         payment_status: 'paid',
-        paid_date: new Date().toISOString(),
+        paid_date: paidAtIso,
       })
       .in('id', sourceCommissionIds)
       .neq('payment_status', 'paid');
@@ -1259,7 +1268,7 @@ export async function markBatchAsPaid(batchId: string): Promise<void> {
     .from('commission_payout_batches')
     .update({
       status: 'paid',
-      paid_at: new Date().toISOString(),
+      paid_at: paidAtIso,
     })
     .eq('id', batchId)
     .neq('status', 'paid');

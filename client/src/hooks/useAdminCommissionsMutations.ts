@@ -81,7 +81,8 @@ export function useAdminCommissionsMutations({
   });
 
   const markBatchPaidMutation = useMutation({
-    mutationFn: async (batchId: string) => {
+    mutationFn: async (payload: { batchId: string; paidDate: string; quickBooksReference: string }) => {
+      const { batchId } = payload;
       let detail = queryClient.getQueryData(["/api/admin/commissions/payout-batches", batchId]) as BatchDetailResponse | undefined;
       if (!detail) {
         detail = await apiRequest(`/api/admin/commissions/payout-batches/${batchId}`, { method: "GET" });
@@ -94,10 +95,14 @@ export function useAdminCommissionsMutations({
 
       return await apiRequest(`/api/admin/commissions/payout-batches/${batchId}/mark-paid`, {
         method: "POST",
+        body: JSON.stringify({
+          paidDate: payload.paidDate,
+          quickBooksReference: payload.quickBooksReference,
+        }),
       });
     },
     onSuccess: () => {
-      toast({ title: "Batch Marked Paid", description: "All included ledger records were updated to paid." });
+      toast({ title: "QuickBooks Payment Recorded", description: "The exported batch and its ledger records are now marked paid." });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/commissions/payout-dashboard"] });
       if (selectedBatchId) {
         queryClient.invalidateQueries({ queryKey: ["/api/admin/commissions/payout-batches", selectedBatchId] });

@@ -191,6 +191,9 @@ export default function AdminCommissions() {
   const [overrideReason, setOverrideReason] = useState('');
   const [selectedCarryForwardCandidate, setSelectedCarryForwardCandidate] = useState<PayoutBatchDetail['carryForwardCandidates'][number] | null>(null);
 
+  const [paymentConfirmationBatch, setPaymentConfirmationBatch] = useState<PayoutBatchSummary | null>(null);
+  const [quickBooksReference, setQuickBooksReference] = useState('');
+  const [quickBooksPaidDate, setQuickBooksPaidDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const {
     commissions,
     isLoading,
@@ -481,6 +484,9 @@ export default function AdminCommissions() {
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Recurring Commission Payout Ledger</CardTitle>
+            <p className="text-sm text-gray-500">
+              Prepare the payout, export it to QuickBooks, complete payment there, then manually confirm the exported batch as paid.
+            </p>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-4">
@@ -572,18 +578,28 @@ export default function AdminCommissions() {
                             View
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => handleExportBatchCsv(batch.id, 'quickbooks-csv')}>
-                            QB CSV
+                            Export to QuickBooks
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => handleExportBatchCsv(batch.id, 'hexona-csv')}>
                             Hexona CSV
                           </Button>
                           <Button
                             size="sm"
-                            onClick={() => markBatchPaidMutation.mutate(batch.id)}
-                            disabled={markBatchPaidMutation.isPending || batch.status === 'paid' || Number(batch.total_records || 0) === 0}
-                            title={Number(batch.total_records || 0) === 0 ? 'No payable ledger rows in this batch.' : undefined}
+                            onClick={() => {
+                              setPaymentConfirmationBatch(batch);
+                              setQuickBooksReference('');
+                              setQuickBooksPaidDate(format(new Date(), 'yyyy-MM-dd'));
+                            }}
+                            disabled={markBatchPaidMutation.isPending || batch.status !== 'exported' || Number(batch.total_records || 0) === 0}
+                            title={
+                              Number(batch.total_records || 0) === 0
+                                ? 'No payable ledger rows in this batch.'
+                                : batch.status !== 'exported'
+                                  ? 'Export this batch to QuickBooks before confirming payment.'
+                                  : 'Record the completed QuickBooks payment.'
+                            }
                           >
-                            Mark Paid
+                            Confirm Paid
                           </Button>
                         </div>
                       </TableCell>
@@ -965,6 +981,94 @@ export default function AdminCommissions() {
 
         <Dialog open={isOverrideConfirmOpen} onOpenChange={setIsOverrideConfirmOpen}>
           <DialogContent className="max-w-xl">
+        <Dialog
+          open={!!paymentConfirmationBatch}
+          onOpenChange={(open) => {
+            if (!open && !markBatchPaidMutation.isPending) {
+              setPaymentConfirmationBatch(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Confirm QuickBooks Payment</DialogTitle>
+              <DialogDescription>
+                Use this only after the exported batch has been paid in QuickBooks. This updates every payable ledger row in the batch to paid.
+              </DialogDescription>
+            </DialogHeader>
+
+            {paymentConfirmationBatch && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3 rounded border bg-gray-50 p-3 text-sm">
+                  <div>
+                    <p className="text-xs text-gray-500">Batch</p>
+                    <p className="font-medium">{paymentConfirmationBatch.batch_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Payment Total</p>
+                    <p className="font-semibold">${Number(paymentConfirmationBatch.total_amount || 0).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Agents</p>
+                    <p className="font-medium">{paymentConfirmationBatch.total_agents}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Ledger Records</p>
+                    <p className="font-medium">{paymentConfirmationBatch.total_records}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="quickBooksPaidDate">QuickBooks Payment Date</Label>
+                  <Input
+                    id="quickBooksPaidDate"
+                    type="date"
+                    value={quickBooksPaidDate}
+                    onChange={(event) => setQuickBooksPaidDate(event.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="quickBooksReference">QuickBooks Reference</Label>
+                  <Input
+                    id="quickBooksReference"
+                    value={quickBooksReference}
+                    onChange={(event) => setQuickBooksReference(event.target.value)}
+                    placeholder="Check number, transaction ID, or payroll reference"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setPaymentConfirmationBatch(null)}
+                    disabled={markBatchPaidMutation.isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      markBatchPaidMutation.mutate(
+                        {
+                          batchId: paymentConfirmationBatch.id,
+                          paidDate: quickBooksPaidDate,
+                          quickBooksReference: quickBooksReference.trim(),
+                        },
+                        {
+                          onSuccess: () => setPaymentConfirmationBatch(null),
+                        },
+                      );
+                    }}
+                    disabled={markBatchPaidMutation.isPending || !quickBooksPaidDate || !quickBooksReference.trim()}
+                  >
+                    {markBatchPaidMutation.isPending ? 'Recording...' : 'Confirm Batch Paid'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
             <DialogHeader>
               <DialogTitle>Confirm Under-Minimum Release</DialogTitle>
               <DialogDescription>
