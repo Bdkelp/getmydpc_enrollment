@@ -32,6 +32,13 @@ interface CommissionFeedItem {
   lineageSnapshotId?: string;
 }
 
+export function normalizeCommissionLedgerAgentId(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)
+    ? normalized
+    : null;
+}
+
 function toIsoDate(value: Date): string {
   return formatLocalDate(value);
 }
@@ -497,7 +504,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
 
   const sourceIds = commissions.map((c) => c.id).filter(Boolean);
   const memberIds = [...new Set(commissions.map((c) => String(c.memberId || '')).filter(Boolean))];
-  const agentIds = [...new Set(commissions.map((c) => String(c.agentId || '')).filter(Boolean))];
+  const agentIds = [...new Set(commissions.map((c) => normalizeCommissionLedgerAgentId(c.agentId)).filter((id): id is string => Boolean(id)))];
   const [latestPaidCutoff, existingResult, memberHistoryResult, cancellationsResult] = await Promise.all([
     getLatestPaidBatchCutoffDate(),
     supabase
@@ -568,7 +575,8 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
     const cancellationDate = cancellationInfo?.date;
 
     const periods = getRecurringPeriods(rangeStart, rangeEnd);
-    const memberAgentKey = `${item.agentId || ''}:${item.memberId || ''}`;
+    const normalizedAgentId = normalizeCommissionLedgerAgentId(item.agentId);
+    const memberAgentKey = `${normalizedAgentId || ''}:${item.memberId || ''}`;
     const commissionUnitKey = buildCommissionUnitKey(item);
     const hasPriorForMember = memberAgentSeen.has(memberAgentKey);
 
@@ -579,7 +587,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
         return;
       }
 
-      const unitPeriodDedupeKey = `${String(item.agentId || '')}|${commissionUnitKey}|${period.start}|${period.end}`;
+      const unitPeriodDedupeKey = `${normalizedAgentId || ''}|${commissionUnitKey}|${period.start}|${period.end}`;
       if (incomingUnitPeriodSeen.has(unitPeriodDedupeKey)) {
         skipped += 1;
         return;
@@ -613,7 +621,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
       const row = {
         source_commission_id: item.id,
         lineage_snapshot_id: item.lineageSnapshotId || null,
-        agent_id: item.agentId || null,
+        agent_id: normalizedAgentId,
         agent_name: item.agentName || 'Unknown Agent',
         writing_number: item.agentNumber || null,
         member_id: item.memberId || null,
