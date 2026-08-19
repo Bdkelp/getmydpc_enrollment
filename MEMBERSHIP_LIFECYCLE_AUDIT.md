@@ -32,8 +32,8 @@ Form submitted (registration route, routes.ts:5460)
   ├─ members row created: status='active', is_active=true  ← immediately
   │   enrollment_date = NOW()  (= billing anchor)
   │   first_payment_date = enrollment_date
-  │   membership_start_date = calculateMembershipStartDate(enrollment_date)
-  │                           (1st or 15th, see membership-dates.ts)
+  │   membership_start_date = validated planStartDate
+  │                           (cutoff-aware 1st or 15th, see shared/planStartDates.ts)
   │
   └─ subscriptions row created: status='pending_payment'
       next_billing_date = calculateNextBillingDate(NOW())   ← month+1 same day

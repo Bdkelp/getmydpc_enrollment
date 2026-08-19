@@ -5,35 +5,9 @@
  * - Enrollment/Billing Date: Variable (any day of month when customer enrolls)
  * - Membership Start Date: Fixed (1st or 15th only)
  * 
- * Logic:
- * - Enrolled on 1st-14th → Membership starts on 15th of SAME month
- * - Enrolled on 15th-end of month → Membership starts on 1st of NEXT month
- * 
- * Examples:
- * - Enroll Nov 5 → Billing: Nov 5 (recurring), Membership: Nov 15
- * - Enroll Nov 18 → Billing: Nov 18 (recurring), Membership: Dec 1
- * - Enroll Nov 14 → Billing: Nov 14 (recurring), Membership: Nov 15 (1 day wait)
- * - Enroll Nov 15 → Billing: Nov 15 (recurring), Membership: Dec 1 (16 day wait)
+ * Membership effective dates are selected by the shared cutoff-aware utility
+ * in shared/planStartDates.ts. This module owns billing-date helpers only.
  */
-
-/**
- * Calculate membership start date based on enrollment date
- * @param enrollmentDate - The date when customer enrolled/paid
- * @returns The membership start date (either 1st or 15th)
- */
-export function calculateMembershipStartDate(enrollmentDate: Date): Date {
-  const enrollDay = enrollmentDate.getDate();
-  const enrollMonth = enrollmentDate.getMonth();
-  const enrollYear = enrollmentDate.getFullYear();
-
-  if (enrollDay >= 1 && enrollDay <= 14) {
-    // Enrolled 1st-14th → Start on 15th of same month
-    return new Date(enrollYear, enrollMonth, 15);
-  } else {
-    // Enrolled 15th-end of month → Start on 1st of next month
-    return new Date(enrollYear, enrollMonth + 1, 1);
-  }
-}
 
 const BILLING_ANCHOR_DAYS = [1, 15] as const;
 

@@ -1,4 +1,4 @@
-import { formatPlanStartDateISO, getUpcomingPlanStartDates, isSameCalendarDay } from "@shared/planStartDates";
+import { formatPlanStartDateISO, getAvailablePlanStartDates } from "@shared/planStartDates";
 
 export type PlanStartDateOption = {
   value: string;
@@ -16,13 +16,10 @@ const formatPlanStartLabel = (date: Date, isImmediateStart: boolean) => {
   return isImmediateStart ? `Start Today (${formattedDate})` : formattedDate;
 };
 
-export const PLAN_START_SAME_DAY_ENABLED =
-  import.meta.env?.VITE_ENABLE_SAME_DAY_PLAN_START === "true";
-
 export const getPlanStartDateSelectOptions = (): PlanStartDateOption[] => {
   const today = new Date();
-  return getUpcomingPlanStartDates({ includeSameDay: PLAN_START_SAME_DAY_ENABLED }).map((date) => ({
+  return getAvailablePlanStartDates(today, 2).map((date) => ({
     value: formatPlanStartDateISO(date),
-    label: formatPlanStartLabel(date, PLAN_START_SAME_DAY_ENABLED && isSameCalendarDay(date, today)),
+    label: formatPlanStartLabel(date, false),
   }));
 };

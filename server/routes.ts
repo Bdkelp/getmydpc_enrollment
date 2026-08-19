@@ -46,11 +46,15 @@ import adminLoginSessionsRoutes from "./routes/admin-login-sessions";
 import adminUsersRoutes from "./routes/admin-users";
 import { requireDevelopmentMode } from "./middleware/debug-route-guard";
 import {
-  calculateMembershipStartDate,
   calculateNextBillingDate,
   isMembershipActive,
   daysUntilMembershipStarts,
 } from "./utils/membership-dates";
+import {
+  formatPlanStartDateISO,
+  getAvailablePlanStartDates,
+  isPlanStartDateAllowed,
+} from "@shared/planStartDates";
 // import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
@@ -7119,6 +7123,7 @@ export async function registerRoutes(app: any) {
         emergencyContactPhone,
         memberType,
         planStartDate,
+        effectiveDateAcknowledged,
         planId,
         coverageType,
         addRxValet,
@@ -7133,6 +7138,32 @@ export async function registerRoutes(app: any) {
         enrolledByAgentId: requestedEnrolledByAgentId,
         overrideEnrollmentDate, // Admin-only: backdate enrollment (e.g., March 4 → March 1)
       } = req.body;
+
+      if (
+        typeof planStartDate !== "string" ||
+        !isPlanStartDateAllowed(planStartDate, { today: new Date() })
+      ) {
+        return res.status(400).json({
+          error: "Invalid plan start date",
+          message: "Choose an available 1st or 15th effective date before enrollment cutoff",
+        });
+      }
+
+      if (effectiveDateAcknowledged !== true) {
+        return res.status(400).json({
+          error: "Effective date acknowledgment required",
+          message: "Acknowledge the membership effective date before continuing",
+        });
+      }
+
+      const selectedPlanStartDate = getAvailablePlanStartDates(new Date(), 2)
+        .find((date) => formatPlanStartDateISO(date) === planStartDate);
+      if (!selectedPlanStartDate) {
+        return res.status(400).json({
+          error: "Invalid plan start date",
+          message: "Choose an available 1st or 15th effective date before enrollment cutoff",
+        });
+      }
 
       const authenticatedUser = await getOptionalAuthenticatedUser(req);
       const normalizedRequestedEnrolledByAgentId =
@@ -7349,7 +7380,7 @@ export async function registerRoutes(app: any) {
       }
 
       const firstPaymentDate = enrollmentDate; // Same as enrollment date
-      const membershipStartDate = calculateMembershipStartDate(enrollmentDate);
+      const membershipStartDate = selectedPlanStartDate;
 
       console.log("[Registration] Date calculations:", {
         enrollmentDate: enrollmentDate.toISOString(),
@@ -8063,6 +8094,25 @@ export async function registerRoutes(app: any) {
           familyMembers,
         } = req.body;
 
+          if (
+            typeof planStartDate !== "string" ||
+            !isPlanStartDateAllowed(planStartDate, { today: new Date() })
+          ) {
+            return res.status(400).json({
+              error: "Invalid plan start date",
+              message: "Choose an available 1st or 15th effective date before enrollment cutoff",
+            });
+          }
+
+          const selectedPlanStartDate = getAvailablePlanStartDates(new Date(), 2)
+            .find((date) => formatPlanStartDateISO(date) === planStartDate);
+          if (!selectedPlanStartDate) {
+            return res.status(400).json({
+              error: "Invalid plan start date",
+              message: "Choose an available 1st or 15th effective date before enrollment cutoff",
+            });
+          }
+
         const rawSSN = (
           ssn ??
           req.body?.socialSecurityNumber ??
@@ -8146,6 +8196,7 @@ export async function registerRoutes(app: any) {
           emergencyContactPhone: emergencyContactPhone || null,
           memberType: memberType || "member-only",
           planStartDate: planStartDate || null,
+          membershipStartDate: selectedPlanStartDate,
           enrolledByAgentId: req.user.id,
           agentNumber: req.user.agentNumber,
           isActive: false,
@@ -8322,6 +8373,18 @@ export async function registerRoutes(app: any) {
         primaryMemberEmail: primaryMember.email,
         familyMemberCount: members.length,
       });
+
+      const unavailableDateIndex = members.findIndex(
+        (member: any) =>
+          typeof member?.planStartDate !== "string" ||
+          !isPlanStartDateAllowed(member.planStartDate, { today: new Date() }),
+      );
+      if (unavailableDateIndex >= 0) {
+        return res.status(400).json({
+          error: "Invalid plan start date",
+          message: `Family member ${unavailableDateIndex + 1} has a closed or invalid effective date`,
+        });
+      }
 
       // Add all family members
       const addedMembers = [];

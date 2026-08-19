@@ -79,12 +79,93 @@ const parseISODateString = (value: string): Date | null => {
   const day = Number(dayStr);
   const parsed = new Date(year, month, day);
 
-  return Number.isNaN(parsed.getTime()) ? null : startOfDay(parsed);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return startOfDay(parsed);
 };
 
 export type PlanStartValidationOptions = {
   includeSameDay?: boolean;
   today?: Date;
+};
+
+export type PlanStartDateDecision = {
+  upcomingEffectiveDate: Date;
+  cutoffDate: Date;
+  selectedEffectiveDate: Date;
+  cutoffPassed: boolean;
+  acknowledgmentRequired: boolean;
+};
+
+const addCalendarDays = (date: Date, days: number): Date => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return startOfDay(result);
+};
+
+const isBusinessDay = (date: Date): boolean => {
+  const day = date.getDay();
+  return day !== 0 && day !== 6;
+};
+
+export const subtractBusinessDays = (date: Date, businessDays: number): Date => {
+  let result = startOfDay(date);
+  let remaining = businessDays;
+
+  while (remaining > 0) {
+    result = addCalendarDays(result, -1);
+    if (isBusinessDay(result)) {
+      remaining -= 1;
+    }
+  }
+
+  return result;
+};
+
+export const getAvailablePlanStartDates = (today = new Date(), anchorCount = 2): Date[] => {
+  const normalizedToday = startOfDay(today);
+  const anchors = getUpcomingPlanStartDates({ today: normalizedToday, anchorCount: anchorCount + 1 });
+  const upcomingEffectiveDate = anchors[0];
+
+  if (!upcomingEffectiveDate) {
+    return [];
+  }
+
+  const cutoffDate = subtractBusinessDays(upcomingEffectiveDate, 3);
+  const firstAvailableIndex = normalizedToday >= cutoffDate ? 1 : 0;
+  return anchors.slice(firstAvailableIndex, firstAvailableIndex + anchorCount);
+};
+
+export const getPlanStartDateDecision = (
+  options: PlanStartValidationOptions = {},
+): PlanStartDateDecision | null => {
+  const normalizedToday = startOfDay(options.today ?? new Date());
+  const anchors = getUpcomingPlanStartDates({ today: normalizedToday, anchorCount: 2 });
+  const upcomingEffectiveDate = anchors[0];
+  const followingEffectiveDate = anchors[1];
+
+  if (!upcomingEffectiveDate || !followingEffectiveDate) {
+    return null;
+  }
+
+  const cutoffDate = subtractBusinessDays(upcomingEffectiveDate, 3);
+  const cutoffPassed = normalizedToday >= cutoffDate;
+  const selectedEffectiveDate = cutoffPassed ? followingEffectiveDate : upcomingEffectiveDate;
+
+  return {
+    upcomingEffectiveDate,
+    cutoffDate,
+    selectedEffectiveDate,
+    cutoffPassed,
+    acknowledgmentRequired: true,
+  };
 };
 
 export const isPlanStartDateAllowed = (
@@ -96,10 +177,7 @@ export const isPlanStartDateAllowed = (
     return false;
   }
 
-  const upcoming = getUpcomingPlanStartDates({
-    today: options.today,
-    includeSameDay: options.includeSameDay,
-  });
+  const upcoming = getAvailablePlanStartDates(options.today, 2);
 
   return upcoming.some((date) => isSameCalendarDay(date, parsed));
 };

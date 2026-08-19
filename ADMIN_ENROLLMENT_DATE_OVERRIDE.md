@@ -109,16 +109,9 @@ function EnrollmentForm() {
 
 ## Membership Start Date Calculation
 
-The system automatically calculates `membershipStartDate` based on the enrollment date (or overridden date):
+Individual and family enrollment effective dates are selected from the 1st or 15th using the shared cutoff-aware plan-start utility. The upcoming date closes at the start of its final three business days, and the following 1st or 15th becomes the earliest available date. Weekends do not move the contractual effective date.
 
-- **Enrolled 1st-14th**: Membership starts on the 15th of the same month
-- **Enrolled 15th-31st**: Membership starts on the 1st of the next month
-
-**Examples:**
-- Override to March 1 → Membership starts March 15
-- Override to March 18 → Membership starts April 1
-- Override to December 14 → Membership starts December 15
-- Override to December 15 → Membership starts January 1
+Group enrollment is separate and continues to use its existing first-of-the-month scheduling behavior.
 
 ## Security
 

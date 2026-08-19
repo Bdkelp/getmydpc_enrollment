@@ -23,7 +23,6 @@ import { formatPhoneNumber, cleanPhoneNumber, formatSSN, cleanSSN, formatZipCode
 import { hasAtLeastRole } from "@/lib/roles";
 import {
   getPlanStartDateSelectOptions,
-  PLAN_START_SAME_DAY_ENABLED,
   type PlanStartDateOption,
 } from "@/lib/planStartDates";
 import { displaySSN } from "@shared/display-ssn";
@@ -101,9 +100,13 @@ const registrationSchema = z.object({
   planStartDate: z.string()
     .min(1, "Plan start date is required")
     .refine(
-      (value) => isPlanStartDateAllowed(value, { includeSameDay: PLAN_START_SAME_DAY_ENABLED }),
-      "Choose the next 1st or 15th (or today when available)"
+      (value) => isPlanStartDateAllowed(value),
+      "Choose an available 1st or 15th effective date"
     ),
+  effectiveDateAcknowledged: z.boolean().refine(
+    (value) => value === true,
+    "You must acknowledge the effective date",
+  ),
   // Emergency contact
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
@@ -231,6 +234,7 @@ export default function Registration() {
       ssn: "",
       memberType: "",
       planStartDate: defaultPlanStartDate,
+      effectiveDateAcknowledged: false,
       discountCode: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
@@ -321,6 +325,7 @@ export default function Registration() {
         dateOfHire: data.dateOfHire,
         memberType: data.memberType,
         planStartDate: data.planStartDate,
+        effectiveDateAcknowledged: data.effectiveDateAcknowledged,
         planId: selectedPlanId,
         coverageType,
         addRxValet,
@@ -1045,7 +1050,13 @@ export default function Registration() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Plan Start Date * (Upcoming 1st or 15th)</FormLabel>
-                          <Select value={field.value} onValueChange={field.onChange}>
+                          <Select
+                            value={field.value}
+                            onValueChange={(value) => {
+                              field.onChange(value);
+                              form.setValue("effectiveDateAcknowledged", false, { shouldValidate: true });
+                            }}
+                          >
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select plan start date" />
@@ -1062,15 +1073,9 @@ export default function Registration() {
                           <p className="text-sm text-gray-600 mt-2">
                             Coverage starts on the next available 1st or 15th to keep billing aligned.
                           </p>
-                          {PLAN_START_SAME_DAY_ENABLED ? (
-                            <p className="text-sm text-gray-600 mt-1">
-                              Need immediate coverage? Pick the Start Today option above.
-                            </p>
-                          ) : (
-                            <p className="text-sm text-gray-600 mt-1">
-                              Pick whichever upcoming date works best for your first payment.
-                            </p>
-                          )}
+                          <p className="text-sm text-gray-600 mt-1">
+                            Enrollment closes three business days before each effective date.
+                          </p>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -1867,6 +1872,27 @@ export default function Registration() {
                         </div>
                       </div>
                     </div>
+
+                    <FormField
+                      control={form.control}
+                      name="effectiveDateAcknowledged"
+                      render={({ field }) => (
+                        <FormItem className="border-2 border-blue-300 bg-blue-50 rounded-lg p-4 flex flex-row items-start space-x-3 space-y-0">
+                          <FormControl>
+                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                          <div className="space-y-2 leading-normal">
+                            <FormLabel className="text-base font-semibold text-blue-950">
+                              Your plan effective date is {planStartDateDisplay}.
+                            </FormLabel>
+                            <p className="text-sm text-blue-900">
+                              I understand that this membership will become effective on {planStartDateDisplay}.
+                            </p>
+                            <FormMessage />
+                          </div>
+                        </FormItem>
+                      )}
+                    />
 
                     {/* Terms and Conditions */}
                     <div className="space-y-4">

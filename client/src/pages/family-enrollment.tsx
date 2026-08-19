@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -15,7 +16,6 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Users, UserPlus, Trash2 } from "lucide-react";
 import {
   getPlanStartDateSelectOptions,
-  PLAN_START_SAME_DAY_ENABLED,
   type PlanStartDateOption,
 } from "@/lib/planStartDates";
 import { isPlanStartDateAllowed } from "@shared/planStartDates";
@@ -40,8 +40,8 @@ const familyMemberSchema = z.object({
   planStartDate: z.string()
     .min(1, "Plan start date is required")
     .refine(
-      (value) => isPlanStartDateAllowed(value, { includeSameDay: PLAN_START_SAME_DAY_ENABLED }),
-      "Choose the next 1st or 15th (or today when available)"
+      (value) => isPlanStartDateAllowed(value),
+      "Choose an available 1st or 15th effective date"
     ),
 });
 
@@ -53,6 +53,7 @@ export default function FamilyEnrollment() {
   const [members, setMembers] = useState<FamilyMemberForm[]>([]);
   const [currentMember, setCurrentMember] = useState(0);
   const [sameAddress, setSameAddress] = useState<boolean[]>([]);
+  const [effectiveDateAcknowledged, setEffectiveDateAcknowledged] = useState(false);
 
   const coverageType = sessionStorage.getItem("coverageType") || "Family";
   const primaryAddress = JSON.parse(sessionStorage.getItem("primaryAddress") || "{}");
@@ -163,6 +164,15 @@ export default function FamilyEnrollment() {
   };
 
   const handleSubmit = () => {
+    if (!effectiveDateAcknowledged) {
+      toast({
+        title: "Confirm effective date",
+        description: "Please acknowledge the membership effective date before continuing.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const currentData = form.getValues();
     const allMembers = [...members];
     allMembers[currentMember] = currentData;
@@ -498,7 +508,13 @@ export default function FamilyEnrollment() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Plan Start Date * (Upcoming 1st or 15th)</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            setEffectiveDateAcknowledged(false);
+                          }}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select plan start date" />
@@ -515,15 +531,9 @@ export default function FamilyEnrollment() {
                         <p className="text-sm text-gray-600 mt-2">
                           Family coverage begins on the next available 1st or 15th to match the primary member.
                         </p>
-                        {PLAN_START_SAME_DAY_ENABLED ? (
-                          <p className="text-sm text-gray-600 mt-1">
-                            If immediate coverage is enabled, choose Start Today to align everyone.
-                          </p>
-                        ) : (
-                          <p className="text-sm text-gray-600 mt-1">
-                            Select the upcoming date that matches the member enrollment.
-                          </p>
-                        )}
+                        <p className="text-sm text-gray-600 mt-1">
+                          Enrollment closes three business days before each effective date.
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -531,6 +541,20 @@ export default function FamilyEnrollment() {
                 </div>
 
                 {/* Form Actions */}
+                <div className="border-2 border-blue-300 bg-blue-50 rounded-lg p-4 flex items-start gap-3">
+                  <Checkbox
+                    checked={effectiveDateAcknowledged}
+                    onCheckedChange={(checked) => setEffectiveDateAcknowledged(checked === true)}
+                  />
+                  <div className="space-y-1 leading-normal">
+                    <p className="font-semibold text-blue-950">
+                      Your plan effective date is {planStartDateOptions.find((option) => option.value === form.watch("planStartDate"))?.label || form.watch("planStartDate")}.
+                    </p>
+                    <p className="text-sm text-blue-900">
+                      I understand that this membership will become effective on {planStartDateOptions.find((option) => option.value === form.watch("planStartDate"))?.label || form.watch("planStartDate")}.
+                    </p>
+                  </div>
+                </div>
                 <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-gray-200">
                   <Button 
                     type="button" 
@@ -555,6 +579,14 @@ export default function FamilyEnrollment() {
                     <Button 
                       type="button" 
                       onClick={() => {
+                        if (!effectiveDateAcknowledged) {
+                          toast({
+                            title: "Confirm effective date",
+                            description: "Please acknowledge the membership effective date before continuing.",
+                            variant: "destructive",
+                          });
+                          return;
+                        }
                         // If current form has data, save it first
                         if (form.formState.isDirty) {
                           const currentData = form.getValues();
