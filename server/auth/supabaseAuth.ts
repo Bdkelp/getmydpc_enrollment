@@ -12,6 +12,7 @@ export interface AuthRequest extends Request {
   user?: any;
   realUser?: any;
   impersonationSession?: any;
+  impersonationContextError?: string;
   token?: string;
 }
 
@@ -177,6 +178,21 @@ export const authenticateToken = async (
           authUser.id,
         );
         if (activeImpersonation?.target_user_id) {
+          req.impersonationSession = activeImpersonation;
+          if (
+            activeImpersonation.expires_at &&
+            new Date(activeImpersonation.expires_at).getTime() <= Date.now()
+          ) {
+            req.impersonationContextError = "expired_impersonation_context";
+            console.warn("[Auth] Ignoring expired impersonation session:", {
+              impersonatorUserId: authUser.id,
+              targetUserId: activeImpersonation.target_user_id,
+            });
+            req.token = token;
+            next();
+            return;
+          }
+
           const targetUser = await storage.getUser(
             activeImpersonation.target_user_id,
           );
@@ -187,7 +203,6 @@ export const authenticateToken = async (
             targetUser.approvalStatus === "approved"
           ) {
             req.user = targetUser;
-            req.impersonationSession = activeImpersonation;
             console.log("[Auth] Super admin impersonation active:", {
               impersonatorUserId: authUser.id,
               targetUserId: targetUser.id,
@@ -195,6 +210,7 @@ export const authenticateToken = async (
               path: req.path,
             });
           } else {
+            req.impersonationContextError = "invalid_impersonation_target";
             console.warn("[Auth] Ignoring invalid impersonation target user:", {
               impersonatorUserId: authUser.id,
               targetUserId: activeImpersonation.target_user_id,

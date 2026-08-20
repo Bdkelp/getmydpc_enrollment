@@ -3,6 +3,7 @@ import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
 import { isAtLeastAdmin } from '../auth/roles';
 import { getFinancialException, listFinancialExceptions, resolveFinancialException, retryFinancialException } from '../services/financial-reconciliation-service';
 import { getCommissionCenterAggregation } from '../services/commission-center-aggregation-service';
+import { resolveCommissionCenterIdentity } from '../services/commission-center-authorization';
 
 const router = Router();
 const requireAdmin = (req: AuthRequest, res: Response): boolean => {
@@ -47,11 +48,24 @@ router.get('/api/admin/commission-center/aggregation', authenticateToken, async 
 });
 
 router.get('/api/agent/commission-center', authenticateToken, async (req: AuthRequest, res: Response) => {
-  if (!req.user?.id || !['agent', 'admin', 'super_admin'].includes(String(req.user.role))) {
+  const authorization = resolveCommissionCenterIdentity({
+    realUser: req.realUser,
+    user: req.user,
+    impersonationSession: req.impersonationSession,
+    impersonationContextError: req.impersonationContextError,
+  });
+  if (!authorization.ok) {
+    console.warn('[CommissionCenter] Authorization denied:', {
+      realActorUserId: req.realUser?.id || null,
+      realActorRole: req.realUser?.role || null,
+      effectiveUserId: req.user?.id || null,
+      effectiveRole: req.user?.role || null,
+      reason: authorization.reason,
+    });
     return res.status(403).json({ error: 'Agent authorization required' });
   }
   try {
-    const data = await getCommissionCenterAggregation(String(req.user.id));
+    const data = await getCommissionCenterAggregation(authorization.identity.effectiveAgentUserId);
     res.json({ success: true, data });
   } catch (error: any) {
     const message = String(error?.message || '');
