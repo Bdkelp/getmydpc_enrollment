@@ -132,9 +132,9 @@ export default function Login() {
         const role = user?.role || "user";
         const isAdminUser = hasAtLeastRole(role, "admin");
         const isAgentOrAbove = hasAtLeastRole(role, "agent");
-        if (isAdminUser) setLocation("/admin");
-        else if (isAgentOrAbove) setLocation("/agent");
-        else setLocation("/");
+        const destination = isAdminUser ? "/admin" : isAgentOrAbove ? "/agent" : "/";
+        // Reload after persisting the session so App.tsx evaluates protected routes with authenticated state.
+        window.location.assign(destination);
 
         return;
       }
