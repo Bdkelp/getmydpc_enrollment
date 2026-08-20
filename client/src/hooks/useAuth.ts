@@ -171,6 +171,15 @@ export function useAuth() {
 
       if (!response.ok) {
         console.error('[useAuth] Failed to fetch user profile:', response.status, response.statusText);
+
+        if (response.status === 401 && retryCount === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            console.log('[useAuth] Retrying profile fetch with the current Supabase session token');
+            return fetchUserProfile(session.access_token, retryCount + 1);
+          }
+        }
         
         // Retry once on network errors or 5xx errors
         if (retryCount === 0 && (response.status >= 500 || response.status === 0)) {

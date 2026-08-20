@@ -20,6 +20,7 @@ const authMiddleware = await load('server/auth/supabaseAuth.ts');
 const appShell = await load('client/src/components/AppShell.tsx');
 const adminUsersPage = await load('client/src/pages/admin-users.tsx');
 const loginPage = await load('client/src/pages/login.tsx');
+const authHook = await load('client/src/hooks/useAuth.ts');
 
 assert.match(recurring, /processConfirmedPayment/);
 assert.match(recurring, /recurring_billing/);
@@ -68,9 +69,11 @@ assert.match(appShell, /VIEWING AS AGENT/);
 assert.match(appShell, /EXIT AGENT VIEW/);
 assert.match(appShell, /api\/admin\/impersonation\/stop/);
 assert.match(loginPage, /response\.dbUser \|\| response\.user/);
-assert.match(loginPage, /if \(isAdminUser\) setLocation\("\/admin"\)/);
-assert.match(loginPage, /else if \(isAgentOrAbove\) setLocation\("\/agent"\)/);
+assert.match(loginPage, /const destination = isAdminUser \? "\/admin"/);
+assert.match(loginPage, /window\.location\.assign\(destination\)/);
 assert.doesNotMatch(loginPage, /setTimeout\(\(\) =>/);
+assert.match(authHook, /response\.status === 401 && retryCount === 0/);
+assert.match(authHook, /current Supabase session token/);
 
 console.log('Phase 3A reconciliation and recurring-consolidation source tests passed.');
 console.log('Confirmed: recurring writes use PaymentConfirmedService, exception retry is bounded, admin API is protected, and policy data is versioned.');
