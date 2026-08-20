@@ -1,7 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
 import { supabase } from "../lib/supabaseClient";
-import { isFullAccessEmail, normalizeRole, type Role } from "./roles";
+import {
+  hasAtLeastRole,
+  isFullAccessEmail,
+  normalizeRole,
+  type Role,
+} from "./roles";
 
 export interface AuthRequest extends Request {
   user?: any;
