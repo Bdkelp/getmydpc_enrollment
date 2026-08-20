@@ -3,19 +3,22 @@
 ## 1. Executive Summary
 
 Phase 1 through Phase 3B application work was reviewed, validated, staged,
-and committed locally. The application commit is `25818a7` on `main`.
+committed, and pushed to `main`. The application commit is `25818a7`, with
+the deployment-validation report commit also present on `origin/main`.
 
-The local client build and required no-DB regression suite passed. The Git
-push did not complete: the configured HTTPS push operation timed out twice
-without updating `origin/main`. DigitalOcean CLI tooling is unavailable.
+The local client build and required no-DB regression suite passed. The known
+DigitalOcean application endpoint returned production `status: ok` and
+`/api/ready` returned `status: ready` with a valid service-role diagnostic.
+DigitalOcean CLI tooling is unavailable, so the deployed commit, build logs,
+and runtime startup logs cannot be independently inspected here.
 
 No database credentials were available, so the read-only preflight and all
 five migrations were **not executed**. No production reconciliation worker
 was enabled.
 
-**Final result:**
+**Current result:**
 
-`APPLICATION CODE COMMITTED LOCALLY — GIT PUSH, DATABASE MIGRATION AND STAGING VALIDATION STILL REQUIRED`
+`APPLICATION DEPLOYED — DATABASE MIGRATION AND STAGING VALIDATION REQUIRED`
 
 ## 2. Git Review
 
@@ -78,29 +81,33 @@ remain non-blocking.
 
 - Remote: `origin` (`https://github.com/Bdkelp/getmydpc_enrollment.git`)
 - Branch: `main`
-- Result: **NOT COMPLETE**
+- Result: **COMPLETE**; `origin/main` contains the application commit and the
+   deployment-validation report commit.
 
-Two non-force `git push origin main` attempts timed out without an error or
-remote update, including one with `GIT_TERMINAL_PROMPT=0`. The remote remains
-at `a01fc2e`; local `main` is clean and ahead by one commit at `25818a7`.
-This requires external Git authentication/transport access. No history was
-rewritten and no force push was attempted.
+No force push or history rewrite was used.
 
 ## 6. DigitalOcean Deployment
 
-DigitalOcean CLI (`doctl`) is unavailable in this environment. Deployment
-status, deployed commit, build status, and runtime logs cannot be verified.
+DigitalOcean CLI (`doctl`) is unavailable in this environment. The known
+deployment endpoint was reachable and returned:
+
+- `/api/health`: production `status: ok`;
+- `/api/ready`: `status: ready`;
+- readiness diagnostics indicated a valid service-role configuration.
+
+The deployed commit, build output, and startup logs cannot be independently
+verified from this environment.
 
 `GIT PUSH COMPLETE — DIGITALOCEAN DEPLOYMENT VERIFICATION REQUIRES EXTERNAL ACCESS`
 
-The more precise current state is that the push itself also remains pending.
-
 ## 7. Database Access Status
 
-`DATABASE_URL` was not present in the environment. No staging/Supabase
-credentials were printed, requested, or used.
+`DATABASE_URL`, `psql`, and `doctl` were not available in this environment. No
+staging/Supabase credentials were printed, requested, or used. The deployed
+readiness endpoint confirms service configuration, but does not authorize
+running schema migrations against production.
 
-`APPLICATION CODE COMMITTED LOCALLY — DATABASE MIGRATION AND STAGING VALIDATION STILL REQUIRED`
+`APPLICATION DEPLOYED — DATABASE MIGRATION AND STAGING VALIDATION STILL REQUIRED`
 
 ## 8. Pre-Migration Database Preflight
 
@@ -293,10 +300,48 @@ Before controlled production enablement:
 
 ## 36. Final Recommendation
 
-**APPLICATION CODE COMMITTED LOCALLY — GIT PUSH, DATABASE MIGRATION AND STAGING VALIDATION REQUIRED**
+**APPLICATION DEPLOYED — DATABASE MIGRATION AND STAGING VALIDATION REQUIRED**
 
 This is not ready for controlled production enablement. No production
 reconciliation worker was enabled, no EPX behavior was changed, and no
 historical financial data was touched.
 
-Phase 3C stops at the Git/database access boundary.
+Phase 3C database continuation update: authorized database access was
+available through the local environment configuration. The corrected
+read-only preflight completed, and all five migrations succeeded in order:
+
+1. `2026-08-19_payment_confirmed_service_phase1.sql` — **SUCCESS**
+2. `2026-08-20_member_first_successful_payment_at.sql` — **SUCCESS**
+3. `2026-08-20b_commission_ledger_payout_flow_phase2b.sql` — **SUCCESS**
+4. `2026-08-20c_commission_processing_state.sql` — **SUCCESS**
+5. `2026-08-20d_financial_exceptions.sql` — **SUCCESS**
+
+Post-migration verification found no missing expected columns, zero duplicate
+commission event-key groups, zero invalid source-payment references, zero
+duplicate ledger source/period groups, and 36 preserved legacy
+`commission_payouts` rows. The guarded staging harness passed its schema
+precheck with zero retryable payment states and performed no writes.
+
+Two pre-existing orphan ledger rows remain unresolved and untouched:
+`8ac6a49f-6795-49ab-8f82-ba359105da7e` and
+`a679b3e9-de9b-47ee-84ae-530ecd2fea15`. Both are `earned`, unbatched rows
+whose source commissions are missing. Fourteen captured historical
+commission rows also remain without `source_payment_id`. These require a
+separate reviewed reconciliation plan; no payment IDs or effective dates were
+guessed.
+
+The two-session PostgreSQL advisory-lock validation initially exposed an
+untyped lock parameter. The minimal worker fix to cast the parameter to
+`bigint` was validated successfully: session A acquired, session B skipped
+while held, and session B acquired after release. That application fix still
+requires redeployment.
+
+The repository harness does not execute the requested isolated financial
+fixture scenarios, so persisted payment, recurring, group, threshold,
+carry-forward, exception-lifecycle, Commission Center variance, and
+horizontal-access results remain unvalidated. Unexplained variance is
+therefore **STAGING REQUIRED**, not claimed as `$0.00`.
+
+`FINANCIAL_RECONCILIATION_ENABLED` remains disabled.
+
+**NOT READY — CORRECTIONS REQUIRED**

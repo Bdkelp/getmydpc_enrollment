@@ -40,45 +40,13 @@ FROM required_indexes r
 LEFT JOIN pg_indexes i ON i.schemaname = 'public' AND i.indexname = r.index_name
 ORDER BY r.index_name;
 
-SELECT commission_event_key, count(*) AS duplicate_count, array_agg(id ORDER BY id) AS commission_ids
-FROM public.agent_commissions
-WHERE commission_event_key IS NOT NULL
-GROUP BY commission_event_key HAVING count(*) > 1
-ORDER BY duplicate_count DESC, commission_event_key;
+-- Duplicate-key and source-integrity queries are run by the guarded Node
+-- preflight wrapper when the relevant additive columns/tables exist. The
+-- information_schema result above is intentionally safe before migrations.
 
-SELECT count(*) AS commissions_missing_source_payment_id
-FROM public.agent_commissions
-WHERE payment_captured IS TRUE AND source_payment_id IS NULL;
-
-SELECT ac.id AS commission_id, ac.source_payment_id
-FROM public.agent_commissions ac
-LEFT JOIN public.payments p ON p.id = ac.source_payment_id
-WHERE ac.source_payment_id IS NOT NULL AND p.id IS NULL
-ORDER BY ac.id;
-
-SELECT cl.id AS ledger_id, cl.source_commission_id
-FROM public.commission_ledger cl
-LEFT JOIN public.agent_commissions ac ON ac.id = cl.source_commission_id
-WHERE cl.source_commission_id IS NULL OR ac.id IS NULL
-ORDER BY cl.id;
-
-SELECT source_commission_id, commission_period_start, commission_period_end,
-       count(*) AS duplicate_count, array_agg(id ORDER BY id) AS ledger_ids
-FROM public.commission_ledger
-WHERE source_commission_id IS NOT NULL
-GROUP BY source_commission_id, commission_period_start, commission_period_end
-HAVING count(*) > 1
-ORDER BY duplicate_count DESC;
-
-SELECT batch_type, compensation_type, status, count(*) AS batch_count
-FROM public.commission_payout_batches
-GROUP BY batch_type, compensation_type, status
-ORDER BY batch_type, compensation_type, status;
-
-SELECT status, exception_type, count(*) AS exception_count
-FROM public.financial_exceptions
-GROUP BY status, exception_type
-ORDER BY status, exception_type;
+-- The guarded Node wrapper runs the data-integrity queries below only after
+-- confirming their columns/tables exist, so a pre-migration database reports
+-- missing schema instead of aborting before the migration gate.
 
 SELECT count(*) AS historical_group_payout_rows
 FROM public.commission_payouts
@@ -99,4 +67,4 @@ SELECT conname AS constraint_name, conrelid::regclass AS table_name, pg_get_cons
 FROM pg_constraint
 WHERE connamespace = 'public'::regnamespace
   AND conrelid::regclass::text IN ('payments','agent_commissions','commission_ledger','commission_payout_batches','commission_payouts')
-ORDER BY table_name::text, conname;
+ORDER BY conrelid::regclass::text, conname;

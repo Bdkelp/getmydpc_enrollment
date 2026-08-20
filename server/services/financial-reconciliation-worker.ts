@@ -9,12 +9,12 @@ const RECONCILIATION_LOCK_KEY = 2_031_032;
 async function withReconciliationLease<T>(work: () => Promise<T>): Promise<T | null> {
   const client = await neonPool.connect();
   try {
-    const lockResult = await client.query('SELECT pg_try_advisory_lock($1) AS acquired', [RECONCILIATION_LOCK_KEY]);
+    const lockResult = await client.query('SELECT pg_try_advisory_lock($1::bigint) AS acquired', [RECONCILIATION_LOCK_KEY]);
     if (!lockResult.rows[0]?.acquired) return null;
     try {
       return await work();
     } finally {
-      await client.query('SELECT pg_advisory_unlock($1)', [RECONCILIATION_LOCK_KEY]);
+      await client.query('SELECT pg_advisory_unlock($1::bigint)', [RECONCILIATION_LOCK_KEY]);
     }
   } finally {
     client.release();
