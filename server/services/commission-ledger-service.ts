@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabaseClient.ts';
 import { addDaysLocal, formatLocalDate, parseLocalDate } from '@shared/localDate';
 import { getWritingCommissionPayDate, getOverridePayDate } from './commission-payout-schedule-service';
+import { applyHistoricalExternalSettlement, getHistoricalCutover } from './historical-commission-external-settlement-service';
 
 // Phase 2B: writing commissions (semi-monthly, 1st/15th) and overrides
 // (monthly, in-arrears) are distinct compensation types that must never share
@@ -826,6 +827,14 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
   }
 
   await recordLedgerEvents(eventPayloads);
+
+  const establishedCutover = await getHistoricalCutover();
+  if (establishedCutover && (insertedRows || []).length > 0) {
+    await applyHistoricalExternalSettlement(
+      establishedCutover,
+      (insertedRows || []).map((row: any) => String(row.id)),
+    );
+  }
 
   const nowIso = toIsoDate(new Date());
   const newlyEligible = (insertedRows || []).filter((row: any) => {

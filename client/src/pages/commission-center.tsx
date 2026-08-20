@@ -19,6 +19,7 @@ const statusLabel: Record<string, string> = {
   carry_forward: "Carrying Forward",
   held: "On Hold",
   paid: "Paid",
+  externally_settled: "Paid externally before cutover",
   reversed: "Adjustment / Reversal",
 };
 
@@ -72,6 +73,8 @@ export default function CommissionCenter() {
         </section>
 
         <div className="grid gap-4 lg:grid-cols-2"><BalanceCard title="Writing commissions" values={writing} nextPayDate={policy.nextWritingPayout} tone="writing" /><BalanceCard title="Overrides" values={overrides} nextPayDate={policy.nextOverridePayout} tone="override" /></div>
+
+        {transactions.some((row: any) => row.historicalExternalSettlement) && <p className="text-sm text-muted-foreground">Commission activity prior to the platform cutover was paid outside the MPP commission system and has been reconciled as settled.</p>}
 
         <div className="grid gap-4 md:grid-cols-3"><Card><CardContent className="flex items-center gap-3 p-5"><Landmark className="h-5 w-5 text-french-blue-600" /><div><p className="text-xs text-muted-foreground">Most recent payment</p><p className="font-medium">{date(data.data.mostRecentPayment?.created_at)}</p><p className="text-xs text-muted-foreground">{data.data.mostRecentPayment?.payment_method || "Payment status unavailable"} · {data.data.mostRecentPayment?.status || "Unknown"}</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-3 p-5"><ShieldCheck className="h-5 w-5 text-emerald-600" /><div><p className="text-xs text-muted-foreground">Policy version</p><p className="font-medium">{policy.version}</p><p className="text-xs text-muted-foreground">{policy.effectiveFrom} to {policy.effectiveThrough}</p></div></CardContent></Card><Card><CardContent className="flex items-center gap-3 p-5"><Clock3 className="h-5 w-5 text-sky-aqua-700" /><div><p className="text-xs text-muted-foreground">Data refreshed</p><p className="font-medium">{date(new Date(data.data.refreshedAt || dataUpdatedAt).toISOString())}</p></div></CardContent></Card></div>
 

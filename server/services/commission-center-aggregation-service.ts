@@ -5,7 +5,7 @@ import { commissionPolicy } from '@shared/commissionPolicy';
 export async function getCommissionCenterAggregation(agentId?: string): Promise<any> {
   let query = supabase
     .from('commission_ledger')
-    .select('id, agent_id, agent_name, writing_number, member_id, member_name, source_payment_id, commission_amount, compensation_type, commission_type, commission_period_start, commission_period_end, effective_date, status, payout_batch_id, cancellation_date, cancellation_reason, metadata');
+    .select('id, agent_id, agent_name, writing_number, member_id, member_name, source_payment_id, commission_amount, compensation_type, commission_type, commission_period_start, commission_period_end, effective_date, status, payout_batch_id, cancellation_date, cancellation_reason, metadata, settlement_kind, settlement_reference, reconciled_at, actual_external_payment_at, payment_date_known');
 
   if (agentId) query = query.eq('agent_id', agentId);
 
@@ -37,7 +37,10 @@ export async function getCommissionCenterAggregation(agentId?: string): Promise<
     const bucket = row.compensation_type === 'override' ? aggregate.overrides : aggregate.writing;
     const status = String(row.status || '').toLowerCase();
     const amount = Number(row.commission_amount || 0);
-    if (status === 'paid') bucket.paid += amount;
+    if (status === 'externally_settled') {
+      // Historical external settlements remain visible in transactions but are
+      // excluded from current platform-managed balances.
+    } else if (status === 'paid') bucket.paid += amount;
     else if (status === 'queued') bucket.payable += amount;
     else if (status === 'carry_forward') bucket.carryForward += amount;
     else if (status === 'held') bucket.held += amount;
@@ -46,6 +49,7 @@ export async function getCommissionCenterAggregation(agentId?: string): Promise<
     const payment = row.source_payment_id ? paymentById.get(String(row.source_payment_id)) : null;
     aggregate.transactions.push({
       ...row,
+      historicalExternalSettlement: status === 'externally_settled',
       scheduledPayDate: batch?.scheduled_pay_date || null,
       paidDate: batch?.paid_at || null,
       payoutBatch: batch ? { id: batch.id, type: batch.batch_type, name: batch.batch_name } : null,
