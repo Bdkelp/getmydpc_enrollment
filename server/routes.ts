@@ -46,6 +46,11 @@ import adminLoginSessionsRoutes from "./routes/admin-login-sessions";
 import adminUsersRoutes from "./routes/admin-users";
 import { requireDevelopmentMode } from "./middleware/debug-route-guard";
 import {
+  evaluateRefundEligibility,
+  getCancellationReasonLabel,
+  normalizeCancellationReasonCode,
+} from "./services/cancellation-refund-eligibility-service";
+import {
   calculateNextBillingDate,
   isMembershipActive,
   daysUntilMembershipStarts,
@@ -4302,6 +4307,34 @@ router.get(
   },
 );
 
+router.get(
+  "/api/members/:memberId/refund-eligibility",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!hasAgentOrAdminAccess(req.user?.role)) {
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    const memberId = Number(req.params.memberId);
+    if (!Number.isFinite(memberId)) return res.status(400).json({ message: "Invalid member ID" });
+    const member = await storage.getMember(memberId);
+    if (!member || !(await canManageMemberForUser(String(memberId), req.user))) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+    const requestedAt = new Date().toISOString();
+    const evaluation = evaluateRefundEligibility({
+      reasonCode: typeof req.query.reasonCode === "string" ? req.query.reasonCode : null,
+      membershipStartDate: (member as any).membershipStartDate || (member as any).membership_start_date,
+      cancellationRequestedAt: requestedAt,
+      serviceUsageStatus: typeof req.query.serviceUsageStatus === "string" ? req.query.serviceUsageStatus as any : null,
+    });
+    return res.json({
+      membershipStartDate: (member as any).membershipStartDate || (member as any).membership_start_date || null,
+      cancellationRequestedAt: requestedAt,
+      ...evaluation,
+    });
+  },
+);
+
 router.patch(
   "/api/admin/enrollment/:enrollmentId/contact",
   authenticateToken,
@@ -4677,7 +4710,7 @@ router.patch(
       return res.status(403).json({ message: "Access denied to this member" });
     }
 
-    const { action = "change", planId, memberType, reason } = req.body || {};
+    const { action = "change", planId, memberType, reason, reasonCode, serviceUsageStatus, internalNotes } = req.body || {};
 
     const normalizedAction = String(action || "change").toLowerCase();
     if (!["change", "cancel", "reactivate"].includes(normalizedAction)) {
@@ -4706,10 +4739,18 @@ router.patch(
         await storage.getSubscriptionByMemberId(parsedMemberId);
 
       if (normalizedAction === "cancel") {
-        const cancellationReason =
-          typeof reason === "string" && reason.trim().length > 0
-            ? reason.trim()
-            : `Membership cancelled by ${req.user?.email || "authorized user"}`;
+        const normalizedReasonCode = normalizeCancellationReasonCode(reasonCode);
+        if (normalizedReasonCode === "member_requested" && !["yes", "no", "unknown"].includes(String(serviceUsageStatus || ""))) {
+          return res.status(400).json({ message: "Service usage verification is required for member-requested cancellation" });
+        }
+        const cancellationRequestedAt = new Date().toISOString();
+        const cancellationReason = getCancellationReasonLabel(normalizedReasonCode);
+        const refundEvaluation = evaluateRefundEligibility({
+          reasonCode: normalizedReasonCode,
+          membershipStartDate: (existingMember as any).membershipStartDate || (existingMember as any).membership_start_date,
+          cancellationRequestedAt,
+          serviceUsageStatus: serviceUsageStatus || null,
+        });
 
         const immediateCancel = Boolean(
           req.body?.immediate === true &&
@@ -4726,6 +4767,18 @@ router.patch(
         if (immediateCancel) {
           member = await storage.updateMemberStatus(memberId, "cancelled", {
             reason: cancellationReason,
+            reasonCode: normalizedReasonCode,
+            requestedAt: cancellationRequestedAt,
+            effectiveAt: cancellationRequestedAt,
+            actorId: req.user.id,
+            actorType: "admin",
+            internalNotes: typeof internalNotes === "string" ? internalNotes.trim() || null : null,
+            serviceUsageStatus: serviceUsageStatus || null,
+            serviceUsageSource: "admin_cancellation_workflow",
+            refundEligibility: refundEvaluation.eligibility,
+            refundEligibilityReason: refundEvaluation.reason,
+            refundEligibilityEvaluatedAt: cancellationRequestedAt,
+            refundStatus: refundEvaluation.refundStatus,
           });
 
           if (existingSubscription.status !== "cancelled") {
@@ -4736,6 +4789,10 @@ router.patch(
                 pendingReason: "member_cancelled",
                 pendingDetails: JSON.stringify({
                   reason: cancellationReason,
+                  reasonCode: normalizedReasonCode,
+                  internalNotes: typeof internalNotes === "string" ? internalNotes.trim() || null : null,
+                  serviceUsageStatus: serviceUsageStatus || null,
+                  refundEligibility: refundEvaluation,
                   immediate: true,
                   requestedByUserId: req.user.id,
                   requestedByRole: req.user.role,
@@ -4810,6 +4867,18 @@ router.patch(
             .update({
               cancellation_date: new Date().toISOString(),
               cancellation_reason: cancellationReason,
+              cancellation_requested_at: cancellationRequestedAt,
+              cancellation_effective_at: paidThroughDate,
+              cancellation_reason_code: normalizedReasonCode,
+              cancellation_actor_id: req.user.id,
+              cancellation_actor_type: "admin",
+              cancellation_internal_notes: typeof internalNotes === "string" ? internalNotes.trim() || null : null,
+              service_usage_status: serviceUsageStatus || null,
+              service_usage_verification_source: "admin_cancellation_workflow",
+              refund_eligibility: refundEvaluation.eligibility,
+              refund_eligibility_reason: refundEvaluation.reason,
+              refund_eligibility_evaluated_at: cancellationRequestedAt,
+              refund_status: refundEvaluation.refundStatus,
               status: "active",
               is_active: true,
               updated_at: new Date().toISOString(),
@@ -4839,6 +4908,9 @@ router.patch(
                 memberId: parsedMemberId,
                 subscriptionId: existingSubscription.id,
                 reason: cancellationReason,
+                reasonCode: normalizedReasonCode,
+                serviceUsageStatus: serviceUsageStatus || null,
+                refundEligibility: refundEvaluation,
                 paidThroughDate,
               },
               created_at: new Date().toISOString(),
@@ -4873,6 +4945,7 @@ router.patch(
           member,
           subscription,
           enrollment,
+          refundEvaluation,
         });
       }
 

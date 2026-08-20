@@ -26,6 +26,8 @@ export function useAgentDashboardUiState() {
   const [selectedPlanId, setSelectedPlanId] = useState<string>("");
   const [selectedMemberType, setSelectedMemberType] = useState<string>("");
   const [membershipReason, setMembershipReason] = useState<string>("");
+  const [cancellationReasonCode, setCancellationReasonCode] = useState<string>("member_requested");
+  const [serviceUsageStatus, setServiceUsageStatus] = useState<string>("unknown");
 
   const getTimeOfDayGreeting = () => {
     const hour = new Date().getHours();
@@ -51,6 +53,8 @@ export function useAgentDashboardUiState() {
     setSelectedPlanId(String(enrollment.planId || ""));
     setSelectedMemberType(enrollment.memberType || "member-only");
     setMembershipReason("");
+    setCancellationReasonCode("member_requested");
+    setServiceUsageStatus("unknown");
     setShowMembershipDialog(true);
   };
 
@@ -120,6 +124,10 @@ export function useAgentDashboardUiState() {
     setSelectedMemberType,
     membershipReason,
     setMembershipReason,
+    cancellationReasonCode,
+    setCancellationReasonCode,
+    serviceUsageStatus,
+    setServiceUsageStatus,
     getTimeOfDayGreeting,
     getUserName,
     handlePendingClick,

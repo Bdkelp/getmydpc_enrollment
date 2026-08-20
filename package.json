@@ -26,6 +26,8 @@
     "test:commission-payout-hardening": "tsx scripts/test-commission-payout-hardening.ts",
     "test:commission-center-authorization": "tsx scripts/test-commission-center-authorization.ts",
     "test:historical-commission-settlement": "tsx scripts/test-historical-commission-external-settlement.ts",
+    "test:cancellation-refund-eligibility": "tsx scripts/test-cancellation-refund-eligibility.ts",
+    "test:cancellation-display": "tsx scripts/test-cancellation-display.ts",
     "commission-cutover:dry-run": "tsx scripts/historical-commission-external-settlement.ts",
     "commission-cutover:apply": "tsx scripts/historical-commission-external-settlement.ts --apply",
     "test:hierarchy-hardening": "tsx scripts/test-hierarchy-hardening.ts",

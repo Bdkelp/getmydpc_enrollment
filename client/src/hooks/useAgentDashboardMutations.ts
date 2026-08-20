@@ -13,6 +13,9 @@ interface MembershipPayload {
   planId?: number;
   memberType?: string;
   reason?: string;
+  reasonCode?: string;
+  serviceUsageStatus?: "yes" | "no" | "unknown";
+  internalNotes?: string;
 }
 
 interface ResolvePendingArgs {

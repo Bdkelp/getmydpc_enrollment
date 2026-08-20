@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,8 @@ import { useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
 import { useAgentDashboardQueries } from "@/hooks/useAgentDashboardQueries";
 import { useAgentDashboardMutations } from "@/hooks/useAgentDashboardMutations";
 import { useAgentDashboardUiState } from "@/hooks/useAgentDashboardUiState";
+import { getCancellationDateLabel, getSafeCancellationReason } from "@/lib/cancellationDisplay";
+import { apiRequest } from "@/lib/queryClient";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -90,6 +93,11 @@ interface Enrollment {
   businessCategory?: 'individual' | 'family' | 'group' | string;
   source?: 'individual' | 'group' | string;
   groupName?: string | null;
+  cancellationDate?: string | null;
+  cancellationReason?: string | null;
+  cancellationReasonCode?: string | null;
+  refundEligibility?: 'eligible' | 'not_eligible' | 'review_required' | null;
+  refundStatus?: 'not_applicable' | 'pending_manual_refund' | 'refunded' | null;
 }
 
 interface PlanOption {
@@ -195,6 +203,10 @@ export default function AgentDashboard() {
     setSelectedMemberType,
     membershipReason,
     setMembershipReason,
+    cancellationReasonCode,
+    setCancellationReasonCode,
+    serviceUsageStatus,
+    setServiceUsageStatus,
     getTimeOfDayGreeting,
     getUserName,
     handlePendingClick,
@@ -205,6 +217,12 @@ export default function AgentDashboard() {
     getEnrollmentPaymentStatus,
     openEnrollmentCheckout,
   } = useAgentDashboardUiState();
+
+  const refundPreviewQuery = useQuery({
+    queryKey: ["/api/members/refund-eligibility", membershipTarget?.id, cancellationReasonCode, serviceUsageStatus],
+    queryFn: () => apiRequest(`/api/members/${membershipTarget!.id}/refund-eligibility?reasonCode=${encodeURIComponent(cancellationReasonCode)}&serviceUsageStatus=${encodeURIComponent(serviceUsageStatus)}`),
+    enabled: showMembershipDialog && Boolean(membershipTarget),
+  });
 
   const {
     allAgents,
@@ -904,6 +922,7 @@ export default function AgentDashboard() {
                     <th className="text-left py-2">Enrolled By</th>
                     <th className="text-left py-2">Status</th>
                     <th className="text-left py-2">Lifecycle</th>
+                    <th className="text-left py-2">Cancellation</th>
                     <th className="text-left py-2">Payment</th>
                     <th className="text-left py-2">Actions</th>
                   </tr>
@@ -994,6 +1013,24 @@ export default function AgentDashboard() {
                             </div>
                           );
                         })()}
+                      </td>
+                      <td className="py-2 text-xs">
+                        {enrollment.cancellationDate ? (
+                          <div className="space-y-1 text-red-700">
+                            <div className="font-medium">
+                              {enrollment.status === 'cancelled' ? 'Cancelled' : 'Cancellation scheduled'} — {getCancellationDateLabel(enrollment.cancellationDate)}
+                            </div>
+                            <div className="text-gray-600">Reason: {getSafeCancellationReason(enrollment.cancellationReason)}</div>
+                            {enrollment.refundEligibility && <div className="text-gray-600">Refund Eligible: {enrollment.refundEligibility === 'eligible' ? 'Yes' : enrollment.refundEligibility === 'review_required' ? 'Needs Verification' : 'No'}</div>}
+                          </div>
+                        ) : enrollment.status === 'cancelled' ? (
+                          <div className="space-y-1 text-red-700">
+                            <div className="font-medium">Cancelled</div>
+                            <div className="text-gray-600">Date unavailable</div>
+                            <div className="text-gray-600">Reason: {getSafeCancellationReason(enrollment.cancellationReason)}</div>
+                            {enrollment.refundEligibility && <div className="text-gray-600">Refund Eligible: {enrollment.refundEligibility === 'eligible' ? 'Yes' : enrollment.refundEligibility === 'review_required' ? 'Needs Verification' : 'No'}</div>}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="py-2">
                         {(() => {
@@ -1247,13 +1284,50 @@ export default function AgentDashboard() {
               </div>
 
               <div>
-                <Label>Reason / Consent Notes</Label>
+                <Label>Cancellation Reason</Label>
+                <Select value={cancellationReasonCode} onValueChange={setCancellationReasonCode}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="member_requested">Member Requested</SelectItem>
+                    <SelectItem value="non_payment">Non-Payment</SelectItem>
+                    <SelectItem value="duplicate_enrollment">Duplicate / Enrollment Error</SelectItem>
+                    <SelectItem value="ineligible">Enrollment Not Valid / Ineligible</SelectItem>
+                    <SelectItem value="group_termination">Group / Employer Termination</SelectItem>
+                    <SelectItem value="deceased">Deceased Member</SelectItem>
+                    <SelectItem value="fraud_or_terms">Administrative / Terms Violation</SelectItem>
+                    <SelectItem value="admin_other">Administrative Cancellation</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {cancellationReasonCode === "member_requested" && <div>
+                <Label>Service Usage Verification</Label>
+                <Select value={serviceUsageStatus} onValueChange={setServiceUsageStatus}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes — used or initiated service access</SelectItem>
+                    <SelectItem value="no">No — no service use or attempted access</SelectItem>
+                    <SelectItem value="unknown">Needs Verification</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>}
+              <div>
+                <Label>Internal Notes</Label>
                 <Input
                   value={membershipReason}
                   onChange={(e) => setMembershipReason(e.target.value)}
                   placeholder="Document caller request"
                 />
               </div>
+              {cancellationReasonCode === "member_requested" && refundPreviewQuery.data && (
+                <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  <p className="font-semibold">Refund Eligibility Preview</p>
+                  <p>Membership Start: {getCancellationDateLabel(refundPreviewQuery.data.membershipStartDate)}</p>
+                  <p>Cancellation Request: {getCancellationDateLabel(refundPreviewQuery.data.cancellationRequestedAt)}</p>
+                  <p>Within 14-Day Window: {refundPreviewQuery.data.withinRefundWindow === true ? "Yes" : refundPreviewQuery.data.withinRefundWindow === false ? "No" : "Needs Verification"}</p>
+                  <p>Service Usage: {serviceUsageStatus === "yes" ? "Yes" : serviceUsageStatus === "no" ? "No" : "Needs Verification"}</p>
+                  <p className="font-medium">{refundPreviewQuery.data.eligibility === "eligible" ? "Eligible — Manual Refund Required" : refundPreviewQuery.data.eligibility === "review_required" ? "Needs Verification — Service Usage Unknown" : refundPreviewQuery.data.reason === "service_usage" ? "Not Eligible — Membership Services Used" : "Not Eligible — Outside 14-Day Window"}</p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1273,7 +1347,9 @@ export default function AgentDashboard() {
                 membershipMutation.mutate({
                   memberId: membershipTarget.id,
                   action: 'cancel',
-                  reason: membershipReason.trim() || 'Cancelled per member request',
+                  reasonCode: cancellationReasonCode,
+                  serviceUsageStatus: cancellationReasonCode === "member_requested" ? serviceUsageStatus as "yes" | "no" | "unknown" : undefined,
+                  internalNotes: membershipReason.trim() || undefined,
                 })
               }
             >

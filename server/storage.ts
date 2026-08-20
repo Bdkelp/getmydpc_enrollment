@@ -2358,6 +2358,12 @@ export async function getAgentEnrollments(
           planStartDate: row.plan_start_date,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
+          cancellationDate: row.cancellation_date,
+          cancellationReason: row.cancellation_reason,
+          cancellationReasonCode: row.cancellation_reason_code,
+          refundEligibility: row.refund_eligibility,
+          refundEligibilityReason: row.refund_eligibility_reason,
+          refundStatus: row.refund_status,
           customerNumber: row.customer_number,
           memberPublicId: row.member_public_id,
           // Include plan and commission info
@@ -3210,7 +3216,21 @@ export async function getEnrollmentsByAgent(
 export async function updateMemberStatus(
   memberId: string | number,
   status: string,
-  options?: { reason?: string },
+  options?: {
+    reason?: string;
+    reasonCode?: string;
+    requestedAt?: string;
+    effectiveAt?: string;
+    actorId?: string;
+    actorType?: string;
+    internalNotes?: string | null;
+    serviceUsageStatus?: string | null;
+    serviceUsageSource?: string | null;
+    refundEligibility?: string | null;
+    refundEligibilityReason?: string | null;
+    refundEligibilityEvaluatedAt?: string | null;
+    refundStatus?: string | null;
+  },
 ): Promise<any> {
   const allowedStatuses = [
     "pending_activation",
@@ -3240,6 +3260,18 @@ export async function updateMemberStatus(
     updates.is_active = true;
     updates.cancellation_date = null;
     updates.cancellation_reason = null;
+    updates.cancellation_requested_at = null;
+    updates.cancellation_effective_at = null;
+    updates.cancellation_reason_code = null;
+    updates.cancellation_actor_id = null;
+    updates.cancellation_actor_type = null;
+    updates.cancellation_internal_notes = null;
+    updates.service_usage_status = null;
+    updates.service_usage_verification_source = null;
+    updates.refund_eligibility = null;
+    updates.refund_eligibility_reason = null;
+    updates.refund_eligibility_evaluated_at = null;
+    updates.refund_status = null;
   } else if (status === "pending_activation") {
     updates.is_active = false;
     updates.cancellation_date = null;
@@ -3250,6 +3282,18 @@ export async function updateMemberStatus(
     if (options?.reason) {
       updates.cancellation_reason = options.reason;
     }
+    if (options?.reasonCode) updates.cancellation_reason_code = options.reasonCode;
+    if (options?.requestedAt) updates.cancellation_requested_at = options.requestedAt;
+    if (options?.effectiveAt) updates.cancellation_effective_at = options.effectiveAt;
+    if (options?.actorId) updates.cancellation_actor_id = options.actorId;
+    if (options?.actorType) updates.cancellation_actor_type = options.actorType;
+    if (options?.internalNotes !== undefined) updates.cancellation_internal_notes = options.internalNotes;
+    if (options?.serviceUsageStatus !== undefined) updates.service_usage_status = options.serviceUsageStatus;
+    if (options?.serviceUsageSource !== undefined) updates.service_usage_verification_source = options.serviceUsageSource;
+    if (options?.refundEligibility !== undefined) updates.refund_eligibility = options.refundEligibility;
+    if (options?.refundEligibilityReason !== undefined) updates.refund_eligibility_reason = options.refundEligibilityReason;
+    if (options?.refundEligibilityEvaluatedAt !== undefined) updates.refund_eligibility_evaluated_at = options.refundEligibilityEvaluatedAt;
+    if (options?.refundStatus !== undefined) updates.refund_status = options.refundStatus;
   }
 
   try {
