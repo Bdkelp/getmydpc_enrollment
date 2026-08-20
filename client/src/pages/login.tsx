@@ -102,7 +102,7 @@ export default function Login() {
 
       if (isValidResponse && response.user) {
         // Extract user and session data from the response
-        const user = response.user || response;  // user object or direct response
+        const user = response.dbUser || response.user || response;
         const session = response.session;        // session object if present
         const token = response.token;            // token if present
 
@@ -132,11 +132,9 @@ export default function Login() {
         const role = user?.role || "user";
         const isAdminUser = hasAtLeastRole(role, "admin");
         const isAgentOrAbove = hasAtLeastRole(role, "agent");
-        setTimeout(() => {
-          if (isAdminUser) setLocation("/admin");
-          else if (isAgentOrAbove) setLocation("/agent");
-          else setLocation("/");
-        }, 500);
+        if (isAdminUser) setLocation("/admin");
+        else if (isAgentOrAbove) setLocation("/agent");
+        else setLocation("/");
 
         return;
       }
