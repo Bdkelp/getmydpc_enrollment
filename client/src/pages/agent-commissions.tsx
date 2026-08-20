@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LIFECYCLE_ALERT_LEGEND, getLifecycleAlertBadgeClasses, getLifecycleAlertLabel } from "@/lib/lifecycleAlertUi";
 import { apiRequest } from "@/lib/queryClient";
+import { getCancellationDateLabel, getSafeCancellationReason } from "@/lib/cancellationDisplay";
 
 const getStatusBadge = (status: string) => {
   switch (status) {
@@ -530,6 +531,7 @@ export default function AgentCommissions() {
                     <TableHead>Member ID</TableHead>
                     <TableHead>Membership Tier</TableHead>
                     <TableHead>Effective Date</TableHead>
+                    <TableHead>Cancellation</TableHead>
                     <TableHead>Commission Type</TableHead>
                     <TableHead>Commission Amount</TableHead>
                     <TableHead>Status</TableHead>
@@ -543,6 +545,14 @@ export default function AgentCommissions() {
                       <TableCell className="font-mono text-xs">{row.memberId || '-'}</TableCell>
                       <TableCell>{row.membershipTier || '-'}</TableCell>
                       <TableCell>{row.effectiveDate ? format(new Date(row.effectiveDate), 'MM/dd/yyyy') : '-'}</TableCell>
+                      <TableCell className="text-xs text-red-700">
+                        {(row.cancellationDate || row.cancellationReason || row.displayStatus === 'reversed') ? (
+                          <div>
+                            <div className="font-medium">Cancelled — {getCancellationDateLabel(row.cancellationDate)}</div>
+                            <div className="text-gray-600">Reason: {getSafeCancellationReason(row.cancellationReason)}</div>
+                          </div>
+                        ) : null}
+                      </TableCell>
                       <TableCell className="capitalize">{row.commissionType}</TableCell>
                       <TableCell className="font-semibold">${Number(row.commissionAmount || 0).toFixed(2)}</TableCell>
                       <TableCell>{getLedgerStatusBadge(row.displayStatus)}</TableCell>

@@ -73,6 +73,8 @@ interface AgentLedgerRow {
   membershipTier?: string | null;
   coverageType?: string | null;
   effectiveDate?: string | null;
+  cancellationDate?: string | null;
+  cancellationReason?: string | null;
   commissionType: 'new' | 'renewal' | 'adjustment' | 'reversal';
   commissionAmount: number;
   displayStatus: 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed';

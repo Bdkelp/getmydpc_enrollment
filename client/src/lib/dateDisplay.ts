@@ -2,7 +2,7 @@ export function formatCalendarDate(value: string | Date | null | undefined): str
   if (!value) return 'Not scheduled';
 
   if (typeof value === 'string') {
-    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})(?:$|T|\s)/.exec(value);
     if (dateOnlyMatch) {
       const [, year, month, day] = dateOnlyMatch;
       return `${Number(month)}/${Number(day)}/${year}`;
