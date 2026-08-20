@@ -345,3 +345,72 @@ therefore **STAGING REQUIRED**, not claimed as `$0.00`.
 `FINANCIAL_RECONCILIATION_ENABLED` remains disabled.
 
 **NOT READY — CORRECTIONS REQUIRED**
+
+## Phase 3D Isolated Staging Validation Update — 2026-08-20
+
+### Database access and isolation gate
+
+Authorized database access is available through the local environment
+configuration. The connection identifies as Supabase pooler host
+`aws-0-us-west-1.pooler.supabase.com`, database `postgres`, user `postgres`.
+This environment does **not** provide an independently verifiable staging
+marker or separate staging database identity. Therefore no write fixtures,
+mutating payment scenarios, or destructive/reversible tests were run. The
+existing guarded harness was limited to its read-only schema/precheck mode.
+
+### Historical exception inventory
+
+All records below are classified **HISTORICAL — LEAVE UNCHANGED** unless a
+separate reviewed reconciliation plan proves exact provenance. No matching by
+date, amount, member-only identity, or inferred period was performed.
+
+#### Orphan ledger rows
+
+| Ledger ID | Source commission ID | Member | Agent | Amount | Earned period | Status | Missing relationship | Exact remediation |
+|---|---|---:|---|---:|---|---|---|---|
+| `8ac6a49f-6795-49ab-8f82-ba359105da7e` | `0e728730-c8c2-4480-a4cd-c676f204c795` | 47 | `9c44ce27-b334-4879-9833-fd45404daafe` | $2.50 | 2026-06-01 to 2026-06-15 | earned | source commission row absent | Requires manual review |
+| `a679b3e9-de9b-47ee-84ae-530ecd2fea15` | `6931d872-5466-418b-9882-e3403fbc3fc1` | 47 | `e9402042-e140-4fba-9b0e-1e768c64d2d9` | $20.00 | 2026-06-01 to 2026-06-15 | earned | source commission row absent | Requires manual review |
+
+#### Captured commissions missing source payment
+
+| Commission ID | Member | Agent | Type | Amount | Created | Status | Missing relationship | Exact remediation |
+|---|---:|---|---|---:|---|---|---|---|
+| `8421cb33-6541-4940-b542-c9b3b58ee314` | 34 | `7e80a7c9-853f-4db8-a228-9771cc4bb68d` | direct | $9.00 | 2026-05-08 | pending | source payment | Historical — leave unchanged |
+| `09f7e784-6f47-4b0d-add3-1abe9d60f39f` | 35 | `7e80a7c9-853f-4db8-a228-9771cc4bb68d` | direct | $9.00 | 2026-05-09 | pending | source payment | Historical — leave unchanged |
+| `4db56588-72b4-4eb3-afc0-c423a3ccf8df` | 40 | `f1282fe7-1cd0-4971-ac5a-a5d54e5a464b` | direct | $40.00 | 2026-06-12 | pending | source payment | Historical — leave unchanged |
+| `27522e4d-a4c4-4ff3-9d3d-0ac7d5b26aa5` | 53 | `9aee7d43-a781-4c6a-ac9f-22205ac7f142` | direct | $22.50 | 2026-06-30 | pending | source payment | Historical — leave unchanged |
+| `00cc1594-e401-4824-aff0-a4bfb75b6acd` | 53 | `c60ba855-ffb1-45c1-ac22-6c88f7754ee0` | override | $2.50 | 2026-06-30 | pending | source payment | Historical — leave unchanged |
+| `2589f55f-20b5-44bd-b681-a9d9baabce8d` | 53 | `f656b460-11f2-4992-9626-2cd8a39f09f5` | override | $1.50 | 2026-06-30 | pending | source payment | Historical — leave unchanged |
+| `0d7845d1-95e6-4dd4-aa83-c2757fcf3413` | 53 | HOUSE | override | $1.00 | 2026-06-30 | pending | source payment | Historical — leave unchanged |
+| `c768386f-8ea6-4503-aaec-856802bab2a8` | 56 | `f656b460-11f2-4992-9626-2cd8a39f09f5` | direct | $20.00 | 2026-07-23 | pending | source payment | Historical — leave unchanged |
+| `e108ca0e-3ee8-4a11-9cf8-4815e2a2787b` | 56 | HOUSE | override | $2.50 | 2026-07-23 | pending | source payment | Historical — leave unchanged |
+| `43698dbf-ac09-4589-8120-5feaecb8dac2` | 58 | `2a0263ce-5df4-4453-818d-f0815ae544ef` | direct | $11.50 | 2026-08-04 | pending | source payment | Historical — leave unchanged |
+| `ad680743-e367-42ef-8185-df87a6b7e499` | 58 | HOUSE | override | $2.50 | 2026-08-04 | pending | source payment | Historical — leave unchanged |
+| `60e96215-ebf1-4eea-bef1-186d27a6e9dc` | 59 | `225c6e6d-1d08-4bd3-88db-faf2b3190728` | direct | $9.00 | 2026-08-07 | pending | source payment | Historical — leave unchanged |
+| `b1396fb6-9f38-475c-b3eb-71ff0a9d5d1a` | 59 | `f656b460-11f2-4992-9626-2cd8a39f09f5` | override | $2.50 | 2026-08-07 | pending | source payment | Historical — leave unchanged |
+| `14c57ce9-e56f-4fe4-aa5a-1c53bd7aec96` | 59 | HOUSE | override | $1.50 | 2026-08-07 | pending | source payment | Historical — leave unchanged |
+
+The inventory confirms no exact source-payment relationship is provable from
+the available fields alone. Recommended disposition for all 16 records is
+**REQUIRES MANUAL REVIEW** before any future remediation; leave unchanged in
+this phase.
+
+### Isolated fixture and persisted scenario status
+
+No fixtures were created because the connected database could not be proven
+isolated from production. Consequently the following remain unvalidated:
+
+- successful, duplicate, concurrent, and manual/delayed-callback payments;
+- failed payments and recurring duplicate/failure scenarios;
+- persisted writing/override dates, thresholds, and carry-forward;
+- group and recurring compensation end-to-end flows;
+- exception lifecycle and Payment Verification Required fixture;
+- Commission Center variance and horizontal authorization;
+- persisted legacy zero-write result for the fixture population.
+
+The known health endpoints remain healthy: `/api/health` returned production
+`status: ok` and `/api/ready` returned `status: ready`. The advisory lock was
+validated separately across two database sessions. Reconciliation remains
+disabled. Unexplained variance is **STAGING REQUIRED**.
+
+**NOT READY — CORRECTIONS REQUIRED**
