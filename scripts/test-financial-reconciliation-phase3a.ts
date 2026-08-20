@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { formatCalendarDate } from '../client/src/lib/dateDisplay';
 
 const root = new URL('..', import.meta.url);
 const load = (path: string) => readFile(new URL(path, root), 'utf8');
@@ -38,6 +39,9 @@ assert.match(commissionCenter, /nextWritingPayout/);
 assert.match(commissionCenter, /nextOverridePayout/);
 assert.match(commissionCenter, /Commission information is temporarily unavailable/);
 assert.doesNotMatch(commissionCenter, /calculateCommission|shouldCarryForward|getWritingCommissionPayDate|getOverridePayDate/);
+assert.equal(formatCalendarDate('2026-09-04'), '9/4/2026');
+assert.equal(formatCalendarDate('2026-09-04'), new Date(2026, 8, 4).toLocaleDateString());
+assert.match(commissionCenter, /formatCalendarDate/);
 const specificMount = serverIndex.indexOf("app.use('/', financialExceptionRoutes);");
 const genericRegister = serverIndex.indexOf('const server = await registerRoutes(app);');
 assert.ok(specificMount >= 0 && specificMount < genericRegister, 'Commission Center router must mount before generic agent routes');

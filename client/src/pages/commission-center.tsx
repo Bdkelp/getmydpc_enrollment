@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { apiRequest } from "@/lib/queryClient";
+import { formatCalendarDate } from "@/lib/dateDisplay";
 
 const money = (value: number | undefined) => `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const date = (value: string | null | undefined) => value ? new Date(value).toLocaleDateString() : "Not scheduled";
+const date = formatCalendarDate;
 const statusLabel: Record<string, string> = {
   earned: "Earned / Pending",
   queued: "Scheduled",
