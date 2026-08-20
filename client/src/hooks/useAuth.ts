@@ -14,6 +14,8 @@ export interface AuthUser {
   isActive: boolean;
   approvalStatus: 'pending' | 'approved' | 'rejected';
   lastLoginAt?: string;
+  isImpersonating?: boolean;
+  originalActorRole?: string | null;
 }
 
 export type LogoutOptions = {

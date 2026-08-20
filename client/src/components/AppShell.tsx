@@ -100,12 +100,12 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const isSuperAdmin = hasAtLeastRole(user?.role, "super_admin");
+  const isAdminActor = hasAtLeastRole(user?.originalActorRole || user?.role, "admin");
 
   const { data: impersonationState } = useQuery<ImpersonationCurrentResponse>({
     queryKey: ["/api/admin/impersonation/current"],
     queryFn: () => apiClient.get("/api/admin/impersonation/current"),
-    enabled: isSuperAdmin,
+    enabled: isAdminActor,
     staleTime: 0,
     refetchInterval: 15_000,
   });
@@ -121,13 +121,13 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
   }, [activeImpersonation]);
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!isAdminActor) return;
     if (activeImpersonation) {
       localStorage.setItem("impersonation_active_hint", "1");
       return;
     }
     localStorage.removeItem("impersonation_active_hint");
-  }, [activeImpersonation, isSuperAdmin]);
+  }, [activeImpersonation, isAdminActor]);
 
   const handleStopImpersonation = async () => {
     try {
@@ -335,7 +335,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
             <div className="border-b border-amber-200 bg-amber-50 px-5 py-2.5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-amber-900 text-sm min-w-0">
                 <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                <span className="font-semibold">Live Drop-In Active:</span>
+                <span className="font-semibold">VIEWING AS AGENT:</span>
                 <span className="truncate">{impersonationDisplayName}</span>
                 {activeImpersonation.targetUser?.agentNumber && (
                   <span className="text-amber-700">({activeImpersonation.targetUser.agentNumber})</span>
@@ -347,7 +347,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
                 className="border-amber-300 text-amber-900 hover:bg-amber-100"
                 onClick={handleStopImpersonation}
               >
-                End Drop-In
+                EXIT AGENT VIEW
               </Button>
             </div>
           )}

@@ -166,7 +166,7 @@ export const authenticateToken = async (
     req.realUser = authUser;
     req.user = authUser;
 
-    if (authUser.role === "super_admin") {
+    if (hasAtLeastRole(authUser.role, "admin")) {
       try {
         const activeImpersonation = await storage.getActiveImpersonationSession(
           authUser.id,

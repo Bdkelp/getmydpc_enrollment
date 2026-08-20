@@ -423,6 +423,22 @@ export default function AdminUsers() {
                         View Profile
                       </Button>
                     )}
+                    {isCurrentUserSuperAdmin || hasAtLeastRole(currentUser?.role, "admin") ? (
+                      isAgentScopeRole(user.role) && user.isActive && user.approvalStatus === 'approved' && user.id !== currentUser?.id ? (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => startImpersonationMutation.mutate({
+                            targetUserId: user.id,
+                            reason: 'Admin View as Agent',
+                          }, { onSuccess: () => setLocation('/agent/commission-center') })}
+                          disabled={startImpersonationMutation.isPending}
+                        >
+                          <Eye className="h-3 w-3 mr-1" />
+                          View as Agent
+                        </Button>
+                      ) : null
+                    ) : null}
                     {user.approvalStatus === 'pending' && (
                       <Button
                         size="sm"

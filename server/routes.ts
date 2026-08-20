@@ -2261,6 +2261,8 @@ router.get(
         plan: planInfo,
         isActive: req.user.isActive,
         approvalStatus: req.user.approvalStatus,
+        isImpersonating: Boolean(req.realUser && req.realUser.id !== req.user.id),
+        originalActorRole: req.realUser?.role || null,
       };
 
       res.json(userResponse);

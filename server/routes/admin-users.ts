@@ -9,14 +9,16 @@ const isAdmin = (role: string | undefined): boolean =>
   hasAtLeastRole(role, "admin");
 const isSuperAdmin = (role: string | undefined): boolean =>
   hasAtLeastRole(role, "super_admin");
+const isAgentTarget = (role: string | undefined): boolean =>
+  new Set(["agent", "agency_admin", "agency_manager", "user"]).has(String(role || "").toLowerCase());
 
 router.get(
   "/api/admin/impersonation/current",
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
     const actorUser = req.realUser || req.user;
-    if (!isSuperAdmin(actorUser?.role)) {
-      return res.status(403).json({ message: "Super admin access required" });
+    if (!isAdmin(actorUser?.role)) {
+      return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
@@ -62,8 +64,8 @@ router.post(
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
     const actorUser = req.realUser || req.user;
-    if (!isSuperAdmin(actorUser?.role)) {
-      return res.status(403).json({ message: "Super admin access required" });
+    if (!isAdmin(actorUser?.role)) {
+      return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
@@ -83,6 +85,10 @@ router.post(
       const targetUser = await storage.getUser(normalizedTargetUserId);
       if (!targetUser) {
         return res.status(404).json({ message: "Target user not found" });
+      }
+
+      if (!isAgentTarget(targetUser.role)) {
+        return res.status(400).json({ message: "Target user must be an agent account" });
       }
 
       if (!targetUser.isActive || targetUser.approvalStatus !== "approved") {
@@ -142,8 +148,8 @@ router.post(
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
     const actorUser = req.realUser || req.user;
-    if (!isSuperAdmin(actorUser?.role)) {
-      return res.status(403).json({ message: "Super admin access required" });
+    if (!isAdmin(actorUser?.role)) {
+      return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
