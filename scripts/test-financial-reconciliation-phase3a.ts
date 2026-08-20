@@ -12,6 +12,8 @@ const migration = await load('scripts/sql/2026-08-20d_financial_exceptions.sql')
 const policy = await load('shared/commissionPolicy.ts');
 const agentRoute = await load('server/routes/financial-exceptions.ts');
 const commissionCenter = await load('client/src/pages/commission-center.tsx');
+const serverIndex = await load('server/index.ts');
+const serverRoutes = await load('server/routes.ts');
 
 assert.match(recurring, /processConfirmedPayment/);
 assert.match(recurring, /recurring_billing/);
@@ -36,6 +38,13 @@ assert.match(commissionCenter, /nextWritingPayout/);
 assert.match(commissionCenter, /nextOverridePayout/);
 assert.match(commissionCenter, /Commission information is temporarily unavailable/);
 assert.doesNotMatch(commissionCenter, /calculateCommission|shouldCarryForward|getWritingCommissionPayDate|getOverridePayDate/);
+const specificMount = serverIndex.indexOf("app.use('/', financialExceptionRoutes);");
+const genericRegister = serverIndex.indexOf('const server = await registerRoutes(app);');
+assert.ok(specificMount >= 0 && specificMount < genericRegister, 'Commission Center router must mount before generic agent routes');
+assert.match(serverRoutes, /app\.get\("\/api\/agent\/:agentId"/);
+assert.match(agentRoute, /getCommissionCenterAggregation\(String\(req\.user\.id\)\)/);
+assert.match(commissionCenter, /routeError/);
+assert.match(commissionCenter, /Commission Center route is unavailable/);
 
 console.log('Phase 3A reconciliation and recurring-consolidation source tests passed.');
 console.log('Confirmed: recurring writes use PaymentConfirmedService, exception retry is bounded, admin API is protected, and policy data is versioned.');

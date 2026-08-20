@@ -181,6 +181,8 @@ app.use((req, res, next) => {
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use('/', epxHostedRoutes);
   app.use('/', epxCertificationRoutes);
+  // Register literal agent routes before registerRoutes adds /api/agent/:agentId.
+  app.use('/', financialExceptionRoutes);
   
   // Register all API routes
   const server = await registerRoutes(app);
@@ -197,7 +199,6 @@ app.use((req, res, next) => {
   app.use('/', paymentReconciliationRoutes);
   app.use('/', paymentDiagnosticRoutes);
   app.use('/', paymentTrackingRoutes);
-  app.use('/', financialExceptionRoutes);
   app.use('/api/payments/ach', achPaymentRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

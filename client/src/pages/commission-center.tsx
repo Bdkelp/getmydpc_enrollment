@@ -41,7 +41,7 @@ export default function CommissionCenter() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const { data, isLoading, isError, refetch, dataUpdatedAt } = useQuery({
+  const { data, error, isLoading, isError, refetch, dataUpdatedAt } = useQuery({
     queryKey: ["/api/agent/commission-center"],
     queryFn: () => apiRequest("/api/agent/commission-center"),
     staleTime: 60_000,
@@ -56,7 +56,8 @@ export default function CommissionCenter() {
   }), [aggregate?.transactions, typeFilter, statusFilter, search]);
 
   if (isLoading) return <div className="min-h-screen grid place-items-center"><LoadingSpinner /></div>;
-  if (isError || !data) return <div className="min-h-screen grid place-items-center p-6"><Card className="max-w-md"><CardContent className="space-y-4 p-6"><h1 className="text-xl font-semibold">Commission information is temporarily unavailable.</h1><p className="text-sm text-muted-foreground">Financial schema validation or service availability is still pending.</p><Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button></CardContent></Card></div>;
+  const routeError = String(error || '').includes('404') || String(error || '').toLowerCase().includes('agent not found');
+  if (isError || !data) return <div className="min-h-screen grid place-items-center p-6"><Card className="max-w-md"><CardContent className="space-y-4 p-6"><h1 className="text-xl font-semibold">{routeError ? "Commission Center route is unavailable." : "Commission information is temporarily unavailable."}</h1><p className="text-sm text-muted-foreground">{routeError ? "Please refresh or contact support if this route remains unavailable." : "Financial schema validation or service availability is pending."}</p><Button onClick={() => refetch()}><RefreshCw className="mr-2 h-4 w-4" />Try again</Button></CardContent></Card></div>;
 
   const writing = aggregate?.writing || { pending: 0, payable: 0, carryForward: 0, held: 0, paid: 0 };
   const overrides = aggregate?.overrides || { pending: 0, payable: 0, carryForward: 0, held: 0, paid: 0 };
