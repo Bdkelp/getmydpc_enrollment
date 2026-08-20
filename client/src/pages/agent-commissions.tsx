@@ -550,6 +550,7 @@ export default function AgentCommissions() {
                           <div>
                             <div className="font-medium">Cancelled — {getCancellationDateLabel(row.cancellationDate)}</div>
                             <div className="text-gray-600">Reason: {getSafeCancellationReason(row.cancellationReason)}</div>
+                            {row.refundEligibility && <div className="text-gray-600">Refund: {row.refundEligibility === 'eligible' ? 'Pending manual refund' : row.refundEligibility === 'review_required' ? 'Needs verification' : 'Not eligible'}</div>}
                           </div>
                         ) : null}
                       </TableCell>

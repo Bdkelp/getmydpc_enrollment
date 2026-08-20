@@ -75,6 +75,9 @@ interface AgentLedgerRow {
   effectiveDate?: string | null;
   cancellationDate?: string | null;
   cancellationReason?: string | null;
+  refundEligibility?: 'eligible' | 'not_eligible' | 'review_required' | null;
+  refundStatus?: 'not_applicable' | 'pending_manual_refund' | 'refunded' | 'denied' | 'cancelled' | null;
+  refundEligibilityReason?: string | null;
   commissionType: 'new' | 'renewal' | 'adjustment' | 'reversal';
   commissionAmount: number;
   displayStatus: 'pending' | 'scheduled' | 'carry_forward' | 'paid' | 'held' | 'reversed';

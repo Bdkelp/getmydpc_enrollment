@@ -11,7 +11,7 @@ import { applyHistoricalExternalSettlement, getHistoricalCutover } from './histo
 // alone. See docs/COMMISSION_LEDGER_PAYOUT_FLOW_PHASE2B_REPORT.md.
 export type CompensationType = 'writing' | 'override';
 type BatchType = 'writing_1st' | 'writing_15th' | 'override_monthly';
-type LedgerStatus = 'earned' | 'queued' | 'paid' | 'held' | 'reversed' | 'carry_forward';
+type LedgerStatus = 'earned' | 'queued' | 'paid' | 'held' | 'reversed' | 'carry_forward' | 'externally_settled';
 type CommissionType = 'new' | 'renewal' | 'adjustment' | 'reversal';
 export const PAYABLE_LEDGER_STATUSES: LedgerStatus[] = ['queued', 'paid'];
 export const MIN_AGENT_PAYOUT_THRESHOLD = 25;
@@ -316,11 +316,13 @@ export function getCancellationImpactedUnpaidRows<T extends { commission_period_
   });
 }
 
-export function buildCancellationReversalRows(paidRows: any[], cancellationDate: string, cancellationReason?: string | null): any[] {
+export function buildCancellationReversalRows(paidRows: any[], cancellationDate: string, cancellationReason?: string | null, refundEventReference = 'refund-processed'): any[] {
   const normalizedCancellationDate = formatLocalDate(cancellationDate);
   return (Array.isArray(paidRows) ? paidRows : []).map((paid: any) => ({
-    source_commission_id: null,
+    source_commission_id: paid.source_commission_id || null,
+    source_payment_id: paid.source_payment_id || null,
     parent_ledger_id: paid.id,
+    reversal_key: `refund:${refundEventReference}:ledger:${paid.id}`,
     agent_id: paid.agent_id,
     agent_name: paid.agent_name,
     writing_number: paid.writing_number,
@@ -333,6 +335,7 @@ export function buildCancellationReversalRows(paidRows: any[], cancellationDate:
     commission_period_end: String(paid.commission_period_end),
     commission_amount: -Math.abs(Number(paid.commission_amount || 0)),
     commission_type: 'reversal',
+    compensation_type: paid.compensation_type === 'override' ? 'override' : 'writing',
     // Keep reversal rows payable in a later batch as separate negative line items.
     status: 'earned',
     payout_batch_id: null,
@@ -343,6 +346,7 @@ export function buildCancellationReversalRows(paidRows: any[], cancellationDate:
       sourceLedgerId: paid.id,
       reason: cancellationReason || null,
       cancellationAdjustmentType: 'reversal',
+      refundEventReference,
     },
   }));
 }
@@ -1731,31 +1735,43 @@ export async function applyCancellationToLedger(input: {
   cancellationDate: string;
   cancellationReason?: string;
   createReversalForPaid?: boolean;
-  refundWindowDays?: number;
-}): Promise<{ heldCount: number; reversalCount: number; withinRefundWindow: boolean }> {
+  refundEligibility?: 'eligible' | 'not_eligible' | 'review_required' | null;
+  refundStatus?: 'not_applicable' | 'pending_manual_refund' | 'refunded' | 'denied' | 'cancelled' | null;
+  actorId?: string | null;
+  refundEventReference?: string | null;
+}): Promise<{ heldCount: number; releasedCount: number; reversalCount: number; withinRefundWindow: boolean | null; reason: string }> {
   const memberId = String(input.memberId);
   const cancellationDate = toIsoDate(new Date(input.cancellationDate));
-  const REFUND_WINDOW_DAYS = input.refundWindowDays ?? parseInt(process.env.REFUND_WINDOW_DAYS || '14', 10);
+  const cancellationEventKey = `cancellation:${memberId}:${cancellationDate}`;
 
-  const { error: cancelAuditError } = await supabase
+  const { data: existingCancelAudit, error: cancelAuditLookupError } = await supabase
     .from('commission_cancellation_events')
-    .insert({
-      member_id: memberId,
-      cancellation_date: cancellationDate,
-      cancellation_reason: input.cancellationReason || null,
-      source: 'admin-workflow',
-    });
-
-  if (cancelAuditError) {
-    throw new Error(`Failed to create cancellation audit event: ${cancelAuditError.message}`);
+    .select('id')
+    .eq('member_id', memberId)
+    .eq('cancellation_date', cancellationDate)
+    .eq('event_key', cancellationEventKey)
+    .limit(1);
+  if (cancelAuditLookupError) {
+    throw new Error(`Failed to inspect cancellation audit event: ${cancelAuditLookupError.message}`);
+  }
+  if (!existingCancelAudit?.length) {
+    const { error: cancelAuditError } = await supabase
+      .from('commission_cancellation_events')
+      .insert({
+        member_id: memberId,
+        cancellation_date: cancellationDate,
+        cancellation_reason: input.cancellationReason || null,
+        source: 'admin-workflow',
+        event_key: cancellationEventKey,
+      });
+    if (cancelAuditError) {
+      throw new Error(`Failed to create cancellation audit event: ${cancelAuditError.message}`);
+    }
   }
 
-  // Check if cancellation is within the refund window from membership_start_date.
-  // Refund eligibility: within 14 days of enrollment AND no service usage.
-  // If outside this window, no commission clawback applies (firm policy).
   const { data: member, error: memberError } = await supabase
     .from('members')
-    .select('membership_start_date')
+    .select('membership_start_date, refund_eligibility, refund_status, refund_eligibility_reason')
     .eq('id', memberId)
     .maybeSingle();
 
@@ -1763,24 +1779,11 @@ export async function applyCancellationToLedger(input: {
     throw new Error(`Failed to load member for refund window check: ${memberError.message}`);
   }
 
-  let withinRefundWindow = true; // Default: treat as refund (no start date means proceed with hold)
-  if (member?.membership_start_date) {
-    const startDate = dateOnly(member.membership_start_date);
-    const refundDeadline = new Date(startDate);
-    refundDeadline.setDate(refundDeadline.getDate() + REFUND_WINDOW_DAYS);
-    const cancellationDateParsed = dateOnly(cancellationDate);
-    withinRefundWindow = cancellationDateParsed.getTime() <= refundDeadline.getTime();
-  }
-
-  // TODO: Add service usage validation — refunds only valid if member has NOT:
-  // - Scheduled any appointments
-  // - Attended any consultations
-  // - Used any services
-  // Currently checks date window only. Service usage check must be implemented separately.
-
-  // If outside refund window, no commission adjustments apply (no clawback policy).
-  if (!withinRefundWindow) {
-    return { heldCount: 0, reversalCount: 0, withinRefundWindow: false };
+  const refundEligibility = input.refundEligibility ?? member?.refund_eligibility ?? null;
+  const refundStatus = input.refundStatus ?? member?.refund_status ?? null;
+  const decisionReason = member?.refund_eligibility_reason || 'refund_eligibility_review';
+  if (!refundEligibility || !refundStatus) {
+    return { heldCount: 0, releasedCount: 0, reversalCount: 0, withinRefundWindow: null, reason: 'refund_decision_missing_manual_review' };
   }
 
   const { data: unpaidRows, error: unpaidRowsError } = await supabase
@@ -1794,11 +1797,41 @@ export async function applyCancellationToLedger(input: {
     throw new Error(`Failed to load unpaid ledger rows for cancellation: ${unpaidRowsError.message}`);
   }
 
-  const impactedUnpaidRows = getCancellationImpactedUnpaidRows(unpaidRows || [], cancellationDate);
+  const sourceCommissionIds = [...new Set((unpaidRows || []).map((row: any) => row.source_commission_id).filter(Boolean))];
+  const { data: sourceCommissions } = sourceCommissionIds.length > 0
+    ? await supabase.from('agent_commissions').select('id, source_payment_id').in('id', sourceCommissionIds)
+    : { data: [] };
+  const sourcePaymentByCommission = new Map((sourceCommissions || []).map((row: any) => [String(row.id), row.source_payment_id || null]));
+  const linkedRows = (unpaidRows || []).filter((row: any) => row.source_payment_id || sourcePaymentByCommission.get(String(row.source_commission_id)));
+  const impactedUnpaidRows = getCancellationImpactedUnpaidRows(linkedRows, cancellationDate);
+  const shouldHold = (refundEligibility === 'eligible' && refundStatus === 'pending_manual_refund') || refundEligibility === 'review_required';
+  const rowsToHold = shouldHold ? impactedUnpaidRows.filter((row: any) => ['earned', 'queued', 'carry_forward'].includes(row.status)) : [];
+  const rowsToRelease = impactedUnpaidRows.filter((row: any) => row.status === 'held' && row.metadata?.refundEligibilityHold && (refundEligibility === 'not_eligible' || ['denied', 'cancelled'].includes(refundStatus)));
+  let releasedCount = 0;
 
-  const impactedIds = impactedUnpaidRows.map((row: any) => row.id);
-  const detachedBatchIds = [...new Set(impactedUnpaidRows.map((row: any) => row.payout_batch_id).filter(Boolean))];
-  if (impactedIds.length > 0) {
+  if (rowsToRelease.length > 0) {
+    const releaseIds = rowsToRelease.map((row: any) => row.id);
+    const { error: releaseError } = await supabase.from('commission_ledger').update({
+      status: 'earned',
+      payout_batch_id: null,
+      metadata: { refundEligibilityHold: false, refundReleaseReason: refundStatus === 'not_applicable' ? 'refund_not_eligible' : `refund_${refundStatus}_commission_release` },
+    }).in('id', releaseIds).eq('status', 'held');
+    if (releaseError) throw new Error(`Failed to release refund-held commission rows: ${releaseError.message}`);
+    releasedCount = releaseIds.length;
+    await recordLedgerEvents(rowsToRelease.map((row: any) => ({
+      ledger_id: row.id,
+      event_key: `refund-release:${memberId}:${row.id}:${refundStatus}:${refundEligibility}`,
+      event_type: refundStatus === 'not_applicable' ? 'refund_not_eligible_commission_release' : `${refundStatus}_commission_release`,
+      from_status: 'held',
+      to_status: 'earned',
+      reason: decisionReason,
+      metadata: { memberId, sourceCommissionId: row.source_commission_id, sourcePaymentId: row.source_payment_id || sourcePaymentByCommission.get(String(row.source_commission_id)) || null, compensationType: row.compensation_type === 'override' ? 'override' : 'writing', refundEligibility, refundStatus, actorId: input.actorId || null },
+    })));
+  }
+
+  const detachedBatchIds = [...new Set(rowsToHold.map((row: any) => row.payout_batch_id).filter(Boolean))];
+  if (rowsToHold.length > 0) {
+    const holdIds = rowsToHold.map((row: any) => row.id);
     const { error: holdError } = await supabase
       .from('commission_ledger')
       .update({
@@ -1807,7 +1840,7 @@ export async function applyCancellationToLedger(input: {
         cancellation_date: cancellationDate,
         cancellation_reason: input.cancellationReason || null,
       })
-      .in('id', impactedIds)
+      .in('id', holdIds)
       .in('status', ['earned', 'queued', 'carry_forward']);
 
     if (holdError) {
@@ -1815,13 +1848,22 @@ export async function applyCancellationToLedger(input: {
     }
 
     await recordLedgerEvents(
-      impactedUnpaidRows.map((row: any) => ({
+      rowsToHold.map((row: any) => ({
         ledger_id: row.id,
-        event_type: 'status_transition',
+        event_key: `refund-hold:${memberId}:${row.id}:${refundEligibility}:${refundStatus}`,
+        event_type: refundEligibility === 'review_required' ? 'refund_review_commission_hold' : 'refund_pending_commission_hold',
         from_status: row.status,
         to_status: 'held',
         reason: 'Cancellation applied to unpaid commission row',
         metadata: {
+          memberId,
+          sourceCommissionId: row.source_commission_id,
+          sourcePaymentId: row.source_payment_id || sourcePaymentByCommission.get(String(row.source_commission_id)) || null,
+          compensationType: row.compensation_type === 'override' ? 'override' : 'writing',
+          refundEligibility,
+          refundStatus,
+          refundEligibilityReason: decisionReason,
+          actorId: input.actorId || null,
           previousPayoutBatchId: row.payout_batch_id || null,
           cancellationDate,
           cancellationReason: input.cancellationReason || null,
@@ -1834,7 +1876,7 @@ export async function applyCancellationToLedger(input: {
 
   let reversalCount = 0;
 
-  if (input.createReversalForPaid) {
+  if (refundEligibility === 'eligible' && refundStatus === 'refunded' && input.createReversalForPaid) {
     const { data: paidRows, error: paidRowsError } = await supabase
       .from('commission_ledger')
       .select('*')
@@ -1847,13 +1889,15 @@ export async function applyCancellationToLedger(input: {
       throw new Error(`Failed to inspect paid rows for cancellation reversal: ${paidRowsError.message}`);
     }
 
-    if ((paidRows || []).length > 0) {
-      const reversalRows = buildCancellationReversalRows(paidRows || [], cancellationDate, input.cancellationReason || null);
+    const linkedPaidRows = (paidRows || []).filter((row: any) => row.source_payment_id || sourcePaymentByCommission.get(String(row.source_commission_id)));
+    if (linkedPaidRows.length > 0) {
+      const refundEventReference = input.refundEventReference || `member-${memberId}-refund-processed`;
+      const reversalRows = buildCancellationReversalRows(linkedPaidRows, cancellationDate, input.cancellationReason || null, refundEventReference);
 
       const { data: createdReversals, error: reversalError } = await supabase
         .from('commission_ledger')
-        .insert(reversalRows)
-        .select('id, parent_ledger_id');
+        .upsert(reversalRows, { onConflict: 'reversal_key', ignoreDuplicates: true })
+        .select('id, parent_ledger_id, reversal_key');
 
       if (reversalError) {
         throw new Error(`Failed to create cancellation reversal rows: ${reversalError.message}`);
@@ -1864,10 +1908,15 @@ export async function applyCancellationToLedger(input: {
       await recordLedgerEvents(
         (createdReversals || []).map((row: any) => ({
           ledger_id: row.id,
-          event_type: 'reversal_created',
+          event_key: `refund-reversal-event:${row.reversal_key}`,
+          event_type: 'refund_processed_commission_reversal',
           reason: 'Cancellation reversal row created from previously paid record',
           metadata: {
+            memberId,
             parentLedgerId: row.parent_ledger_id,
+            refundEligibility,
+            refundStatus,
+            actorId: input.actorId || null,
             cancellationDate,
             cancellationReason: input.cancellationReason || null,
           },
@@ -1877,8 +1926,10 @@ export async function applyCancellationToLedger(input: {
   }
 
   return {
-    heldCount: impactedIds.length,
+    heldCount: rowsToHold.length,
+    releasedCount,
     reversalCount,
-    withinRefundWindow: true,
+    withinRefundWindow: refundEligibility === 'eligible' ? true : refundEligibility === 'not_eligible' ? false : null,
+    reason: decisionReason,
   };
 }

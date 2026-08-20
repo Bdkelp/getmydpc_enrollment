@@ -27,6 +27,7 @@
     "test:commission-center-authorization": "tsx scripts/test-commission-center-authorization.ts",
     "test:historical-commission-settlement": "tsx scripts/test-historical-commission-external-settlement.ts",
     "test:cancellation-refund-eligibility": "tsx scripts/test-cancellation-refund-eligibility.ts",
+    "test:commission-refund-clawback": "tsx scripts/test-commission-refund-clawback.ts",
     "test:cancellation-display": "tsx scripts/test-cancellation-display.ts",
     "commission-cutover:dry-run": "tsx scripts/historical-commission-external-settlement.ts",
     "commission-cutover:apply": "tsx scripts/historical-commission-external-settlement.ts --apply",

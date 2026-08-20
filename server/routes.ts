@@ -4336,6 +4336,44 @@ router.get(
 );
 
 router.patch(
+  "/api/admin/members/:memberId/refund-status",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) return res.status(403).json({ message: "Admin access required" });
+    const memberId = Number(req.params.memberId);
+    const refundStatus = String(req.body?.refundStatus || "");
+    const requestedEligibility = req.body?.refundEligibility;
+    if (!Number.isFinite(memberId) || !["refunded", "denied", "cancelled"].includes(refundStatus)) {
+      return res.status(400).json({ message: "Valid member ID and refundStatus (refunded, denied, cancelled) are required" });
+    }
+    const now = new Date().toISOString();
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .update({
+        refund_status: refundStatus,
+        ...(refundStatus !== "refunded" && ["eligible", "review_required"].includes(String(requestedEligibility)) ? { refund_eligibility: requestedEligibility } : {}),
+        ...(refundStatus !== "refunded" && !["eligible", "review_required"].includes(String(requestedEligibility)) ? { refund_eligibility: "not_eligible", refund_eligibility_reason: "refund_cancelled_or_denied" } : {}),
+        ...(refundStatus === "refunded" ? { refund_processed_at: now, refund_processed_by: req.user.id } : {}),
+      })
+      .eq("id", memberId)
+      .select("id, cancellation_date, cancellation_reason, refund_eligibility, refund_status, refund_eligibility_reason")
+      .single();
+    if (memberError || !member) return res.status(404).json({ message: "Member not found" });
+    const result = await applyCancellationToLedger({
+      memberId: String(memberId),
+      cancellationDate: member.cancellation_date || now,
+      cancellationReason: member.cancellation_reason || undefined,
+      refundEligibility: member.refund_eligibility,
+      refundStatus,
+      createReversalForPaid: refundStatus === "refunded",
+      actorId: req.user.id,
+      refundEventReference: `member-${memberId}-${refundStatus}`,
+    });
+    return res.json({ success: true, member, result });
+  },
+);
+
+router.patch(
   "/api/admin/enrollment/:enrollmentId/contact",
   authenticateToken,
   async (req: AuthRequest, res) => {
@@ -9359,6 +9397,9 @@ export async function registerRoutes(app: any) {
             statementNumber: row.statement_number,
             cancellationDate: row.cancellation_date,
             cancellationReason: row.cancellation_reason,
+            refundEligibility: row.metadata?.refundEligibility || null,
+            refundStatus: row.metadata?.refundStatus || null,
+            refundEligibilityReason: row.metadata?.refundEligibilityReason || null,
             notes: row.notes,
             createdAt: row.created_at,
           };
