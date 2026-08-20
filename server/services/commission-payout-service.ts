@@ -26,6 +26,8 @@ interface CreatePayoutParams {
  * Create a monthly payout record when member's payment is captured
  */
 export async function createMonthlyPayout(params: CreatePayoutParams): Promise<any> {
+  throw new Error('Legacy commission_payouts writes are retired; use PaymentConfirmedService and commission_ledger.');
+
   const { 
     commissionId, 
     memberPaymentId, 
@@ -111,6 +113,8 @@ export async function createPayoutsForMemberPayment(
   epxTransactionId: string,
   paymentCapturedAt: Date
 ): Promise<{ direct: any[], override: any[] }> {
+  throw new Error('Legacy commission_payouts writes are retired; use PaymentConfirmedService and commission_ledger.');
+
   console.log('[Payout Service] Creating payouts for member payment:', {
     memberId,
     memberPaymentId,

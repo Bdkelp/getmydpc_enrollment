@@ -24,7 +24,6 @@ import {
   updateGroupMember,
 } from '../storage';
 import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
-import { createMonthlyPayout } from '../services/commission-payout-service';
 import { applyCancellationToLedger } from '../services/commission-ledger-service';
 import { transitionGroupPaymentToPayable } from '../services/group-payment-transition-service';
 import { calculateCommission } from '../commissionCalculator';
@@ -2040,134 +2039,6 @@ const buildGroupFinancialSummary = (
     memberTotal,
     discountTotal,
   };
-};
-
-const createGroupMemberCommissionsForCapturedPayment = async (
-  group: any,
-  groupMember: any,
-  paymentCapturedAt: Date,
-  paymentStatusRaw: string,
-  triggeredBy: string | null,
-) => {
-  const metadata = group.metadata && typeof group.metadata === 'object'
-    ? (group.metadata as Record<string, any>)
-    : {};
-
-  const paymentDateIso = paymentCapturedAt.toISOString();
-  const paymentDateOnly = paymentDateIso.slice(0, 10);
-  const cycleKey = getCycleKey(paymentCapturedAt);
-  const assignedAgentId = await resolveAssignedAgentForDate(group.id, metadata, paymentDateOnly);
-  const configuredSplits = await filterEligibleCommissionSplits(
-    parseConfiguredCommissionSplits(metadata, assignedAgentId, paymentDateOnly)
-  );
-  const splitError = validateCommissionSplits(configuredSplits);
-  if (splitError && configuredSplits.length > 0) {
-    throw new Error(splitError);
-  }
-
-  if (configuredSplits.length === 0) {
-    return;
-  }
-
-  const syntheticMemberId = `group_member:${groupMember.id}`;
-  const baseAmount = await resolveGroupMemberBaseAmount(groupMember);
-
-  if (baseAmount <= 0) {
-    throw new Error('Cannot create group commission because member total amount is zero');
-  }
-
-  const commissionContext = resolveGroupCommissionContext(group, groupMember, baseAmount);
-  const commissionBaseAmount = commissionContext.commissionBaseAmount;
-
-  const paymentEligibleDate = calculatePaymentEligibleDate(paymentCapturedAt);
-  const primaryAgentId = configuredSplits[0].agentId;
-
-  let allocated = 0;
-  for (let index = 0; index < configuredSplits.length; index += 1) {
-    const split = configuredSplits[index];
-    const existingCommission = await getExistingGroupCommissionForCycle(
-      group.id,
-      groupMember.id,
-      syntheticMemberId,
-      split.agentId,
-      cycleKey,
-    );
-
-    const isLast = index === configuredSplits.length - 1;
-    const splitAmount = isLast
-      ? roundCurrency(commissionBaseAmount - allocated)
-      : roundCurrency(commissionBaseAmount * (split.percentage / 100));
-    allocated = roundCurrency(allocated + splitAmount);
-
-    if (splitAmount <= 0) {
-      continue;
-    }
-
-    const commissionPayload = {
-      agent_id: split.agentId,
-      member_id: syntheticMemberId,
-      enrollment_id: null,
-      commission_amount: splitAmount,
-      coverage_type: commissionContext.coverageType as any,
-      status: 'approved',
-      payment_status: 'unpaid',
-      payment_captured: true,
-      payment_captured_at: paymentDateIso,
-      payment_eligible_date: paymentEligibleDate.toISOString(),
-      commission_type: index === 0 ? 'direct' : 'override',
-      override_for_agent_id: index === 0 ? null : primaryAgentId,
-      base_premium: commissionContext.membershipAmount,
-      notes: [
-        `Group member commission`,
-        `group:${group.id}`,
-        `groupMember:${groupMember.id}`,
-        `cycle:${cycleKey}`,
-        `groupName:${group.name || ''}`,
-        `plan:${commissionContext.planName}`,
-        `memberType:${commissionContext.memberType}`,
-        `membershipFee:${commissionContext.membershipAmount.toFixed(2)}`,
-        'stage:payable',
-        `paymentStatus:${paymentStatusRaw}`,
-        `split:${split.percentage}`,
-        triggeredBy ? `triggeredBy:${triggeredBy}` : null,
-      ].filter(Boolean).join(' | '),
-    };
-
-    let commissionId: string;
-
-    if (existingCommission?.id) {
-      const { error: updateError } = await supabase
-        .from('agent_commissions')
-        .update(commissionPayload)
-        .eq('id', existingCommission.id);
-
-      if (updateError) {
-        throw new Error(`Failed transitioning group commission to payable for agent ${split.agentId}: ${updateError.message}`);
-      }
-
-      commissionId = existingCommission.id;
-    } else {
-      const { data: createdCommission, error: commissionError } = await supabase
-        .from('agent_commissions')
-        .insert(commissionPayload)
-        .select('id')
-        .single();
-
-      if (commissionError) {
-        throw new Error(`Failed creating group commission for agent ${split.agentId}: ${commissionError.message}`);
-      }
-
-      commissionId = createdCommission.id;
-    }
-
-    await createMonthlyPayout({
-      commissionId,
-      paymentCapturedAt,
-      amount: splitAmount,
-      commissionType: index === 0 ? 'direct' : 'override',
-      overrideForAgentId: index === 0 ? undefined : primaryAgentId,
-    });
-  }
 };
 
 const normalizeMemberTier = (value: unknown): string => {
@@ -5420,6 +5291,7 @@ router.post('/api/groups/:groupId/members/:memberId/payment', async (req: AuthRe
         await transitionGroupPaymentToPayable({
           groupId,
           groupMemberId: updated.id,
+          paymentId: req.body?.paymentId,
           paymentStatusRaw: normalizedPaymentStatus,
           paymentCapturedAt: new Date(),
           triggeredBy: req.user?.id || null,

@@ -38,6 +38,8 @@ import groupEnrollmentRoutes from "./routes/group-enrollment";
 import paymentReconciliationRoutes from "./routes/payment-reconciliation";
 import paymentDiagnosticRoutes from "./routes/payment-diagnostic";
 import paymentTrackingRoutes from "./routes/payment-tracking";
+import financialExceptionRoutes from "./routes/financial-exceptions";
+import { scheduleFinancialReconciliation } from "./services/financial-reconciliation-worker";
 import achPaymentRoutes from "./routes/ach-payment-routes";
 import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
 import { isSupabaseServiceRoleReady } from "./lib/supabaseClient";
@@ -195,6 +197,7 @@ app.use((req, res, next) => {
   app.use('/', paymentReconciliationRoutes);
   app.use('/', paymentDiagnosticRoutes);
   app.use('/', paymentTrackingRoutes);
+  app.use('/', financialExceptionRoutes);
   app.use('/api/payments/ach', achPaymentRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -276,6 +279,7 @@ app.use((req, res, next) => {
 
       // Initialize recurring billing scheduler (card-only Phase 1)
       scheduleRecurringBilling();
+      scheduleFinancialReconciliation();
 
       // Validate EPX configuration
       try {

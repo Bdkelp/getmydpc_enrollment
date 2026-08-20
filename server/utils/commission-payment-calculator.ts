@@ -1,43 +1,33 @@
 /**
  * Commission Payment Date Calculator
- * 
- * Calculates the payment eligible date for commissions based on business rules:
- * - Weeks run Monday 00:00 → Sunday 23:59
- * - Commissions are paid on the Friday after the week ends
- * - For example, if enrollment is Tuesday, the week ends Sunday, and payment is eligible the following Friday
+ *
+ * Phase 2A: this file's date math previously implemented its own
+ * Monday–Sunday-week rule that the forensic audit found non-compliant with
+ * the actual business rule (failed 4 of 7 required acceptance cases).
+ *
+ * `calculatePaymentEligibleDate` is now a compatibility wrapper that
+ * delegates to the single unified payout schedule service
+ * (server/services/commission-payout-schedule-service.ts). Callers
+ * (server/services/commission-payout-service.ts,
+ * server/services/group-payment-transition-service.ts,
+ * server/routes/group-enrollment.ts) are unchanged — they still pass a
+ * "captured payment" anchor date, which this wrapper now schedules using the
+ * unified writing-commission Friday/holiday rule instead of the old
+ * incorrect logic. See docs/COMMISSION_PAYOUT_SCHEDULING_PHASE2A_REPORT.md
+ * (§ KEEP/REDIRECT/DEPRECATE matrix) for why the callers themselves were not
+ * changed in this phase.
  */
 
+import { getWritingCommissionPayDate } from "../services/commission-payout-schedule-service";
+
 /**
- * Calculate the payment eligible date for a commission
- * @param enrollmentDate - The date the member enrolled (plan activation date)
- * @returns The Friday after the Monday-Sunday week ends
+ * Calculate the payment eligible date for a commission.
+ * @param enrollmentDate - The anchor date supplied by the caller (historically
+ *   the member's enrollment/payment-capture date).
+ * @returns The unified writing-commission payout date for that anchor date.
  */
 export function calculatePaymentEligibleDate(enrollmentDate: Date): Date {
-  // Find the Monday that starts the week containing the enrollment date
-  const dayOfWeek = enrollmentDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  
-  // Calculate days since last Monday
-  // If dayOfWeek is 0 (Sunday), we need to go back 6 days
-  // If dayOfWeek is 1 (Monday), we need to go back 0 days
-  // If dayOfWeek is 2 (Tuesday), we need to go back 1 day, etc.
-  const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  
-  // Get the Monday of this week
-  const weekMonday = new Date(enrollmentDate);
-  weekMonday.setDate(enrollmentDate.getDate() - daysSinceMonday);
-  weekMonday.setHours(0, 0, 0, 0);
-  
-  // Get the Sunday that ends this week (6 days after Monday)
-  const weekSunday = new Date(weekMonday);
-  weekSunday.setDate(weekMonday.getDate() + 6);
-  weekSunday.setHours(23, 59, 59, 999);
-  
-  // Payment is eligible on the Friday after the week ends (5 days after Sunday ends)
-  const paymentEligibleDate = new Date(weekSunday);
-  paymentEligibleDate.setDate(weekSunday.getDate() + 5); // 5 days after Sunday = Friday
-  paymentEligibleDate.setHours(0, 0, 0, 0); // Set to beginning of Friday
-  
-  return paymentEligibleDate;
+  return getWritingCommissionPayDate(enrollmentDate);
 }
 
 /**

@@ -1,7 +1,8 @@
 import { getGroupById, getGroupMemberById, setGroupMemberPaymentStatus, updateGroup } from '../storage';
 import { supabase } from '../lib/supabaseClient';
 import { calculatePaymentEligibleDate } from '../utils/commission-payment-calculator';
-import { createMonthlyPayout } from './commission-payout-service';
+import { syncLedgerEntriesForPayment } from './commission-ledger-service';
+import { updateFinancialProcessingState } from './financial-processing-state';
 
 const CAPTURED_PAYMENT_STATUSES = new Set(['paid', 'succeeded', 'success', 'captured']);
 
@@ -69,6 +70,7 @@ const buildPayableNotes = (
 interface TransitionGroupPaymentToPayableOptions {
   groupId: string;
   groupMemberId: number;
+  paymentId: number | string;
   paymentStatusRaw: string;
   paymentCapturedAt?: Date;
   triggeredBy?: string | null;
@@ -117,23 +119,62 @@ export async function transitionGroupPaymentToPayable(
     throw new Error('Cannot transition a terminated group member payment');
   }
 
+  const paymentId = Number(options.paymentId);
+  if (!Number.isFinite(paymentId) || paymentId <= 0) {
+    throw new Error('A valid successful payment id is required for group commission transition');
+  }
+
+  const { data: sourcePayment, error: sourcePaymentError } = await supabase
+    .from('payments')
+    .select('id, member_id, status')
+    .eq('id', paymentId)
+    .single();
+
+  if (sourcePaymentError || !sourcePayment) {
+    throw new Error(`Source payment ${paymentId} could not be loaded for group commission transition`);
+  }
+
+  if (!CAPTURED_PAYMENT_STATUSES.has(normalizePaymentStatus(sourcePayment.status))) {
+    throw new Error(`Source payment ${paymentId} is not successful; refusing group commission transition`);
+  }
+
   if (options.updateMemberPaymentStatus) {
     await setGroupMemberPaymentStatus(options.groupMemberId, normalizedPaymentStatus);
   }
 
   const paymentCapturedAt = options.paymentCapturedAt ?? new Date();
   const paymentCapturedAtIso = paymentCapturedAt.toISOString();
-  const paymentEligibleDate = calculatePaymentEligibleDate(paymentCapturedAt);
-  const paymentEligibleDateIso = paymentEligibleDate.toISOString();
   const groupMetadata = group.metadata && typeof group.metadata === 'object'
     ? (group.metadata as Record<string, any>)
     : {};
+  // Phase 2B: writing commission scheduling must use the group's actual
+  // cycle effective date, never the real-time payment-capture moment. Fall
+  // back to paymentCapturedAt only when no cycle date is recorded, and flag
+  // it rather than silently treating payment time as the effective date.
+  const groupCycleEffectiveDateRaw =
+    groupMetadata?.groupBillingLifecycle?.expectedCycleDate ||
+    groupMetadata?.billingScheduler?.scheduledStartDate ||
+    null;
+  const groupCycleEffectiveDate = groupCycleEffectiveDateRaw
+    ? new Date(groupCycleEffectiveDateRaw)
+    : null;
+  const effectiveDateForScheduling =
+    groupCycleEffectiveDate && !Number.isNaN(groupCycleEffectiveDate.getTime())
+      ? groupCycleEffectiveDate
+      : paymentCapturedAt;
+  if (!groupCycleEffectiveDate || Number.isNaN(groupCycleEffectiveDate.getTime())) {
+    console.warn(
+      `[GroupPaymentTransition] No group cycle effective date found for group ${normalizedGroupId} — falling back to payment-capture time for writing commission scheduling. FLAG FOR REVIEW.`,
+    );
+  }
+  const paymentEligibleDate = calculatePaymentEligibleDate(effectiveDateForScheduling);
+  const paymentEligibleDateIso = paymentEligibleDate.toISOString();
   const cycleKey = resolveCycleKeyFromGroupMetadata(groupMetadata, paymentCapturedAt);
   const syntheticMemberId = buildSyntheticGroupMemberId(options.groupMemberId);
 
   const { data: commissions, error: commissionError } = await supabase
     .from('agent_commissions')
-    .select('id, commission_amount, commission_type, override_for_agent_id, payment_captured, notes')
+    .select('id, commission_amount, commission_type, override_for_agent_id, payment_captured, source_payment_id, notes')
     .eq('member_id', syntheticMemberId)
     .ilike('notes', `%group:${normalizedGroupId}%`)
     .ilike('notes', `%groupMember:${options.groupMemberId}%`)
@@ -145,6 +186,13 @@ export async function transitionGroupPaymentToPayable(
   }
 
   const expectedCommissions = commissions || [];
+  await updateFinancialProcessingState({
+    paymentId,
+    commissionStatus: 'pending',
+    ledgerStatus: 'pending',
+    commissionError: null,
+    ledgerError: null,
+  });
   let transitionedCount = 0;
   let skippedCount = 0;
 
@@ -159,6 +207,7 @@ export async function transitionGroupPaymentToPayable(
           payment_status: 'unpaid',
           payment_captured: true,
           payment_captured_at: paymentCapturedAtIso,
+          source_payment_id: paymentId,
           payment_eligible_date: paymentEligibleDateIso,
           notes: buildPayableNotes(
             commission.notes,
@@ -174,21 +223,44 @@ export async function transitionGroupPaymentToPayable(
       }
 
       transitionedCount += 1;
-
-      const commissionAmount = parseAmountNumber(commission.commission_amount);
-      if (commissionAmount > 0) {
-        await createMonthlyPayout({
-          commissionId: commission.id,
-          paymentCapturedAt,
-          amount: commissionAmount,
-          commissionType: commission.commission_type === 'override' ? 'override' : 'direct',
-          overrideForAgentId: commission.override_for_agent_id || undefined,
-        });
-      }
     } else {
+      if (commission.source_payment_id && Number(commission.source_payment_id) !== paymentId) {
+        throw new Error(`Expected group commission ${commission.id} is already linked to a different payment`);
+      }
+      if (!commission.source_payment_id) {
+        const { error: sourceLinkError } = await supabase
+          .from('agent_commissions')
+          .update({ source_payment_id: paymentId })
+          .eq('id', commission.id)
+          .is('source_payment_id', null);
+        if (sourceLinkError) {
+          throw new Error(`Failed linking expected group commission ${commission.id} to payment ${paymentId}: ${sourceLinkError.message}`);
+        }
+      }
       skippedCount += 1;
     }
   }
+
+  const ledgerSyncResult = await syncLedgerEntriesForPayment({
+    paymentId,
+    memberId: Number(sourcePayment.member_id || 0),
+    effectiveDate: effectiveDateForScheduling,
+  });
+  if ('error' in ledgerSyncResult) {
+    await updateFinancialProcessingState({
+      paymentId,
+      commissionStatus: 'complete',
+      ledgerStatus: 'failed',
+      ledgerError: ledgerSyncResult.error,
+    });
+    throw new Error(`Group commission ledger sync failed for payment ${paymentId}: ${ledgerSyncResult.error}`);
+  }
+  await updateFinancialProcessingState({
+    paymentId,
+    commissionStatus: 'complete',
+    ledgerStatus: 'complete',
+    ledgerError: null,
+  });
   const existingTransitions = Array.isArray(groupMetadata.paymentTransitions)
     ? groupMetadata.paymentTransitions
     : [];

@@ -5,6 +5,9 @@ import * as os from 'os';
 export interface EPXLogEvent {
   timestamp: string;
   level: 'info' | 'warn' | 'error';
+  // Widened (Phase 1 payment-confirmed-service work) to accept any phase
+  // string while still surfacing the known values for editor autocomplete.
+  // Purely a type-level relaxation — no runtime behavior change.
   phase:
     | 'create-payment'
     | 'callback'
@@ -22,7 +25,9 @@ export interface EPXLogEvent {
     | 'admin-commission'
     | 'commission-repair'
     | 'admin-sync-price'
-    | 'admin-add-family';
+    | 'admin-add-family'
+    | 'payment-confirmed-service'
+    | (string & {});
   message: string;
   data?: any;
 }

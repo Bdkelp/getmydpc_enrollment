@@ -74,6 +74,7 @@ function getNavItems(role: string | undefined): NavItem[] {
       { label: "Enrollments", icon: Users, href: "/admin/enrollments" },
       { label: "Leads", icon: FileText, href: "/admin/leads" },
       { label: "Commissions", icon: DollarSign, href: "/admin/commissions" },
+      { label: "Financial Operations", icon: Shield, href: "/admin/financial-operations" },
       { label: "Analytics", icon: BarChart2, href: "/admin/analytics" },
       { label: "Performance", icon: Target, href: "/admin/performance-goals" },
       { label: "Users", icon: Shield, href: "/admin/users" },
@@ -84,7 +85,7 @@ function getNavItems(role: string | undefined): NavItem[] {
   return [
     { label: "Overview", icon: LayoutDashboard, href: "/agent" },
     { label: "Leads", icon: FileText, href: "/agent/leads" },
-    { label: "Commissions", icon: DollarSign, href: "/agent/commissions" },
+    { label: "Commissions", icon: DollarSign, href: "/agent/commission-center" },
     { label: "Groups", icon: Users, href: "/agent/groups" },
     { label: "Failed Payments", icon: BarChart2, href: "/agent/failed-payments" },
     { label: "Settings", icon: Settings, href: "/profile" },

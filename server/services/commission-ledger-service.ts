@@ -1,7 +1,15 @@
 import { supabase } from '../lib/supabaseClient.ts';
 import { addDaysLocal, formatLocalDate, parseLocalDate } from '@shared/localDate';
+import { getWritingCommissionPayDate, getOverridePayDate } from './commission-payout-schedule-service';
 
-type BatchType = '1st-cycle' | '15th-cycle';
+// Phase 2B: writing commissions (semi-monthly, 1st/15th) and overrides
+// (monthly, in-arrears) are distinct compensation types that must never share
+// a payout batch or a payout-date algorithm. `compensation_type` on both
+// commission_ledger and commission_payout_batches is the explicit,
+// queryable signal — batch classification is never inferred from dates
+// alone. See docs/COMMISSION_LEDGER_PAYOUT_FLOW_PHASE2B_REPORT.md.
+export type CompensationType = 'writing' | 'override';
+type BatchType = 'writing_1st' | 'writing_15th' | 'override_monthly';
 type LedgerStatus = 'earned' | 'queued' | 'paid' | 'held' | 'reversed' | 'carry_forward';
 type CommissionType = 'new' | 'renewal' | 'adjustment' | 'reversal';
 export const PAYABLE_LEDGER_STATUSES: LedgerStatus[] = ['queued', 'paid'];
@@ -9,6 +17,20 @@ export const MIN_AGENT_PAYOUT_THRESHOLD = 25;
 
 function toMoneyCents(value: unknown): number {
   return Math.round(Number(value || 0) * 100);
+}
+
+/**
+ * Determine a row's compensation type. NULL/legacy rows (created before
+ * Phase 2B, when only writing commissions were synced) default to
+ * 'writing' rather than being reclassified or guessed at as anything else.
+ */
+export function compensationTypeOf(row: { compensation_type?: string | null }): CompensationType {
+  return row?.compensation_type === 'override' ? 'override' : 'writing';
+}
+
+/** Maps a raw agent_commissions commission_type ('direct'/'override'/etc.) to the ledger's compensation type. */
+function compensationTypeFromFeedItem(item: CommissionFeedItem): CompensationType {
+  return item.commissionType === 'override' ? 'override' : 'writing';
 }
 
 interface CommissionFeedItem {
@@ -30,6 +52,12 @@ interface CommissionFeedItem {
   paymentStatus?: string;
   paymentCaptured?: boolean;
   lineageSnapshotId?: string;
+  /** WP-03 compensation type ('direct' or 'override') — distinct from the ledger's own new/renewal/adjustment/reversal `commission_type`. */
+  commissionType?: 'direct' | 'override';
+  /** For override rows: which downline writing agent generated this override. */
+  overrideForAgentId?: string | null;
+  /** Phase 1 traceability FK — the exact payment that produced this commission, when known. */
+  sourcePaymentId?: number | string | null;
 }
 
 export function normalizeCommissionLedgerAgentId(value: unknown): string | null {
@@ -39,54 +67,136 @@ export function normalizeCommissionLedgerAgentId(value: unknown): string | null 
     : null;
 }
 
+/**
+ * The Phase 2B migration (scripts/sql/2026-08-20b_commission_ledger_payout_flow_phase2b.sql)
+ * has not necessarily been executed in every environment yet. If the target
+ * database is missing `compensation_type`/`source_payment_id`, retry once
+ * without those columns rather than failing the whole sync.
+ */
+async function insertLedgerRowsWithPhase2BFallback(rows: any[]): Promise<{ data: any[] | null; error: any }> {
+  const { data, error } = await supabase
+    .from('commission_ledger')
+    .insert(rows)
+    .select('id, source_commission_id, commission_period_end, status');
+
+  if (!error) {
+    return { data, error: null };
+  }
+
+  if (!String(error.message || '').toLowerCase().includes('column')) {
+    return { data: null, error };
+  }
+
+  const legacyRows = rows.map((row) => {
+    const { compensation_type, source_payment_id, ...rest } = row;
+    return rest;
+  });
+
+  const fallback = await supabase
+    .from('commission_ledger')
+    .insert(legacyRows)
+    .select('id, source_commission_id, commission_period_end, status');
+
+  return { data: fallback.data, error: fallback.error };
+}
+
 function toIsoDate(value: Date): string {
   return formatLocalDate(value);
 }
 
-function getCycleAnchorForEntry(commissionPeriodEnd: Date): { batchType: BatchType; anchorDate: Date } {
+/**
+ * Writing commissions: semi-monthly 1st/15th cycles, unchanged from Phase 2A.
+ * Overrides: monthly-in-arrears cycles — anchor is the 1st of the month
+ * AFTER the earned month (commissionPeriodEnd is, for override rows, always
+ * the last day of the earned calendar month — see getMonthlyPeriods below).
+ */
+export function getCycleAnchorForEntry(
+  commissionPeriodEnd: Date,
+  compensationType: CompensationType,
+): { batchType: BatchType; anchorDate: Date } {
+  if (compensationType === 'override') {
+    const anchorDate = new Date(commissionPeriodEnd.getFullYear(), commissionPeriodEnd.getMonth() + 1, 1);
+    return { batchType: 'override_monthly', anchorDate };
+  }
+
   const day = commissionPeriodEnd.getDate();
 
   if (day <= 1) {
     const anchorDate = new Date(commissionPeriodEnd.getFullYear(), commissionPeriodEnd.getMonth(), 1);
-    return { batchType: '1st-cycle', anchorDate };
+    return { batchType: 'writing_1st', anchorDate };
   }
 
   if (day <= 15) {
     const anchorDate = new Date(commissionPeriodEnd.getFullYear(), commissionPeriodEnd.getMonth(), 15);
-    return { batchType: '15th-cycle', anchorDate };
+    return { batchType: 'writing_15th', anchorDate };
   }
 
   const anchorDate = new Date(commissionPeriodEnd.getFullYear(), commissionPeriodEnd.getMonth() + 1, 1);
-  return { batchType: '1st-cycle', anchorDate };
+  return { batchType: 'writing_1st', anchorDate };
+}
+
+/**
+ * Advances a cycle anchor exactly one cycle step forward. Used only for
+ * rows being carried forward past a cycle where they were already
+ * considered — see docs/COMMISSION_LEDGER_PAYOUT_FLOW_PHASE2B_REPORT.md §9
+ * for the worked examples this implements ($15 on the 1st + $20 on the 15th
+ * = $35 payable on the 15th; August override carry + September override =
+ * payable on the October cycle).
+ */
+export function advanceCycleAnchor(
+  previousAnchor: Date,
+  compensationType: CompensationType,
+): { batchType: BatchType; anchorDate: Date } {
+  if (compensationType === 'override') {
+    const anchorDate = new Date(previousAnchor.getFullYear(), previousAnchor.getMonth() + 1, 1);
+    return { batchType: 'override_monthly', anchorDate };
+  }
+
+  if (previousAnchor.getDate() <= 1) {
+    return {
+      batchType: 'writing_15th',
+      anchorDate: new Date(previousAnchor.getFullYear(), previousAnchor.getMonth(), 15),
+    };
+  }
+
+  return {
+    batchType: 'writing_1st',
+    anchorDate: new Date(previousAnchor.getFullYear(), previousAnchor.getMonth() + 1, 1),
+  };
 }
 
 function dateOnly(value: Date | string): Date {
   return parseLocalDate(value);
 }
 
-function firstFridayOnOrAfter(date: Date): Date {
-  const result = dateOnly(date);
-  const day = result.getDay();
-  const friday = 5;
-  const delta = (friday - day + 7) % 7;
-  result.setDate(result.getDate() + delta);
-  return result;
-}
-
 export function getNextPayoutDate(batchType: BatchType, referenceDate = new Date()): Date {
   const normalizedReference = dateOnly(referenceDate);
-  const anchorDay = batchType === '1st-cycle' ? 1 : 15;
+
+  if (batchType === 'override_monthly') {
+    // "Next" override cycle relative to referenceDate: the monthly cycle
+    // whose earning month is referenceDate's month (paid the following
+    // month), advanced once more if that payout date has already passed.
+    let earnedMonthAnchor = new Date(normalizedReference.getFullYear(), normalizedReference.getMonth(), 1);
+    let payDate = getOverridePayDate(earnedMonthAnchor);
+    if (payDate.getTime() < normalizedReference.getTime()) {
+      earnedMonthAnchor = new Date(earnedMonthAnchor.getFullYear(), earnedMonthAnchor.getMonth() + 1, 1);
+      payDate = getOverridePayDate(earnedMonthAnchor);
+    }
+    return payDate;
+  }
+
+  const anchorDay = batchType === 'writing_1st' ? 1 : 15;
   const anchor = dateOnly(new Date(normalizedReference.getFullYear(), normalizedReference.getMonth(), anchorDay));
 
   if (normalizedReference.getTime() > anchor.getTime()) {
-    if (batchType === '1st-cycle') {
+    if (batchType === 'writing_1st') {
       anchor.setMonth(anchor.getMonth() + 1, 1);
     } else {
       anchor.setMonth(anchor.getMonth() + 1, 15);
     }
   }
 
-  return firstFridayOnOrAfter(anchor);
+  return getWritingCommissionPayDate(anchor);
 }
 
 function deriveCommissionType(item: CommissionFeedItem, hasPriorForMember: boolean): CommissionType {
@@ -120,6 +230,18 @@ function normalizePeriodFromDate(rawDate?: string): { start: string; end: string
     end: toIsoDate(new Date(year, month + 1, 0)),
   };
 }
+
+/** Override earning period = one full calendar month (start=1st, end=last day). */
+function normalizeMonthlyPeriodFromDate(rawDate?: string): { start: string; end: string } {
+  const base = rawDate ? parseLocalDate(rawDate) : parseLocalDate(new Date());
+  const year = base.getFullYear();
+  const month = base.getMonth();
+  return {
+    start: toIsoDate(new Date(year, month, 1)),
+    end: toIsoDate(new Date(year, month + 1, 0)),
+  };
+}
+
 
 function buildCommissionUnitKey(item: CommissionFeedItem): string {
   const enrollmentId = String(item.enrollmentId || '').trim();
@@ -426,6 +548,24 @@ function getRecurringPeriods(startAt: Date, endAt: Date): Array<{ start: string;
   return periods;
 }
 
+/** Override analog of getRecurringPeriods: one period per full calendar month. */
+function getMonthlyRecurringPeriods(startAt: Date, endAt: Date): Array<{ start: string; end: string }> {
+  const periods: Array<{ start: string; end: string }> = [];
+  let cursor = dateOnly(startAt);
+  const end = dateOnly(endAt);
+
+  while (cursor.getTime() <= end.getTime()) {
+    const period = normalizeMonthlyPeriodFromDate(toIsoDate(cursor));
+    const key = `${period.start}|${period.end}`;
+    if (!periods.some((item) => `${item.start}|${item.end}` === key)) {
+      periods.push(period);
+    }
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+
+  return periods;
+}
+
 function buildStatementNumber(batchId: string, writingNumber?: string | null, agentId?: string | null): string {
   return `ACS-${String(batchId).slice(0, 8)}-${String(writingNumber || agentId || 'AGENT').replace(/[^A-Za-z0-9]/g, '')}`;
 }
@@ -567,14 +707,19 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
       continue;
     }
 
-    const periodSeed = normalizePeriodFromDate(item.effectiveDate || item.createdAt);
+    const compensationType = compensationTypeFromFeedItem(item);
+    const periodSeed = compensationType === 'override'
+      ? normalizeMonthlyPeriodFromDate(item.effectiveDate || item.createdAt)
+      : normalizePeriodFromDate(item.effectiveDate || item.createdAt);
     const rangeStart = dateOnly(periodSeed.start);
     const rangeEnd = dateOnly(new Date());
     const memberKey = String(item.memberId || '');
     const cancellationInfo = memberKey ? cancellationByMember.get(memberKey) : undefined;
     const cancellationDate = cancellationInfo?.date;
 
-    const periods = getRecurringPeriods(rangeStart, rangeEnd);
+    const periods = compensationType === 'override'
+      ? getMonthlyRecurringPeriods(rangeStart, rangeEnd)
+      : getRecurringPeriods(rangeStart, rangeEnd);
     const normalizedAgentId = normalizeCommissionLedgerAgentId(item.agentId);
     const memberAgentKey = `${normalizedAgentId || ''}:${item.memberId || ''}`;
     const commissionUnitKey = buildCommissionUnitKey(item);
@@ -620,6 +765,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
 
       const row = {
         source_commission_id: item.id,
+        source_payment_id: item.sourcePaymentId ?? null,
         lineage_snapshot_id: item.lineageSnapshotId || null,
         agent_id: normalizedAgentId,
         agent_name: item.agentName || 'Unknown Agent',
@@ -633,6 +779,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
         commission_period_end: period.end,
         commission_amount: Number(item.commissionAmount || 0),
         commission_type: commissionType,
+        compensation_type: compensationType,
         status: rowStatus,
         cancellation_date: intersectsCancellation ? cancellationDate : null,
         cancellation_reason: intersectsCancellation ? (cancellationInfo?.reason || null) : null,
@@ -643,6 +790,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
           cancellationIntersected: intersectsCancellation,
           commissionUnitKey,
           enrollmentId: item.enrollmentId || null,
+          overrideForAgentId: item.overrideForAgentId || null,
         },
       };
 
@@ -658,10 +806,7 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
     return { inserted: 0, skipped, newlyEligible: 0 };
   }
 
-  const { data: insertedRows, error: insertError } = await supabase
-    .from('commission_ledger')
-    .insert(rowsToInsert)
-    .select('id, source_commission_id, commission_period_end, status');
+  const { data: insertedRows, error: insertError } = await insertLedgerRowsWithPhase2BFallback(rowsToInsert);
 
   if (insertError) {
     throw new Error(`Failed to insert commission ledger records: ${insertError.message}`);
@@ -697,6 +842,95 @@ export async function syncCommissionLedgerFromFeed(feed: CommissionFeedItem[]): 
   return { inserted: rowsToInsert.length, skipped, newlyEligible };
 }
 
+/**
+ * Phase 2B: automatic, idempotent ledger sync for a single confirmed
+ * payment. Called by PaymentConfirmedService right after it creates
+ * agent_commissions rows, so an admin no longer has to remember to run the
+ * bulk `/api/admin/commissions/ledger/sync` endpoint before new compensation
+ * appears in reporting. Idempotency is inherited from
+ * syncCommissionLedgerFromFeed's existing source_commission_id/period dedupe
+ * — safe to call more than once for the same payment.
+ */
+export async function syncLedgerEntriesForPayment(options: {
+  paymentId: number | string;
+  memberId?: number;
+  effectiveDate: string | Date | null;
+}): Promise<{ inserted: number; skipped: number; newlyEligible: number } | { error: string }> {
+  try {
+    const { data: commissions, error: commissionsError } = await supabase
+      .from('agent_commissions')
+      .select('id, agent_id, agent_number, member_id, enrollment_id, lineage_snapshot_id, commission_amount, coverage_type, notes, status, payment_status, commission_type, override_for_agent_id, source_payment_id, created_at')
+      .eq('source_payment_id', options.paymentId);
+
+    if (commissionsError) {
+      return { error: `Failed loading commissions for ledger sync: ${commissionsError.message}` };
+    }
+
+    if (!commissions || commissions.length === 0) {
+      return { inserted: 0, skipped: 0, newlyEligible: 0 };
+    }
+
+    const agentIds = [...new Set(commissions.map((c: any) => String(c.agent_id || '')).filter(Boolean))];
+    const { data: agents, error: agentsError } = agentIds.length > 0
+      ? await supabase.from('users').select('id, first_name, last_name, email, agent_number').in('id', agentIds)
+      : { data: [], error: null };
+
+    if (agentsError) {
+      return { error: `Failed loading agents for ledger sync: ${agentsError.message}` };
+    }
+
+    const agentById = new Map((agents || []).map((a: any) => [String(a.id), a]));
+    const { data: member, error: memberError } = options.memberId
+      ? await supabase
+        .from('members')
+        .select('first_name, last_name, coverage_type')
+        .eq('id', options.memberId)
+        .maybeSingle()
+      : { data: null, error: null };
+
+    if (memberError) {
+      return { error: `Failed loading member for ledger sync: ${memberError.message}` };
+    }
+
+    const memberName = member?.first_name && member?.last_name
+      ? `${member.first_name} ${member.last_name}`
+      : `Group commission payment ${options.paymentId}`;
+    const resolvedEffectiveDate = options.effectiveDate ? toIsoDate(dateOnly(options.effectiveDate)) : undefined;
+
+    const feed: CommissionFeedItem[] = commissions.map((commission: any) => {
+      const agent = agentById.get(String(commission.agent_id));
+      const agentName = agent?.first_name && agent?.last_name
+        ? `${agent.first_name} ${agent.last_name}`
+        : agent?.email || 'Unknown Agent';
+
+      return {
+        id: String(commission.id),
+        agentId: commission.agent_id ? String(commission.agent_id) : undefined,
+        agentName,
+        agentNumber: commission.agent_number || agent?.agent_number || undefined,
+        memberId: String(commission.member_id || options.memberId || ''),
+        enrollmentId: commission.enrollment_id ? String(commission.enrollment_id) : undefined,
+        lineageSnapshotId: commission.lineage_snapshot_id ? String(commission.lineage_snapshot_id) : undefined,
+        memberName,
+        coverageType: commission.coverage_type || member?.coverage_type || undefined,
+        effectiveDate: resolvedEffectiveDate || commission.created_at,
+        createdAt: commission.created_at,
+        commissionAmount: Number(commission.commission_amount || 0),
+        notes: commission.notes || undefined,
+        paymentStatus: commission.payment_status || undefined,
+        paymentCaptured: true,
+        commissionType: commission.commission_type === 'override' ? 'override' : 'direct',
+        overrideForAgentId: commission.override_for_agent_id || null,
+        sourcePaymentId: commission.source_payment_id || options.paymentId,
+      };
+    });
+
+    return await syncCommissionLedgerFromFeed(feed);
+  } catch (error: any) {
+    return { error: `Failed syncing commission ledger for payment: ${error?.message || 'unknown error'}` };
+  }
+}
+
 export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<any[]> {
   const cutoffDate = cutoffDateRaw ? dateOnly(cutoffDateRaw) : dateOnly(new Date());
 
@@ -713,6 +947,29 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
 
   const VESTING_DAYS = parseInt(process.env.COMMISSION_VESTING_DAYS || '30', 10);
 
+  /**
+   * Phase 2B: a row already marked 'carry_forward' (detached from a prior,
+   * now-paid batch) is reconsidered in the NEXT cycle step past wherever it
+   * was last placed — never re-anchored to its original earned period,
+   * which would leave it stuck replaying the same closed cycle forever.
+   * `current_cycle_anchor_date` is the "where in the queue is this row now"
+   * pointer; a freshly-earned row (status 'earned', never yet batched) has
+   * no pointer and uses its natural earned-period anchor.
+   */
+  function resolveCycleForRow(row: any): { batchType: BatchType; anchorDate: Date } {
+    const compensationType = compensationTypeOf(row);
+    const naturalCycle = getCycleAnchorForEntry(parseLocalDate(row.commission_period_end), compensationType);
+
+    if (row.status !== 'carry_forward') {
+      return naturalCycle;
+    }
+
+    const previousAnchor = row.current_cycle_anchor_date
+      ? parseLocalDate(row.current_cycle_anchor_date)
+      : naturalCycle.anchorDate;
+    return advanceCycleAnchor(previousAnchor, compensationType);
+  }
+
   const eligible = (ledgerRows || []).filter((row: any) => {
     if (row.cancellation_date && parseLocalDate(row.cancellation_date).getTime() <= parseLocalDate(row.commission_period_end).getTime()) {
       return false;
@@ -726,13 +983,13 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
         return false; // Not yet vested — stays as 'earned', picked up in a future batch run
       }
     }
-    const cycle = getCycleAnchorForEntry(parseLocalDate(row.commission_period_end));
+    const cycle = resolveCycleForRow(row);
     return cycle.anchorDate <= cutoffDate;
   });
 
   const grouped = new Map<string, any[]>();
   for (const row of eligible) {
-    const cycle = getCycleAnchorForEntry(parseLocalDate(row.commission_period_end));
+    const cycle = resolveCycleForRow(row);
     const key = `${cycle.batchType}:${toIsoDate(cycle.anchorDate)}`;
     const items = grouped.get(key) || [];
     items.push({ ...row, __cycle: cycle });
@@ -742,8 +999,12 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
   const createdBatches: any[] = [];
 
   for (const [key, items] of grouped) {
-    const [batchType, cutoffDateString] = key.split(':');
-    const scheduledPayDate = firstFridayOnOrAfter(new Date(cutoffDateString));
+    const [batchType, cutoffDateString] = key.split(':') as [BatchType, string];
+    const compensationType: CompensationType = batchType === 'override_monthly' ? 'override' : 'writing';
+    const scheduledPayDate = compensationType === 'override'
+      // cutoffDateString is the 1st of the month AFTER the earned month — getOverridePayDate wants the earned month itself.
+      ? getOverridePayDate(new Date(new Date(cutoffDateString).getFullYear(), new Date(cutoffDateString).getMonth() - 1, 1))
+      : getWritingCommissionPayDate(new Date(cutoffDateString));
     const batchName = `Commission ${batchType} ${cutoffDateString}`;
 
     const { data: existingBatch, error: existingBatchError } = await supabase
@@ -761,17 +1022,33 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
     let batch = existingBatch;
 
     if (!batch) {
-      const { data: created, error: createError } = await supabase
+      let { data: created, error: createError } = await supabase
         .from('commission_payout_batches')
         .insert({
           batch_name: batchName,
           batch_type: batchType,
+          compensation_type: compensationType,
           cutoff_date: cutoffDateString,
           scheduled_pay_date: toIsoDate(scheduledPayDate),
           status: 'draft',
         })
         .select('*')
         .single();
+
+      // Phase 2B migration not yet applied to this database — retry without the new column.
+      if (createError && String(createError.message || '').toLowerCase().includes('column')) {
+        ({ data: created, error: createError } = await supabase
+          .from('commission_payout_batches')
+          .insert({
+            batch_name: batchName,
+            batch_type: batchType,
+            cutoff_date: cutoffDateString,
+            scheduled_pay_date: toIsoDate(scheduledPayDate),
+            status: 'draft',
+          })
+          .select('*')
+          .single());
+      }
 
       if (createError) {
         throw new Error(`Failed to create payout batch: ${createError.message}`);
@@ -795,16 +1072,34 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
       const targetBatchId = batch.id;
 
       const rowIds = agentRows.map((row: any) => row.id);
+      const updatePayload: Record<string, any> = {
+        status: targetStatus,
+        payout_batch_id: targetBatchId,
+      };
+      // Record where this row currently sits in the cycle queue so a future
+      // carry-forward pass advances from here, not from the original period.
+      if (shouldCarryForward) {
+        updatePayload.current_cycle_anchor_date = toIsoDate(agentRows[0].__cycle.anchorDate);
+      }
+
       const { error: transitionError } = await supabase
         .from('commission_ledger')
-        .update({
-          status: targetStatus,
-          payout_batch_id: targetBatchId,
-        })
+        .update(updatePayload)
         .in('id', rowIds);
 
-      if (transitionError) {
-        throw new Error(`Failed applying payout threshold transition for agent ${agentKey}: ${transitionError.message}`);
+      let finalTransitionError = transitionError;
+      // Phase 2B migration not yet applied — retry without the new column.
+      if (finalTransitionError && String(finalTransitionError.message || '').toLowerCase().includes('column')) {
+        const { current_cycle_anchor_date, ...legacyPayload } = updatePayload;
+        const retry = await supabase
+          .from('commission_ledger')
+          .update(legacyPayload)
+          .in('id', rowIds);
+        finalTransitionError = retry.error;
+      }
+
+      if (finalTransitionError) {
+        throw new Error(`Failed applying payout threshold transition for agent ${agentKey}: ${finalTransitionError.message}`);
       }
 
       await recordLedgerEvents(
@@ -848,8 +1143,8 @@ export async function buildDraftPayoutBatches(cutoffDateRaw?: string): Promise<a
 
 export async function getPayoutDashboardData(): Promise<any> {
   const now = new Date();
-  const nextFirst = getNextPayoutDate('1st-cycle', now);
-  const nextFifteenth = getNextPayoutDate('15th-cycle', now);
+  const nextFirst = getNextPayoutDate('writing_1st', now);
+  const nextFifteenth = getNextPayoutDate('writing_15th', now);
   const nextPayoutDate = nextFirst < nextFifteenth ? nextFirst : nextFifteenth;
 
   const { data: draftBatches, error: batchError } = await supabase

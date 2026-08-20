@@ -14,12 +14,14 @@ import Admin from "@/pages/admin";
 import AgentDashboard from "@/pages/agent-dashboard";
 import AgentLeads from "@/pages/agent-leads";
 import AgentCommissions from "@/pages/agent-commissions";
+import CommissionCenter from "@/pages/commission-center";
 import AgentFailedPayments from "@/pages/agent-failed-payments";
 import AdminLeads from "@/pages/admin-leads";
 import AdminEnrollments from "@/pages/admin-enrollments";
 import AdminUsers from "@/pages/admin-users";
 import AdminAnalytics from "@/pages/admin-analytics";
 import AdminCommissions from "@/pages/admin-commissions";
+import AdminFinancialOperations from "@/pages/admin-financial-operations";
 import AdminNotifications from "@/pages/admin-notifications";
 import AdminAgentHierarchy from "@/pages/admin-agent-hierarchy";
 import AdminDiscountCodes from "@/pages/admin-discount-codes";
@@ -107,6 +109,7 @@ function Router() {
               <Route path="/admin/enrollments" component={AdminEnrollments} />
               <Route path="/admin/users" component={AdminUsers} />
               <Route path="/admin/commissions" component={AdminCommissions} />
+              <Route path="/admin/financial-operations" component={AdminFinancialOperations} />
               <Route path="/admin/agent-hierarchy" component={AdminAgentHierarchy} />
               <Route path="/admin/discount-codes" component={AdminDiscountCodes} />
               <Route path="/admin/performance-goals" component={AdminPerformanceGoals} />
@@ -127,6 +130,7 @@ function Router() {
               <Route path="/agent" component={AgentDashboard} />
               <Route path="/agent/leads" component={AgentLeads} />
               <Route path="/agent/commissions" component={AgentCommissions} />
+              <Route path="/agent/commission-center" component={CommissionCenter} />
               <Route path="/agent/failed-payments" component={AgentFailedPayments} />
               <Route path="/agent/groups" component={GroupEnrollment} />
               <Route path="/profile" component={Profile} />

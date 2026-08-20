@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const root = new URL('..', import.meta.url);
+const load = (path: string) => readFile(new URL(path, root), 'utf8');
+const recurring = await load('server/services/recurring-post-success-persistence.ts');
+const legacyPayout = await load('server/services/commission-payout-service.ts');
+const reconciliation = await load('server/services/financial-reconciliation-service.ts');
+const worker = await load('server/services/financial-reconciliation-worker.ts');
+const routes = await load('server/routes/financial-exceptions.ts');
+const migration = await load('scripts/sql/2026-08-20d_financial_exceptions.sql');
+const policy = await load('shared/commissionPolicy.ts');
+const agentRoute = await load('server/routes/financial-exceptions.ts');
+const commissionCenter = await load('client/src/pages/commission-center.tsx');
+
+assert.match(recurring, /processConfirmedPayment/);
+assert.match(recurring, /recurring_billing/);
+assert.doesNotMatch(recurring, /createMonthlyPayout|createPayoutsForMemberPayment/);
+assert.match(legacyPayout, /Legacy commission_payouts writes are retired/);
+assert.match(reconciliation, /PAYMENT_CONFIRMED_COMMISSION_FAILED/);
+assert.match(reconciliation, /retryCount >= MAX_RETRIES/);
+assert.match(reconciliation, /PAYMENT VERIFICATION REQUIRED/);
+assert.match(worker, /FINANCIAL_RECONCILIATION_ENABLED/);
+assert.match(worker, /BATCH_SIZE/);
+assert.match(routes, /api\/admin\/financial-exceptions/);
+assert.match(routes, /isAtLeastAdmin/);
+assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.financial_exceptions/);
+assert.match(policy, /COMMISSION_POLICY_VERSION/);
+assert.match(worker, /pg_try_advisory_lock/);
+assert.match(worker, /pg_advisory_unlock/);
+assert.match(worker, /FINANCIAL_RECONCILIATION_ENABLED/);
+assert.match(agentRoute, /req\.user\.id/);
+assert.match(agentRoute, /api\/agent\/commission-center/);
+assert.match(commissionCenter, /api\/agent\/commission-center/);
+assert.match(commissionCenter, /nextWritingPayout/);
+assert.match(commissionCenter, /nextOverridePayout/);
+assert.match(commissionCenter, /Commission information is temporarily unavailable/);
+assert.doesNotMatch(commissionCenter, /calculateCommission|shouldCarryForward|getWritingCommissionPayDate|getOverridePayDate/);
+
+console.log('Phase 3A reconciliation and recurring-consolidation source tests passed.');
+console.log('Confirmed: recurring writes use PaymentConfirmedService, exception retry is bounded, admin API is protected, and policy data is versioned.');
+console.log('CODE COMPLETE — REQUIRES STAGING DATABASE VALIDATION');

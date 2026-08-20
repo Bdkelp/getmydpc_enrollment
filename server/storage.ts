@@ -5697,7 +5697,10 @@ export async function getAllCommissionsNew(
 
     const { data: groups, error: groupsError } =
       groupIds.length > 0
-        ? await supabase.from("groups").select("id, name").in("id", groupIds)
+        ? await supabase
+            .from("groups")
+            .select("id, name, metadata")
+            .in("id", groupIds)
         : { data: [], error: null };
 
     if (groupsError) {
@@ -5875,6 +5878,25 @@ export async function getAllCommissionsNew(
         },
       );
 
+      // Phase 2B: group commissions must use the group's own cycle effective
+      // date (never payment-capture/created_at as a stand-in) where known.
+      // If it cannot be determined, flag rather than silently guess.
+      const groupRecord = isGroupCommission && groupMember?.group_id
+        ? (groupsMap.get(Number(groupMember.group_id)) as any)
+        : undefined;
+      const groupMetadataRecord =
+        groupRecord?.metadata && typeof groupRecord.metadata === "object"
+          ? groupRecord.metadata
+          : {};
+      const groupCycleEffectiveDate =
+        groupMetadataRecord?.groupBillingLifecycle?.expectedCycleDate ||
+        groupMetadataRecord?.billingScheduler?.scheduledStartDate ||
+        null;
+      const effectiveDateUnresolved = isGroupCommission && !groupCycleEffectiveDate;
+      const resolvedEffectiveDate = isGroupCommission
+        ? groupCycleEffectiveDate || commission.created_at || null
+        : member?.membership_start_date || commission.created_at || null;
+
       return {
         id: commission.id,
         agentId: commission.agent_id,
@@ -5883,6 +5905,9 @@ export async function getAllCommissionsNew(
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
         lineageSnapshotId: commission.lineage_snapshot_id || null,
+        commissionType: commission.commission_type === "override" ? "override" : "direct",
+        overrideForAgentId: commission.override_for_agent_id || null,
+        sourcePaymentId: commission.source_payment_id || null,
         commissionAmount: normalizedCommissionAmount,
         coverageType: commission.coverage_type || "other",
         status: commission.status || "pending",
@@ -5926,12 +5951,18 @@ export async function getAllCommissionsNew(
         planName: planDisplay, // Full plan display: "MPP Base - Member Only"
         planPrice: membershipFee,
         totalPlanCost: membershipFee,
-        effectiveDate: isGroupCommission
-          ? commission.created_at || null
-          : member?.membership_start_date || commission.created_at || null,
+        effectiveDate: resolvedEffectiveDate,
+        effectiveDateUnresolved,
         userName: resolvedMemberName,
       };
     });
+
+    const unresolvedEffectiveDateCount = formatted.filter((row) => row.effectiveDateUnresolved).length;
+    if (unresolvedEffectiveDateCount > 0) {
+      console.warn(
+        `[Storage] getAllCommissionsNew: ${unresolvedEffectiveDateCount} group commission(s) have no resolvable group cycle effective date — flagged via effectiveDateUnresolved, not guessed.`,
+      );
+    }
 
     console.log("[Storage] Sample formatted admin commission:", {
       id: formatted[0]?.id,

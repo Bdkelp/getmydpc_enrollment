@@ -37,12 +37,13 @@ import {
 import { transitionGroupPaymentToPayable } from "../services/group-payment-transition-service";
 import { calculateNextBillingDate } from "../utils/membership-dates";
 import { requireDevelopmentMode } from "../middleware/debug-route-guard";
-import { getPlatformSetting } from "../storage";
 import {
-  computeCommissionFlowAllocations,
-  type HierarchyNode,
-  type OverridePolicyConfig,
-} from "../services/override-flow-up-engine";
+  ensureLineageSnapshotForPayment,
+  attachLineageSnapshotToCommissionAndLedger,
+  createWp03CommissionsForSuccessfulPayment,
+} from "../services/commission-generation-service";
+import { processConfirmedPayment } from "../services/payment-confirmed-service";
+import { isSuccessfulPaymentStatus } from "../utils/payment-status";
 
 const router = Router();
 const certificationLoggingEnabled =
@@ -247,539 +248,6 @@ type HostedDeclineDetails = {
 
 const HOSTED_PENDING_ACTIVE_WINDOW_MINUTES = 20;
 const GROUP_INVOICE_SUPERSEDE_LOOKBACK_HOURS = 96;
-const lineageSnapshotsEnabled =
-  process.env.ENABLE_LINEAGE_SNAPSHOTS !== "false";
-
-type LineageNode = {
-  userId: string;
-  agentNumber: string | null;
-  role: string | null;
-  isActive: boolean;
-  depth: number;
-};
-
-async function collectLineagePath(
-  enrolledByAgentId: string | null,
-): Promise<LineageNode[]> {
-  if (!enrolledByAgentId) {
-    return [];
-  }
-
-  const lineage: LineageNode[] = [];
-  const visited = new Set<string>();
-  let cursorId: string | null = String(enrolledByAgentId || "").trim() || null;
-  let depth = 0;
-
-  while (cursorId && depth < 64) {
-    if (visited.has(cursorId)) {
-      break;
-    }
-
-    visited.add(cursorId);
-
-    const { data: userRow, error: userError } = await supabase
-      .from("users")
-      .select("id, agent_number, role, is_active, upline_agent_id")
-      .eq("id", cursorId)
-      .maybeSingle();
-
-    if (userError || !userRow) {
-      break;
-    }
-
-    lineage.push({
-      userId: String(userRow.id),
-      agentNumber: userRow.agent_number ? String(userRow.agent_number) : null,
-      role: userRow.role ? String(userRow.role) : null,
-      isActive: Boolean(userRow.is_active),
-      depth,
-    });
-
-    cursorId = userRow.upline_agent_id ? String(userRow.upline_agent_id) : null;
-    depth += 1;
-  }
-
-  return lineage;
-}
-
-async function ensureLineageSnapshotForPayment(options: {
-  memberId: number;
-  paymentRecord: PaymentRecord;
-  phase: string;
-}): Promise<string | null> {
-  if (!lineageSnapshotsEnabled) {
-    return null;
-  }
-
-  const paymentId = Number(options.paymentRecord?.id);
-  if (!Number.isFinite(paymentId)) {
-    return null;
-  }
-
-  const member = await storage.getMember(options.memberId);
-  if (!member) {
-    return null;
-  }
-
-  const enrolledByAgentId =
-    String(
-      member.enrolledByAgentId || member.enrolled_by_agent_id || "",
-    ).trim() || null;
-  const lineagePath = await collectLineagePath(enrolledByAgentId);
-  const idempotencyKey = `member:${options.memberId}:payment:${paymentId}`;
-
-  const payload = {
-    member_id: options.memberId,
-    payment_id: paymentId,
-    subscription_id: options.paymentRecord?.subscription_id
-      ? Number(options.paymentRecord.subscription_id)
-      : null,
-    enrolled_by_agent_id: enrolledByAgentId,
-    lineage_depth: lineagePath.length,
-    lineage_path: lineagePath,
-    capture_source: options.phase,
-    idempotency_key: idempotencyKey,
-  };
-
-  const { data, error } = await supabase
-    .from("agent_lineage_snapshots")
-    .upsert(payload, { onConflict: "member_id,payment_id" })
-    .select("id")
-    .single();
-
-  if (error) {
-    logEPX({
-      level: "warn",
-      phase: options.phase,
-      message: "Failed to capture lineage snapshot",
-      data: {
-        memberId: options.memberId,
-        paymentId,
-        error: error.message,
-      },
-    });
-    return null;
-  }
-
-  return data?.id ? String(data.id) : null;
-}
-
-async function attachLineageSnapshotToCommissionAndLedger(options: {
-  memberId: number;
-  snapshotId: string | null;
-  phase: string;
-}): Promise<void> {
-  if (!options.snapshotId) {
-    return;
-  }
-
-  const memberKey = String(options.memberId);
-  const { data: updatedCommissions, error: updateCommissionsError } =
-    await supabase
-      .from("agent_commissions")
-      .update({ lineage_snapshot_id: options.snapshotId })
-      .eq("member_id", memberKey)
-      .is("lineage_snapshot_id", null)
-      .select("id");
-
-  if (updateCommissionsError) {
-    logEPX({
-      level: "warn",
-      phase: options.phase,
-      message: "Failed attaching lineage snapshot to commissions",
-      data: {
-        memberId: options.memberId,
-        snapshotId: options.snapshotId,
-        error: updateCommissionsError.message,
-      },
-    });
-    return;
-  }
-
-  const sourceCommissionIds = (updatedCommissions || [])
-    .map((row: any) => String(row.id))
-    .filter(Boolean);
-
-  const { error: ledgerByMemberError } = await supabase
-    .from("commission_ledger")
-    .update({ lineage_snapshot_id: options.snapshotId })
-    .eq("member_id", memberKey)
-    .is("lineage_snapshot_id", null);
-
-  if (ledgerByMemberError) {
-    logEPX({
-      level: "warn",
-      phase: options.phase,
-      message: "Failed attaching lineage snapshot to ledger rows by member",
-      data: {
-        memberId: options.memberId,
-        snapshotId: options.snapshotId,
-        error: ledgerByMemberError.message,
-      },
-    });
-  }
-
-  if (sourceCommissionIds.length > 0) {
-    const { error: ledgerBySourceError } = await supabase
-      .from("commission_ledger")
-      .update({ lineage_snapshot_id: options.snapshotId })
-      .in("source_commission_id", sourceCommissionIds)
-      .is("lineage_snapshot_id", null);
-
-    if (ledgerBySourceError) {
-      logEPX({
-        level: "warn",
-        phase: options.phase,
-        message:
-          "Failed attaching lineage snapshot to ledger rows by source commission",
-        data: {
-          memberId: options.memberId,
-          snapshotId: options.snapshotId,
-          error: ledgerBySourceError.message,
-        },
-      });
-    }
-  }
-}
-
-function parsePositiveNumber(value: unknown): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return null;
-  }
-
-  return Math.round(parsed * 100) / 100;
-}
-
-function parseLevelSplit(value: unknown): number[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const normalized = value
-    .map((entry) => Number(entry))
-    .filter((entry) => Number.isFinite(entry) && entry >= 0);
-
-  if (normalized.length === 0) {
-    return null;
-  }
-
-  return normalized;
-}
-
-function normalizePolicyFragment(value: any): Partial<OverridePolicyConfig> {
-  const source = value && typeof value === "object" ? value : {};
-
-  const overridePoolAmount = parsePositiveNumber(
-    source.overridePoolAmount ??
-      source.override_pool_amount ??
-      source.poolAmount ??
-      source.pool_amount,
-  );
-  const levelSplit = parseLevelSplit(
-    source.levelSplit ??
-      source.overrideLevelSplit ??
-      source.override_level_split,
-  );
-  const maxOverrideLevelsRaw = Number(
-    source.maxOverrideLevels ??
-      source.max_override_levels ??
-      source.overrideWindowLevels ??
-      source.override_window_levels,
-  );
-  const maxOverrideLevels = Number.isFinite(maxOverrideLevelsRaw)
-    ? Math.max(1, Math.floor(maxOverrideLevelsRaw))
-    : undefined;
-  const policyVersion =
-    source.policyVersion || source.policy_version || undefined;
-
-  return {
-    ...(overridePoolAmount ? { overridePoolAmount } : {}),
-    ...(levelSplit ? { levelSplit } : {}),
-    ...(maxOverrideLevels ? { maxOverrideLevels } : {}),
-    ...(policyVersion ? { policyVersion: String(policyVersion) } : {}),
-  };
-}
-
-async function getUplineChainForOverrideFlow(
-  agentId: string,
-  maxDepth = 12,
-): Promise<HierarchyNode[]> {
-  const chain: HierarchyNode[] = [];
-  const visited = new Set<string>();
-
-  let cursorId: string | null = String(agentId || "").trim() || null;
-  for (let depth = 0; cursorId && depth < maxDepth; depth += 1) {
-    if (visited.has(cursorId)) {
-      break;
-    }
-    visited.add(cursorId);
-
-    const { data: userRow, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", cursorId)
-      .maybeSingle();
-
-    if (error || !userRow) {
-      break;
-    }
-
-    if (depth > 0) {
-      chain.push({
-        agentId: String(userRow.id),
-        role: userRow.role ? String(userRow.role) : null,
-        isActive: Boolean(userRow.is_active),
-      });
-    }
-
-    cursorId = userRow.upline_agent_id ? String(userRow.upline_agent_id) : null;
-  }
-
-  return chain;
-}
-
-async function resolveOverridePolicyConfig(options: {
-  writingAgentRecord: any;
-  planRecord: any | null;
-}): Promise<OverridePolicyConfig> {
-  const fallbackPool =
-    parsePositiveNumber(
-      options.writingAgentRecord?.override_pool_amount ??
-        options.writingAgentRecord?.overridePoolAmount ??
-        options.writingAgentRecord?.override_commission_rate ??
-        options.writingAgentRecord?.overrideCommissionRate,
-    ) || 0;
-
-  const globalSetting = await getPlatformSetting<any>("override_policy");
-  const globalPolicy = normalizePolicyFragment(globalSetting?.value || {});
-
-  const writingAgentAny = options.writingAgentRecord || {};
-  const agentPolicy = normalizePolicyFragment(
-    writingAgentAny.override_policy ?? writingAgentAny.overridePolicy ?? {},
-  );
-
-  const agencyId =
-    writingAgentAny.agency_id || writingAgentAny.agencyId || null;
-  let agencyPolicy: Partial<OverridePolicyConfig> = {};
-  if (agencyId) {
-    const agencySetting = await getPlatformSetting<any>(
-      `override_policy_agency_${String(agencyId)}`,
-    );
-    agencyPolicy = normalizePolicyFragment(agencySetting?.value || {});
-  }
-
-  const planAny = options.planRecord || {};
-  const planPolicy = normalizePolicyFragment(
-    planAny.override_policy ??
-      planAny.overridePolicy ??
-      planAny.features?.overridePolicy ??
-      {},
-  );
-
-  const merged = {
-    ...globalPolicy,
-    ...agencyPolicy,
-    ...planPolicy,
-    ...agentPolicy,
-  };
-
-  return {
-    policyVersion: String(merged.policyVersion || "wp03-v1"),
-    overridePoolAmount:
-      parsePositiveNumber(merged.overridePoolAmount) || fallbackPool,
-    levelSplit:
-      Array.isArray(merged.levelSplit) && merged.levelSplit.length > 0
-        ? merged.levelSplit
-        : [1, 0, 0],
-    maxOverrideLevels: Number.isFinite(Number(merged.maxOverrideLevels))
-      ? Number(merged.maxOverrideLevels)
-      : 3,
-  };
-}
-
-async function insertCommissionRowWithWp03Fallback(
-  payload: any,
-): Promise<{ data: any; error: any }> {
-  const { data, error } = await supabase
-    .from("agent_commissions")
-    .insert(payload)
-    .select()
-    .single();
-
-  if (!error) {
-    return { data, error: null };
-  }
-
-  if (
-    !String(error.message || "")
-      .toLowerCase()
-      .includes("column")
-  ) {
-    return { data: null, error };
-  }
-
-  const legacyPayload = { ...payload };
-  delete legacyPayload.original_recipient_agent_id;
-  delete legacyPayload.final_recipient_agent_id;
-  delete legacyPayload.original_level;
-  delete legacyPayload.final_paid_level;
-  delete legacyPayload.flow_up_reason_code;
-  delete legacyPayload.policy_version;
-  delete legacyPayload.override_pool_amount;
-  delete legacyPayload.override_level_split;
-  delete legacyPayload.override_window_levels;
-
-  const legacyInsert = await supabase
-    .from("agent_commissions")
-    .insert(legacyPayload)
-    .select()
-    .single();
-
-  return {
-    data: legacyInsert.data,
-    error: legacyInsert.error,
-  };
-}
-
-async function createWp03CommissionsForSuccessfulPayment(options: {
-  phase: string;
-  memberId: number;
-  writingAgentId: string;
-  writingAgentRecord: any;
-  planRecord: any | null;
-  planName: string;
-  coverageType: string;
-  hasRxValet: boolean;
-  paymentRecord: PaymentRecord;
-  lineageSnapshotId: string | null;
-}): Promise<{ createdRows: number; retainedRows: number }> {
-  const commissionResult = calculateCommission(
-    options.planName,
-    options.coverageType,
-    options.hasRxValet,
-  );
-  if (!commissionResult) {
-    return { createdRows: 0, retainedRows: 0 };
-  }
-
-  const policy = await resolveOverridePolicyConfig({
-    writingAgentRecord: options.writingAgentRecord,
-    planRecord: options.planRecord,
-  });
-
-  const uplineChain = await getUplineChainForOverrideFlow(
-    options.writingAgentId,
-    16,
-  );
-
-  const flow = computeCommissionFlowAllocations({
-    writingAgentId: options.writingAgentId,
-    writingAgentIsActive: Boolean(
-      options.writingAgentRecord?.isActive ??
-      options.writingAgentRecord?.is_active,
-    ),
-    writingAgentRole: options.writingAgentRecord?.role || null,
-    directCommissionAmount: commissionResult.commission,
-    uplineChain,
-    policy,
-  });
-
-  const recipientAgentNumbers = new Map<string, string>();
-  const allRecipientIds = [
-    ...new Set(
-      [
-        flow.direct.finalRecipientAgentId,
-        ...flow.overrides.map((o) => o.finalRecipientAgentId),
-      ].filter((entry): entry is string =>
-        Boolean(entry && String(entry).trim()),
-      ),
-    ),
-  ];
-
-  if (allRecipientIds.length > 0) {
-    const { data: recipientRows } = await supabase
-      .from("users")
-      .select("id, agent_number")
-      .in("id", allRecipientIds);
-
-    for (const row of recipientRows || []) {
-      recipientAgentNumbers.set(
-        String(row.id),
-        String(row.agent_number || "HOUSE"),
-      );
-    }
-  }
-
-  const allocations = [flow.direct, ...flow.overrides];
-  let createdRows = 0;
-  let retainedRows = 0;
-
-  for (const allocation of allocations) {
-    if (
-      !Number.isFinite(Number(allocation.amount)) ||
-      Number(allocation.amount) <= 0
-    ) {
-      continue;
-    }
-
-    const finalRecipientAgentId = allocation.finalRecipientAgentId
-      ? String(allocation.finalRecipientAgentId)
-      : null;
-    const agentId = finalRecipientAgentId || "HOUSE";
-    const agentNumber = finalRecipientAgentId
-      ? recipientAgentNumbers.get(finalRecipientAgentId) || "HOUSE"
-      : "HOUSE";
-
-    if (!finalRecipientAgentId) {
-      retainedRows += 1;
-    }
-
-    const payload = {
-      agent_id: agentId,
-      agent_number: agentNumber,
-      member_id: options.memberId.toString(),
-      enrollment_id: options.paymentRecord.subscription_id
-        ? options.paymentRecord.subscription_id.toString()
-        : null,
-      lineage_snapshot_id: options.lineageSnapshotId,
-      commission_amount: Number(allocation.amount),
-      coverage_type: "other" as const,
-      status: "pending" as const,
-      payment_status: "unpaid" as const,
-      payment_captured: true,
-      payment_captured_at: new Date().toISOString(),
-      commission_type: allocation.commissionType,
-      override_for_agent_id:
-        allocation.commissionType === "override"
-          ? options.writingAgentId
-          : null,
-      base_premium: commissionResult.totalCost,
-      original_recipient_agent_id: allocation.originalRecipientAgentId,
-      final_recipient_agent_id: allocation.finalRecipientAgentId,
-      original_level: allocation.originalLevel,
-      final_paid_level: allocation.finalPaidLevel,
-      flow_up_reason_code: allocation.flowUpReasonCode,
-      policy_version: flow.policyVersion,
-      override_pool_amount: flow.overridePoolApplied,
-      override_level_split: flow.levelSplitApplied,
-      override_window_levels: flow.maxOverrideLevels,
-      notes: `Commission via ${options.phase} - type=${allocation.commissionType}; plan=${options.planName}; coverage=${options.coverageType}; policy=${flow.policyVersion}; reason=${allocation.flowUpReasonCode || "none"}${options.hasRxValet ? "; rx_valet=true" : ""}`,
-    };
-
-    const { error } = await insertCommissionRowWithWp03Fallback(payload);
-    if (error) {
-      throw new Error(
-        `Failed creating ${allocation.commissionType} commission row: ${error.message}`,
-      );
-    }
-
-    createdRows += 1;
-  }
-
-  return { createdRows, retainedRows };
-}
-
 function isHostedPendingStatus(status: unknown): boolean {
   const normalized = String(status || "")
     .trim()
@@ -4757,11 +4225,13 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
     let updatedMember: any = null;
 
     try {
+      // Token/payment-method attachment stays here (BRIC/token collection is
+      // out of PaymentConfirmedService's scope). Member activation
+      // (status/isActive/firstPaymentDate) is now owned by
+      // PaymentConfirmedService below, so it cannot diverge from the
+      // automatic EPX callback path.
       const memberUpdatePayload: Record<string, any> = {
         paymentMethodType: normalizedCompletePaymentMethodType,
-        status: "active",
-        isActive: true,
-        firstPaymentDate: new Date().toISOString(),
       };
 
       if (typeof paymentToken === "string" && paymentToken.trim()) {
@@ -4779,6 +4249,57 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
         message: "Failed to update member with payment token",
         data: { error: memberUpdateError?.message, memberId: numericMemberId },
       });
+    }
+
+    // Authoritative "payment confirmed" processing (member activation,
+    // lineage snapshot, writing/override commission generation) — same
+    // shared service used by the EPX server callback and manual admin
+    // verification, so browser-completion cannot create a different
+    // compensation outcome than the other confirmation sources.
+    let confirmedPaymentResult: Awaited<
+      ReturnType<typeof processConfirmedPayment>
+    > | null = null;
+    if (
+      persistResult.paymentRecord?.id &&
+      isSuccessfulPaymentStatus(persistResult.paymentRecord.status)
+    ) {
+      try {
+        confirmedPaymentResult = await processConfirmedPayment({
+          paymentId: Number(persistResult.paymentRecord.id),
+          confirmationSource: "epx_browser_complete",
+          // The EPX hosted-checkout browser callback does not include a
+          // provider transaction timestamp today; never invent one.
+          providerTransactionAt: null,
+        });
+        logEPX({
+          level: "info",
+          phase: "hosted-complete",
+          message:
+            confirmedPaymentResult.commissionsCreated > 0
+              ? "✅ Commission/override rows created via PaymentConfirmedService (browser complete)"
+              : "PaymentConfirmedService processed browser complete (no new commission rows)",
+          data: {
+            paymentId: persistResult.paymentRecord.id,
+            memberId: numericMemberId,
+            alreadyConfirmed: confirmedPaymentResult.alreadyConfirmed,
+            commissionsCreated: confirmedPaymentResult.commissionsCreated,
+            overridesRetained: confirmedPaymentResult.overridesRetained,
+            commissionSkippedReason:
+              confirmedPaymentResult.commissionSkippedReason || null,
+          },
+        });
+      } catch (confirmationError: any) {
+        logEPX({
+          level: "error",
+          phase: "hosted-complete",
+          message: "PaymentConfirmedService failed during browser complete",
+          data: {
+            error: confirmationError?.message,
+            paymentId: persistResult.paymentRecord?.id,
+            memberId: numericMemberId,
+          },
+        });
+      }
     }
 
     if (persistResult.paymentRecord?.id) {
@@ -4829,6 +4350,15 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
           typeof paymentToken === "string" && paymentToken.trim(),
         ),
       },
+      paymentConfirmed: confirmedPaymentResult
+        ? {
+            alreadyConfirmed: confirmedPaymentResult.alreadyConfirmed,
+            commissionsCreated: confirmedPaymentResult.commissionsCreated,
+            overridesRetained: confirmedPaymentResult.overridesRetained,
+            commissionSkippedReason:
+              confirmedPaymentResult.commissionSkippedReason || null,
+          }
+        : null,
       recurringReadiness,
     });
   } catch (error: any) {
@@ -5355,6 +4885,7 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
           const transitionResult = await transitionGroupPaymentToPayable({
             groupId: groupPaymentContext.groupId,
             groupMemberId: groupPaymentContext.groupMemberId,
+            paymentId: Number(paymentRecordForLogging.id),
             paymentStatusRaw: req.body?.status || "success",
             paymentCapturedAt: new Date(),
             triggeredBy: null,
@@ -5676,45 +5207,34 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         });
       }
 
-      if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
+      // Authoritative "payment confirmed" processing: member activation,
+      // lineage snapshot, and writing/override commission generation now all
+      // live in PaymentConfirmedService (see server/services/payment-confirmed-service.ts)
+      // so the EPX callback, EPX browser-complete, and manual admin
+      // verification paths cannot diverge or duplicate compensation.
+      let confirmedPaymentResult: Awaited<
+        ReturnType<typeof processConfirmedPayment>
+      > | null = null;
+      if (
+        paymentRecordForLogging?.member_id &&
+        !groupPaymentContext &&
+        isSuccessfulPaymentStatus(paymentRecordForLogging.status)
+      ) {
         try {
-          const paymentCapturedAt = new Date().toISOString();
-          await storage.updateMember(
-            Number(paymentRecordForLogging.member_id),
-            {
-              status: "active",
-              isActive: true,
-              firstPaymentDate: paymentCapturedAt,
-            },
-          );
-
-          await storage.createAdminNotification({
-            type: "auto_activation",
-            memberId: Number(paymentRecordForLogging.member_id),
-            subscriptionId: paymentRecordForLogging.subscription_id
-              ? Number(paymentRecordForLogging.subscription_id)
-              : null,
-            metadata: {
-              action: "auto_activation",
-              source: "epx_callback",
-              paymentId: paymentRecordForLogging.id,
-              transactionId:
-                result.transactionId ||
-                epxTransactionId ||
-                fallbackOrderNumber ||
-                null,
-              amount: result.amount,
-              activatedAt: paymentCapturedAt,
-            },
+          confirmedPaymentResult = await processConfirmedPayment({
+            paymentId: Number(paymentRecordForLogging.id),
+            confirmationSource: "epx_callback",
+            providerTransactionAt: null, // EPX hosted callback does not include a provider transaction timestamp today.
           });
-        } catch (activationError: any) {
+        } catch (confirmationError: any) {
           logEPX({
             level: "error",
             phase: "callback",
-            message: "Failed auto-activating member after approved callback",
+            message: "PaymentConfirmedService failed after approved callback",
             data: {
-              error: activationError?.message,
+              error: confirmationError?.message,
               memberId: paymentRecordForLogging?.member_id,
+              paymentId: paymentRecordForLogging?.id,
             },
           });
         }
@@ -5801,192 +5321,26 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         }
       }
 
-      // COMMISSION CREATION/VERIFICATION - Check if commission exists and create if missing
+      // Commission/override generation for individual (non-group) payments now
+      // happens inside PaymentConfirmedService, called above. This block just
+      // logs the outcome for observability; it performs no additional writes.
       if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
-        try {
-          const memberId = Number(paymentRecordForLogging.member_id);
-          const memberRecord = await storage.getMember(memberId);
-
-          if (memberRecord) {
-            // Check if commission already exists for this member
-            const { data: existingCommissions, error: commissionCheckError } =
-              await supabase
-                .from("agent_commissions")
-                .select("id")
-                .eq("member_id", memberId.toString())
-                .limit(1);
-
-            if (commissionCheckError) {
-              logEPX({
-                level: "error",
-                phase: "callback",
-                message: "Failed to check for existing commission",
-                data: { error: commissionCheckError.message, memberId },
-              });
-            } else if (
-              !existingCommissions ||
-              existingCommissions.length === 0
-            ) {
-              // No commission exists - create one now
-              const agentId =
-                memberRecord.enrolledByAgentId ||
-                memberRecord.enrolled_by_agent_id;
-
-              if (agentId) {
-                logEPX({
-                  level: "info",
-                  phase: "callback",
-                  message: "No commission found for member - creating now",
-                  data: { memberId, agentId },
-                });
-
-                const agentRecord = await storage.getUser(agentId);
-                const agentNumber =
-                  memberRecord.agentNumber ||
-                  memberRecord.agent_number ||
-                  agentRecord?.agentNumber ||
-                  agentRecord?.agent_number ||
-                  "HOUSE";
-
-                // Get plan details
-                const paymentMetadata = parsePaymentMetadata(
-                  paymentRecordForLogging.metadata,
-                );
-                const planIdFromMember =
-                  memberRecord.planId ||
-                  memberRecord.plan_id ||
-                  paymentMetadata.planId;
-
-                let planName = "MyPremierPlan Base"; // Default
-                let planRecord: any | null = null;
-                if (planIdFromMember) {
-                  try {
-                    planRecord = await storage.getPlan(
-                      String(planIdFromMember),
-                    );
-                    if (planRecord?.name) {
-                      // Extract tier from full plan name (e.g., "MyPremierPlan Base - Member Only" -> "MyPremierPlan Base")
-                      planName = planRecord.name.includes(" - ")
-                        ? planRecord.name.split(" - ")[0].trim()
-                        : planRecord.name;
-                    }
-                  } catch (planError) {
-                    logEPX({
-                      level: "warn",
-                      phase: "callback",
-                      message: "Could not load plan details",
-                      data: { error: planError },
-                    });
-                  }
-                }
-
-                const coverageType =
-                  memberRecord.coverageType ||
-                  memberRecord.coverage_type ||
-                  memberRecord.memberType ||
-                  memberRecord.member_type ||
-                  "Member Only";
-                const hasRxValet =
-                  memberRecord.addRxValet || memberRecord.add_rx_valet || false;
-
-                // Calculate commission
-                const commissionResult = calculateCommission(
-                  planName,
-                  coverageType,
-                  hasRxValet,
-                );
-
-                if (commissionResult) {
-                  const createResult =
-                    await createWp03CommissionsForSuccessfulPayment({
-                      phase: "callback",
-                      memberId,
-                      writingAgentId: String(agentId),
-                      writingAgentRecord: agentRecord || {},
-                      planRecord,
-                      planName,
-                      coverageType,
-                      hasRxValet,
-                      paymentRecord: paymentRecordForLogging,
-                      lineageSnapshotId,
-                    });
-
-                  if (createResult.createdRows <= 0) {
-                    logEPX({
-                      level: "warn",
-                      phase: "callback",
-                      message: "No WP-03 commission rows created in callback",
-                      data: { memberId, agentId },
-                    });
-                  } else {
-                    await attachLineageSnapshotToCommissionAndLedger({
-                      memberId,
-                      snapshotId: lineageSnapshotId,
-                      phase: "callback",
-                    });
-
-                    logEPX({
-                      level: "info",
-                      phase: "callback",
-                      message:
-                        "✅ WP-03 commissions created successfully via callback",
-                      data: {
-                        memberId,
-                        agentId,
-                        agentNumber,
-                        directAmount: commissionResult.commission,
-                        createdRows: createResult.createdRows,
-                        retainedRows: createResult.retainedRows,
-                        plan: planName,
-                        coverage: coverageType,
-                      },
-                    });
-                  }
-                } else {
-                  logEPX({
-                    level: "warn",
-                    phase: "callback",
-                    message:
-                      "Could not calculate commission - no matching rate found",
-                    data: { planName, coverageType, memberId },
-                  });
-                }
-              } else {
-                logEPX({
-                  level: "warn",
-                  phase: "callback",
-                  message:
-                    "Cannot create commission - member has no enrolling agent",
-                  data: { memberId },
-                });
-              }
-            } else {
-              await attachLineageSnapshotToCommissionAndLedger({
-                memberId,
-                snapshotId: lineageSnapshotId,
-                phase: "callback",
-              });
-
-              logEPX({
-                level: "info",
-                phase: "callback",
-                message: "Commission already exists for member",
-                data: { memberId, commissionId: existingCommissions[0].id },
-              });
-            }
-          }
-        } catch (commissionVerifyError: any) {
+        if (confirmedPaymentResult) {
           logEPX({
-            level: "error",
+            level: "info",
             phase: "callback",
-            message: "Exception during commission verification/creation",
+            message: confirmedPaymentResult.commissionsCreated > 0
+              ? "✅ Commission/override rows created via PaymentConfirmedService"
+              : "PaymentConfirmedService processed callback (no new commission rows — likely already existed or no enrolling agent)",
             data: {
-              error: commissionVerifyError?.message,
-              stack: commissionVerifyError?.stack,
-              memberId: paymentRecordForLogging?.member_id,
+              memberId: paymentRecordForLogging.member_id,
+              paymentId: paymentRecordForLogging.id,
+              alreadyConfirmed: confirmedPaymentResult.alreadyConfirmed,
+              commissionsCreated: confirmedPaymentResult.commissionsCreated,
+              overridesRetained: confirmedPaymentResult.overridesRetained,
+              commissionSkippedReason: confirmedPaymentResult.commissionSkippedReason || null,
             },
           });
-          // Continue processing - commission creation failure shouldn't block payment success
         }
       }
 
@@ -6856,161 +6210,53 @@ router.put(
         metadata: paymentMetadata,
       });
 
-      // If status changed to succeeded and member exists, activate member and create commission if needed
+      // Member activation, lineage snapshot, and writing/override commission
+      // generation are now owned entirely by PaymentConfirmedService so this
+      // manual-recovery path can never diverge from (or duplicate) the
+      // automatic EPX callback path. See server/services/payment-confirmed-service.ts.
+      let confirmedPaymentResult: Awaited<
+        ReturnType<typeof processConfirmedPayment>
+      > | null = null;
       if (status === "succeeded" && currentPayment.member_id) {
-        const memberId = Number(currentPayment.member_id);
-        const lineageSnapshotId = await ensureLineageSnapshotForPayment({
-          memberId,
-          paymentRecord: currentPayment as PaymentRecord,
-          phase: "admin-update",
-        });
-
         try {
-          const memberRecord = await storage.getMember(memberId);
-          if (memberRecord) {
-            // Activate member
-            await storage.updateMember(memberId, {
-              status: "active",
-              isActive: true,
-              firstPaymentDate:
-                memberRecord.firstPaymentDate ||
-                memberRecord.first_payment_date ||
-                new Date().toISOString(),
-            });
+          confirmedPaymentResult = await processConfirmedPayment({
+            paymentId,
+            confirmationSource: "manual_admin",
+            verifiedByUserId: req.user.id,
+            platformVerifiedAt: new Date(),
+            // This endpoint does not currently collect a real EPX transaction
+            // timestamp from the admin; never invent one. If a future admin UI
+            // supplies the actual EPX transaction date/reference, pass it here.
+            providerTransactionAt: null,
+          });
 
-            logEPX({
-              level: "info",
-              phase: "admin-update",
-              message: "Member activated after manual payment approval",
-              data: { memberId, paymentId },
-            });
-
-            // Check for commission
-            const { data: existingCommissions } = await supabase
-              .from("agent_commissions")
-              .select("id")
-              .eq("member_id", memberId.toString())
-              .limit(1);
-
-            if (!existingCommissions || existingCommissions.length === 0) {
-              const agentId =
-                memberRecord.enrolledByAgentId ||
-                memberRecord.enrolled_by_agent_id;
-
-              if (agentId) {
-                logEPX({
-                  level: "info",
-                  phase: "admin-update",
-                  message: "Creating missing commission after manual approval",
-                  data: { memberId, agentId },
-                });
-
-                const agentRecord = await storage.getUser(agentId);
-                const agentNumber =
-                  memberRecord.agentNumber ||
-                  memberRecord.agent_number ||
-                  agentRecord?.agentNumber ||
-                  agentRecord?.agent_number ||
-                  "HOUSE";
-
-                const planIdFromMember =
-                  memberRecord.planId || memberRecord.plan_id;
-                let planName = "MyPremierPlan Base";
-                let planRecord: any | null = null;
-
-                if (planIdFromMember) {
-                  try {
-                    planRecord = await storage.getPlan(
-                      String(planIdFromMember),
-                    );
-                    if (planRecord?.name) {
-                      planName = planRecord.name.includes(" - ")
-                        ? planRecord.name.split(" - ")[0].trim()
-                        : planRecord.name;
-                    }
-                  } catch (planError) {
-                    logEPX({
-                      level: "warn",
-                      phase: "admin-update",
-                      message: "Could not load plan",
-                      data: { error: planError },
-                    });
-                  }
-                }
-
-                const coverageType =
-                  memberRecord.coverageType ||
-                  memberRecord.coverage_type ||
-                  memberRecord.memberType ||
-                  memberRecord.member_type ||
-                  "Member Only";
-                const hasRxValet =
-                  memberRecord.addRxValet || memberRecord.add_rx_valet || false;
-
-                const commissionResult = calculateCommission(
-                  planName,
-                  coverageType,
-                  hasRxValet,
-                );
-
-                if (commissionResult) {
-                  const createResult =
-                    await createWp03CommissionsForSuccessfulPayment({
-                      phase: "admin-update",
-                      memberId,
-                      writingAgentId: String(agentId),
-                      writingAgentRecord: agentRecord || {},
-                      planRecord,
-                      planName,
-                      coverageType,
-                      hasRxValet,
-                      paymentRecord: currentPayment as PaymentRecord,
-                      lineageSnapshotId,
-                    });
-
-                  if (createResult.createdRows > 0) {
-                    await attachLineageSnapshotToCommissionAndLedger({
-                      memberId,
-                      snapshotId: lineageSnapshotId,
-                      phase: "admin-update",
-                    });
-
-                    logEPX({
-                      level: "info",
-                      phase: "admin-update",
-                      message:
-                        "✅ WP-03 commissions created via admin approval",
-                      data: {
-                        memberId,
-                        directAmount: commissionResult.commission,
-                        createdRows: createResult.createdRows,
-                        retainedRows: createResult.retainedRows,
-                      },
-                    });
-                  } else {
-                    logEPX({
-                      level: "warn",
-                      phase: "admin-update",
-                      message: "No WP-03 commission rows created",
-                      data: { memberId, agentId },
-                    });
-                  }
-                }
-              }
-            } else {
-              await attachLineageSnapshotToCommissionAndLedger({
-                memberId,
-                snapshotId: lineageSnapshotId,
-                phase: "admin-update",
-              });
-            }
-          }
-        } catch (memberUpdateError: any) {
+          logEPX({
+            level: "info",
+            phase: "admin-update",
+            message:
+              confirmedPaymentResult.commissionsCreated > 0
+                ? "✅ Commission/override rows created via PaymentConfirmedService (manual admin verification)"
+                : "PaymentConfirmedService processed manual verification (no new commission rows)",
+            data: {
+              paymentId,
+              memberId: confirmedPaymentResult.memberId,
+              alreadyConfirmed: confirmedPaymentResult.alreadyConfirmed,
+              commissionsCreated: confirmedPaymentResult.commissionsCreated,
+              overridesRetained: confirmedPaymentResult.overridesRetained,
+              commissionSkippedReason:
+                confirmedPaymentResult.commissionSkippedReason || null,
+            },
+          });
+        } catch (confirmationError: any) {
           logEPX({
             level: "error",
             phase: "admin-update",
-            message: "Failed to update member after payment approval",
-            data: { error: memberUpdateError?.message, memberId },
+            message: "PaymentConfirmedService failed during manual verification",
+            data: {
+              error: confirmationError?.message,
+              paymentId,
+              memberId: currentPayment.member_id,
+            },
           });
         }
       }
@@ -7059,6 +6305,15 @@ router.put(
           previousStatus: currentPayment.status,
           newStatus: status,
         },
+        paymentConfirmed: confirmedPaymentResult
+          ? {
+              alreadyConfirmed: confirmedPaymentResult.alreadyConfirmed,
+              commissionsCreated: confirmedPaymentResult.commissionsCreated,
+              overridesRetained: confirmedPaymentResult.overridesRetained,
+              commissionSkippedReason:
+                confirmedPaymentResult.commissionSkippedReason || null,
+            }
+          : null,
         followUp:
           status === "succeeded" && externalProcessing
             ? {
@@ -7084,7 +6339,14 @@ router.put(
 
 /**
  * ADMIN: Manually create commission for a member
- * Useful for fixing missing commissions
+ *
+ * Phase 1 change: this endpoint no longer runs its own direct-only
+ * commission calculation. It now requires proof of a genuinely successful
+ * source payment and routes through the same PaymentConfirmedService used by
+ * every other confirmation path (WP-03 override engine, lineage snapshot,
+ * source_payment_id FK, database idempotency key). If no successful payment
+ * can be found for this member, this endpoint refuses to fabricate a
+ * commission and returns an actionable error instead.
  */
 router.post(
   "/api/admin/members/:id/create-commission",
@@ -7108,7 +6370,7 @@ router.post(
       logEPX({
         level: "info",
         phase: "admin-commission",
-        message: "Admin manually creating commission",
+        message: "Admin manually creating commission via PaymentConfirmedService",
         data: {
           memberId,
           adminUserId: req.user.id,
@@ -7116,21 +6378,6 @@ router.post(
         },
       });
 
-      // Check if commission already exists
-      const { data: existingCommissions } = await supabase
-        .from("agent_commissions")
-        .select("id, commission_amount, agent_id")
-        .eq("member_id", memberId.toString());
-
-      if (existingCommissions && existingCommissions.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: "Commission(s) already exist for this member",
-          commissions: existingCommissions,
-        });
-      }
-
-      // Get member details
       const memberRecord = await storage.getMember(memberId);
       if (!memberRecord) {
         return res
@@ -7138,129 +6385,50 @@ router.post(
           .json({ success: false, error: "Member not found" });
       }
 
-      const agentId =
-        memberRecord.enrolledByAgentId || memberRecord.enrolled_by_agent_id;
-      if (!agentId) {
-        return res.status(400).json({
+      const sourcePayment = await storage.getLatestEnrollmentPayment(memberId);
+      if (!sourcePayment || !isSuccessfulPaymentStatus(sourcePayment.status)) {
+        return res.status(409).json({
           success: false,
-          error: "Member has no enrolling agent - cannot create commission",
+          error:
+            "No successful source payment found for this member. Refusing to fabricate a commission entitlement. Verify or record the payment first (see /api/admin/payments/:id/status or /api/admin/reconciliation/create-manual-payment), then retry.",
+          memberId,
+          latestPaymentStatus: sourcePayment?.status || null,
         });
       }
 
-      const agentRecord = await storage.getUser(agentId);
-      const agentNumber =
-        memberRecord.agentNumber ||
-        memberRecord.agent_number ||
-        agentRecord?.agentNumber ||
-        agentRecord?.agent_number ||
-        "HOUSE";
-
-      // Get plan details
-      const planIdFromMember = memberRecord.planId || memberRecord.plan_id;
-      let planName = "MyPremierPlan Base";
-
-      if (planIdFromMember) {
-        try {
-          const planRecord = await storage.getPlan(String(planIdFromMember));
-          if (planRecord?.name) {
-            planName = planRecord.name.includes(" - ")
-              ? planRecord.name.split(" - ")[0].trim()
-              : planRecord.name;
-          }
-        } catch (planError) {
-          logEPX({
-            level: "warn",
-            phase: "admin-commission",
-            message: "Could not load plan",
-            data: { error: planError },
-          });
-        }
-      }
-
-      const coverageType =
-        memberRecord.coverageType ||
-        memberRecord.coverage_type ||
-        memberRecord.memberType ||
-        memberRecord.member_type ||
-        "Member Only";
-      const hasRxValet =
-        memberRecord.addRxValet || memberRecord.add_rx_valet || false;
-
-      // Calculate commission
-      const commissionResult = calculateCommission(
-        planName,
-        coverageType,
-        hasRxValet,
-      );
-
-      if (!commissionResult) {
-        return res.status(400).json({
-          success: false,
-          error: "Could not calculate commission - no matching rate found",
-          details: { planName, coverageType, hasRxValet },
-        });
-      }
-
-      const { scheduledDate } = req.body;
-
-      // Create commission
-      const { data: newCommission, error: commissionError } = await supabase
-        .from("agent_commissions")
-        .insert({
-          agent_id: agentId,
-          agent_number: agentNumber,
-          member_id: memberId.toString(),
-          commission_amount: commissionResult.commission,
-          coverage_type: "other" as const,
-          status: "pending" as const,
-          payment_status: "unpaid" as const,
-          base_premium: commissionResult.totalCost,
-          scheduled_date: scheduledDate
-            ? new Date(scheduledDate).toISOString()
-            : null,
-          notes: `Commission created manually by admin (${req.user.email}) - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}${scheduledDate ? `, Scheduled: ${scheduledDate}` : ""}`,
-        })
-        .select()
-        .single();
-
-      if (commissionError) {
-        logEPX({
-          level: "error",
-          phase: "admin-commission",
-          message: "Failed to create commission",
-          data: { error: commissionError.message, memberId },
-        });
-        return res.status(500).json({
-          success: false,
-          error: commissionError.message || "Failed to create commission",
-        });
-      }
+      const result = await processConfirmedPayment({
+        paymentId: Number(sourcePayment.id),
+        confirmationSource: "manual_admin",
+        verifiedByUserId: req.user.id,
+        platformVerifiedAt: new Date(),
+        providerTransactionAt: null,
+      });
 
       logEPX({
         level: "info",
         phase: "admin-commission",
-        message: "✅ Commission created manually by admin",
+        message:
+          result.commissionsCreated > 0
+            ? "✅ Commission/override rows created via PaymentConfirmedService (admin create-commission)"
+            : "PaymentConfirmedService processed admin create-commission request (no new rows)",
         data: {
-          commissionId: newCommission.id,
           memberId,
-          agentId,
-          agentNumber,
-          amount: commissionResult.commission,
+          paymentId: sourcePayment.id,
+          commissionsCreated: result.commissionsCreated,
+          overridesRetained: result.overridesRetained,
+          commissionSkippedReason: result.commissionSkippedReason || null,
         },
       });
 
       res.json({
         success: true,
-        message: "Commission created successfully",
-        commission: {
-          id: newCommission.id,
-          memberId,
-          agentId,
-          agentNumber,
-          amount: commissionResult.commission,
-          planName,
-          coverageType,
-        },
+        message:
+          result.commissionsCreated > 0
+            ? "Commission created successfully"
+            : "No new commission rows were created (already existed for this payment, or member has no enrolling agent)",
+        memberId,
+        sourcePaymentId: sourcePayment.id,
+        result,
       });
     } catch (error: any) {
       logEPX({
@@ -7279,7 +6447,16 @@ router.post(
 
 /**
  * ADMIN: Commission repair utility
- * Scans for members with successful payments but no commissions and creates them
+ * Scans for members with a successful source payment but no commission rows
+ * and creates them.
+ *
+ * Phase 1 change: this endpoint no longer runs its own direct-only
+ * commission calculation. For each candidate member it requires proof of a
+ * genuinely successful payment and, in live mode, routes that payment
+ * through PaymentConfirmedService (same WP-03 engine, lineage snapshot,
+ * source_payment_id FK, and database idempotency key as every other
+ * confirmation path). Members with no provable successful payment are
+ * reported under `unresolvedMembers` and are never fabricated a commission.
  */
 router.post(
   "/api/admin/commissions/repair",
@@ -7323,6 +6500,10 @@ router.post(
         commissionsCreated: 0,
         errors: [] as any[],
         details: [] as any[],
+        // Members where no successful source payment could be found — no
+        // commission is fabricated for these; surfaced for manual follow-up
+        // (e.g. via /api/admin/reconciliation/create-manual-payment first).
+        unresolvedMembers: [] as any[],
       };
 
       if (!activeMembers || activeMembers.length === 0) {
@@ -7349,104 +6530,66 @@ router.post(
 
           results.missingCommissions++;
 
-          // Get agent details
-          const agentRecord = await storage.getUser(
-            member.enrolled_by_agent_id,
-          );
-          const agentNumber =
-            member.agent_number ||
-            agentRecord?.agentNumber ||
-            agentRecord?.agent_number ||
-            "HOUSE";
-
-          // Get plan details
-          let planName = "MyPremierPlan Base";
-          if (member.plan_id) {
-            try {
-              const planRecord = await storage.getPlan(String(member.plan_id));
-              if (planRecord?.name) {
-                planName = planRecord.name.includes(" - ")
-                  ? planRecord.name.split(" - ")[0].trim()
-                  : planRecord.name;
-              }
-            } catch (planError) {
-              logEPX({
-                level: "warn",
-                phase: "commission-repair",
-                message: "Could not load plan for member",
-                data: { memberId: member.id, error: planError },
-              });
-            }
-          }
-
-          const coverageType =
-            member.coverage_type || member.member_type || "Member Only";
-          const hasRxValet = member.add_rx_valet || false;
-
-          // Calculate commission
-          const commissionResult = calculateCommission(
-            planName,
-            coverageType,
-            hasRxValet,
+          const sourcePayment = await storage.getLatestEnrollmentPayment(
+            member.id,
           );
 
-          if (!commissionResult) {
-            results.errors.push({
+          if (!sourcePayment || !isSuccessfulPaymentStatus(sourcePayment.status)) {
+            results.unresolvedMembers.push({
               memberId: member.id,
               memberName: `${member.first_name} ${member.last_name}`,
-              error: "Could not calculate commission - no matching rate found",
-              planName,
-              coverageType,
+              memberEmail: member.email,
+              reason: sourcePayment
+                ? `Latest payment status is '${sourcePayment.status}', not successful`
+                : "No payment record found for this member",
             });
             continue;
           }
-
-          const commissionData = {
-            agent_id: member.enrolled_by_agent_id,
-            agent_number: agentNumber,
-            member_id: member.id.toString(),
-            commission_amount: commissionResult.commission,
-            coverage_type: "other" as const,
-            status: "pending" as const,
-            payment_status: "unpaid" as const,
-            base_premium: commissionResult.totalCost,
-            notes: `Commission created via repair utility - Plan: ${planName}, Coverage: ${coverageType}, Total: $${commissionResult.commission}`,
-          };
 
           results.details.push({
             memberId: member.id,
             memberName: `${member.first_name} ${member.last_name}`,
             memberEmail: member.email,
             agentId: member.enrolled_by_agent_id,
-            agentNumber,
-            commissionAmount: commissionResult.commission,
-            planName,
-            coverageType,
+            sourcePaymentId: sourcePayment.id,
+            sourcePaymentStatus: sourcePayment.status,
           });
 
           if (!dryRun) {
-            // Actually create the commission
-            const { error: commissionError } = await supabase
-              .from("agent_commissions")
-              .insert(commissionData);
+            try {
+              const result = await processConfirmedPayment({
+                paymentId: Number(sourcePayment.id),
+                confirmationSource: "manual_admin",
+                verifiedByUserId: req.user.id,
+                platformVerifiedAt: new Date(),
+                providerTransactionAt: null,
+              });
 
-            if (commissionError) {
+              if (result.commissionsCreated > 0) {
+                results.commissionsCreated++;
+                logEPX({
+                  level: "info",
+                  phase: "commission-repair",
+                  message: "✅ Commission created via repair utility (PaymentConfirmedService)",
+                  data: {
+                    memberId: member.id,
+                    sourcePaymentId: sourcePayment.id,
+                    commissionsCreated: result.commissionsCreated,
+                    overridesRetained: result.overridesRetained,
+                  },
+                });
+              } else if (result.commissionSkippedReason) {
+                results.errors.push({
+                  memberId: member.id,
+                  memberName: `${member.first_name} ${member.last_name}`,
+                  error: result.commissionSkippedReason,
+                });
+              }
+            } catch (confirmationError: any) {
               results.errors.push({
                 memberId: member.id,
                 memberName: `${member.first_name} ${member.last_name}`,
-                error: commissionError.message,
-              });
-            } else {
-              results.commissionsCreated++;
-              logEPX({
-                level: "info",
-                phase: "commission-repair",
-                message: "✅ Commission created via repair utility",
-                data: {
-                  memberId: member.id,
-                  agentId: member.enrolled_by_agent_id,
-                  amount: commissionResult.commission,
-                },
+                error: confirmationError?.message || "Unknown error",
               });
             }
           }
@@ -7460,8 +6603,8 @@ router.post(
       }
 
       const message = dryRun
-        ? `DRY RUN: Found ${results.missingCommissions} members missing commissions (no changes made)`
-        : `LIVE RUN: Created ${results.commissionsCreated} commissions out of ${results.missingCommissions} missing`;
+        ? `DRY RUN: Found ${results.missingCommissions} members missing commissions (${results.details.length} have a provable successful payment, ${results.unresolvedMembers.length} do not — no changes made)`
+        : `LIVE RUN: Created commissions for ${results.commissionsCreated} member(s) via PaymentConfirmedService; ${results.unresolvedMembers.length} member(s) skipped (no provable successful payment)`;
 
       logEPX({
         level: "info",
