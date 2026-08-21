@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
+export const DEFAULT_AGENT_ENROLLMENT_DATE_FILTER = {
+  startDate: "",
+  endDate: "",
+};
+
 export interface AgentDashboardEnrollment {
   id: string;
   payment_status?: string | null;
@@ -23,13 +28,16 @@ export interface AgentDashboardEnrollment {
 }
 
 const getLifecycleSummary = (enrollment: AgentDashboardEnrollment) => {
-  return enrollment.lifecycleSummary || {
-    subscriptionStatus: enrollment.subscriptionStatus || null,
-    pendingAction: enrollment.pendingReason || null,
-    nextBillingDate: enrollment.nextBillingDate || null,
-    accessThroughDate: enrollment.subscriptionEndDate || null,
-    paymentRiskStatus: String(enrollment.payment_status || "").toLowerCase() || "unknown",
-  };
+  return (
+    enrollment.lifecycleSummary || {
+      subscriptionStatus: enrollment.subscriptionStatus || null,
+      pendingAction: enrollment.pendingReason || null,
+      nextBillingDate: enrollment.nextBillingDate || null,
+      accessThroughDate: enrollment.subscriptionEndDate || null,
+      paymentRiskStatus:
+        String(enrollment.payment_status || "").toLowerCase() || "unknown",
+    }
+  );
 };
 
 export function useAgentDashboardFilters(
@@ -45,11 +53,12 @@ export function useAgentDashboardFilters(
 
   const focusMemberId = searchParams.get("memberId");
 
-  const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
-    endDate: format(new Date(), "yyyy-MM-dd"),
-  });
-  const [businessFilter, setBusinessFilter] = useState<"all" | "individual" | "group">("all");
+  const [dateFilter, setDateFilter] = useState(
+    DEFAULT_AGENT_ENROLLMENT_DATE_FILTER,
+  );
+  const [businessFilter, setBusinessFilter] = useState<
+    "all" | "individual" | "group"
+  >("all");
   const [pendingActionFilter, setPendingActionFilter] = useState<string>("all");
   const [paymentRiskFilter, setPaymentRiskFilter] = useState<string>("all");
   const [accessWindowFilter, setAccessWindowFilter] = useState<string>("all");
@@ -60,7 +69,9 @@ export function useAgentDashboardFilters(
 
     const segmentFiltered = all.filter((enrollment) => {
       if (businessFilter !== "all") {
-        const category = String(enrollment.businessCategory || enrollment.source || "").toLowerCase();
+        const category = String(
+          enrollment.businessCategory || enrollment.source || "",
+        ).toLowerCase();
         const isGroup = category === "group" || Boolean(enrollment.groupName);
         if (!(businessFilter === "group" ? isGroup : !isGroup)) {
           return false;
@@ -68,10 +79,19 @@ export function useAgentDashboardFilters(
       }
 
       const lifecycle = getLifecycleSummary(enrollment);
-      const normalizedPendingAction = String(lifecycle.pendingAction || "").trim().toLowerCase();
-      const normalizedRisk = String(lifecycle.paymentRiskStatus || "").trim().toLowerCase() || "unknown";
-      const accessThroughDate = lifecycle.accessThroughDate ? new Date(lifecycle.accessThroughDate) : null;
-      const accessEnded = accessThroughDate ? accessThroughDate.getTime() < Date.now() : false;
+      const normalizedPendingAction = String(lifecycle.pendingAction || "")
+        .trim()
+        .toLowerCase();
+      const normalizedRisk =
+        String(lifecycle.paymentRiskStatus || "")
+          .trim()
+          .toLowerCase() || "unknown";
+      const accessThroughDate = lifecycle.accessThroughDate
+        ? new Date(lifecycle.accessThroughDate)
+        : null;
+      const accessEnded = accessThroughDate
+        ? accessThroughDate.getTime() < Date.now()
+        : false;
 
       const matchesPendingAction =
         pendingActionFilter === "all" ||
@@ -83,16 +103,22 @@ export function useAgentDashboardFilters(
 
       const matchesAccessWindow =
         accessWindowFilter === "all" ||
-        (accessWindowFilter === "has_access_through" && Boolean(lifecycle.accessThroughDate)) ||
-        (accessWindowFilter === "missing_access_through" && !lifecycle.accessThroughDate) ||
+        (accessWindowFilter === "has_access_through" &&
+          Boolean(lifecycle.accessThroughDate)) ||
+        (accessWindowFilter === "missing_access_through" &&
+          !lifecycle.accessThroughDate) ||
         (accessWindowFilter === "access_ended" && accessEnded) ||
-        (accessWindowFilter === "access_active_or_future" && Boolean(lifecycle.accessThroughDate) && !accessEnded);
+        (accessWindowFilter === "access_active_or_future" &&
+          Boolean(lifecycle.accessThroughDate) &&
+          !accessEnded);
 
       return matchesPendingAction && matchesPaymentRisk && matchesAccessWindow;
     });
 
     if (!focusMemberId) return segmentFiltered;
-    return segmentFiltered.filter((enrollment) => String(enrollment.id) === focusMemberId);
+    return segmentFiltered.filter(
+      (enrollment) => String(enrollment.id) === focusMemberId,
+    );
   }, [
     enrollments,
     focusMemberId,
@@ -108,7 +134,10 @@ export function useAgentDashboardFilters(
     }
 
     setDateFilter({
-      startDate: format(new Date(new Date().getFullYear() - 1, 0, 1), "yyyy-MM-dd"),
+      startDate: format(
+        new Date(new Date().getFullYear() - 1, 0, 1),
+        "yyyy-MM-dd",
+      ),
       endDate: format(new Date(), "yyyy-MM-dd"),
     });
     setHasExpandedFocusRange(true);

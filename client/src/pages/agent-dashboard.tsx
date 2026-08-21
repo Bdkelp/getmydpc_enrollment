@@ -181,11 +181,6 @@ export default function AgentDashboard() {
     return `/agent/commissions?${params.toString()}`;
   };
 
-  const [dateFilter, setDateFilter] = useState({
-    startDate: format(new Date(new Date().setDate(1)), "yyyy-MM-dd"),
-    endDate: format(new Date(), "yyyy-MM-dd"),
-  });
-
   const {
     selectedEnrollment,
     showPendingDialog,
@@ -268,6 +263,8 @@ export default function AgentDashboard() {
     : (isSingleAgentDrilldown ? selectedScopeAgentLabel || 'Selected Agent' : 'My Dashboard');
 
   const {
+    dateFilter,
+    setDateFilter,
     businessFilter,
     setBusinessFilter,
     pendingActionFilter,
@@ -791,11 +788,11 @@ export default function AgentDashboard() {
         {/* Enhanced Dashboard Stats */}
         <DashboardStats userRole="agent" agentId={viewingAgentId || undefined} />
 
-        {/* Recent Enrollments */}
+        {/* Enrollments */}
         <Card className="border-french-blue-100">
           <CardHeader>
             <div className="flex justify-between items-center">
-              <CardTitle className="text-deep-twilight-900">Recent Enrollments</CardTitle>
+              <CardTitle className="text-deep-twilight-900">Enrollments</CardTitle>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1 rounded-md border border-french-blue-100 bg-white p-1">
                   <Button
