@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
 export const DEFAULT_AGENT_ENROLLMENT_DATE_FILTER = {
@@ -27,6 +27,11 @@ export interface AgentDashboardEnrollment {
   groupName?: string | null;
 }
 
+interface DateFilter {
+  startDate: string;
+  endDate: string;
+}
+
 const getLifecycleSummary = (enrollment: AgentDashboardEnrollment) => {
   return (
     enrollment.lifecycleSummary || {
@@ -43,6 +48,8 @@ const getLifecycleSummary = (enrollment: AgentDashboardEnrollment) => {
 export function useAgentDashboardFilters(
   enrollments: AgentDashboardEnrollment[] | undefined,
   locationPath: string,
+  dateFilter: DateFilter,
+  setDateFilter: Dispatch<SetStateAction<DateFilter>>,
 ) {
   const searchParams = useMemo(() => {
     const query = locationPath.includes("?")
@@ -53,9 +60,6 @@ export function useAgentDashboardFilters(
 
   const focusMemberId = searchParams.get("memberId");
 
-  const [dateFilter, setDateFilter] = useState(
-    DEFAULT_AGENT_ENROLLMENT_DATE_FILTER,
-  );
   const [businessFilter, setBusinessFilter] = useState<
     "all" | "individual" | "group"
   >("all");
@@ -144,8 +148,6 @@ export function useAgentDashboardFilters(
   }, [focusMemberId, hasExpandedFocusRange]);
 
   return {
-    dateFilter,
-    setDateFilter,
     businessFilter,
     setBusinessFilter,
     pendingActionFilter,

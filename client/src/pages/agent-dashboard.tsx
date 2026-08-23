@@ -36,7 +36,7 @@ import {
   getLifecycleSubscriptionBadgeClasses,
   getLifecycleSubscriptionLabel,
 } from "@/lib/lifecycleSummaryUi";
-import { useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
+import { DEFAULT_AGENT_ENROLLMENT_DATE_FILTER, useAgentDashboardFilters } from "@/hooks/useAgentDashboardFilters";
 import { useAgentDashboardQueries } from "@/hooks/useAgentDashboardQueries";
 import { useAgentDashboardMutations } from "@/hooks/useAgentDashboardMutations";
 import { useAgentDashboardUiState } from "@/hooks/useAgentDashboardUiState";
@@ -162,6 +162,7 @@ export default function AgentDashboard() {
   
   // For admin/super-admin and agency roles: allow scoped single-agent drilldowns
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [dateFilter, setDateFilter] = useState(DEFAULT_AGENT_ENROLLMENT_DATE_FILTER);
   const viewingAgentId = isAgencyUser ? selectedAgentId : (selectedAgentId || user?.id);
   const isAdminViewing = isAdminUser && selectedAgentId;
   const isSingleAgentDrilldown = !!selectedAgentId && !!viewingAgentId;
@@ -263,8 +264,6 @@ export default function AgentDashboard() {
     : (isSingleAgentDrilldown ? selectedScopeAgentLabel || 'Selected Agent' : 'My Dashboard');
 
   const {
-    dateFilter,
-    setDateFilter,
     businessFilter,
     setBusinessFilter,
     pendingActionFilter,
@@ -275,7 +274,7 @@ export default function AgentDashboard() {
     setAccessWindowFilter,
     filteredEnrollments,
     focusMemberId,
-  } = useAgentDashboardFilters(enrollments, locationPath);
+  } = useAgentDashboardFilters(enrollments, locationPath, dateFilter, setDateFilter);
 
   // Log errors for debugging
   if (statsError) {
