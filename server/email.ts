@@ -132,6 +132,56 @@ export async function sendUserCredentialsEmail(
   }
 }
 
+interface PasswordRecoveryEmailData {
+  email: string;
+  firstName: string;
+  resetUrl: string;
+}
+
+export async function sendPasswordRecoveryEmail(
+  data: PasswordRecoveryEmailData,
+): Promise<boolean> {
+  if (!SENDGRID_API_KEY) {
+    console.warn(
+      "[Email] Skipping password reset email - SendGrid not configured",
+    );
+    return false;
+  }
+
+  try {
+    await sgMail.send({
+      to: data.email,
+      from: SENDGRID_FROM_EMAIL,
+      subject: "Reset your MyPremierPlans password",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+          <div style="background: #0f172a; color: #fff; padding: 24px;">
+            <h2 style="margin: 0; font-size: 24px;">Reset your password</h2>
+          </div>
+          <div style="border: 1px solid #e2e8f0; border-top: none; padding: 32px; background: #fff;">
+            <p style="font-size: 16px; color: #1f2937;">Hello ${escapeHtml(data.firstName)},</p>
+            <p style="font-size: 16px; color: #1f2937;">Use the button below to choose a new password for your enrollment portal account.</p>
+            <div style="margin: 28px 0; text-align: center;">
+              <a href="${escapeHtml(data.resetUrl)}" style="background: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block;">
+                Reset Password
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 13px;">If you did not request this reset, you can ignore this email. This link can only be used once.</p>
+          </div>
+        </div>
+      `,
+    });
+    console.log(
+      "[Email] Password reset email sent via SendGrid to:",
+      data.email,
+    );
+    return true;
+  } catch (error) {
+    console.error("[Email] Failed to send password reset email:", error);
+    return false;
+  }
+}
+
 interface WelcomeWithPasswordData {
   email: string;
   firstName: string;

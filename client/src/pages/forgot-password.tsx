@@ -8,7 +8,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/lib/supabase";
+import apiClient from "@/lib/apiClient";
 import { Heart, Mail, Loader2, ArrowLeft } from "lucide-react";
 
 const forgotPasswordSchema = z.object({
@@ -32,16 +32,7 @@ export default function ForgotPassword() {
   const onSubmit = async (data: ForgotPasswordFormData) => {
     setIsLoading(true);
     try {
-      // Get the correct redirect URL
-      const redirectUrl = `${window.location.origin}/reset-password`;
-      
-      const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: redirectUrl,
-      });
-      
-      if (error) {
-        throw error;
-      }
+      await apiClient.post("/api/auth/forgot-password", { email: data.email });
       
       setIsSubmitted(true);
       toast({

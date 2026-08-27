@@ -2,6 +2,7 @@ import { Router, type Response } from "express";
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole } from "../auth/roles";
 import { storage } from "../storage";
+import { deliverPasswordReset } from "../services/password-reset-service";
 
 const router = Router();
 
@@ -10,7 +11,48 @@ const isAdmin = (role: string | undefined): boolean =>
 const isSuperAdmin = (role: string | undefined): boolean =>
   hasAtLeastRole(role, "super_admin");
 const isAgentTarget = (role: string | undefined): boolean =>
-  new Set(["agent", "agency_admin", "agency_manager", "user"]).has(String(role || "").toLowerCase());
+  new Set(["agent", "agency_admin", "agency_manager", "user"]).has(
+    String(role || "").toLowerCase(),
+  );
+
+router.post(
+  "/api/admin/users/:userId/send-password-reset",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    const actorUser = req.realUser || req.user;
+    if (!isAdmin(actorUser?.role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const targetUser = await storage.getUser(req.params.userId);
+      if (!targetUser || !isAgentTarget(targetUser.role)) {
+        return res.status(404).json({ message: "Agent account not found" });
+      }
+
+      const result = await deliverPasswordReset(
+        targetUser.email,
+        targetUser.firstName,
+      );
+      if (result.status !== "sent") {
+        return res.status(503).json({
+          message:
+            result.status === "delivery_failed"
+              ? "Reset link was created, but the email could not be delivered"
+              : "Unable to create a password reset link",
+        });
+      }
+
+      return res.json({ success: true, message: "Password reset email sent" });
+    } catch (error: any) {
+      console.error("Error sending admin password reset:", error);
+      return res.status(500).json({
+        message: "Failed to send password reset email",
+        error: error?.message || "Unknown error",
+      });
+    }
+  },
+);
 
 router.get(
   "/api/admin/impersonation/current",
@@ -88,7 +130,9 @@ router.post(
       }
 
       if (!isAgentTarget(targetUser.role)) {
-        return res.status(400).json({ message: "Target user must be an agent account" });
+        return res
+          .status(400)
+          .json({ message: "Target user must be an agent account" });
       }
 
       if (!targetUser.isActive || targetUser.approvalStatus !== "approved") {

@@ -25,6 +25,7 @@
     "test:registration-assignment-hardening": "tsx scripts/test-registration-assignment-hardening.ts",
     "test:commission-payout-hardening": "tsx scripts/test-commission-payout-hardening.ts",
     "test:commission-center-authorization": "tsx scripts/test-commission-center-authorization.ts",
+    "test:password-reset-flow": "tsx scripts/test-password-reset-flow.ts",
     "test:historical-commission-settlement": "tsx scripts/test-historical-commission-external-settlement.ts",
     "test:cancellation-refund-eligibility": "tsx scripts/test-cancellation-refund-eligibility.ts",
     "test:commission-refund-clawback": "tsx scripts/test-commission-refund-clawback.ts",

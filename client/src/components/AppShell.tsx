@@ -239,7 +239,9 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
       <div
         className={cn(
           "grid min-h-screen transition-all duration-300 grid-cols-1",
-          sidebarOpen ? "md:grid-cols-[260px_1fr]" : "md:grid-cols-[64px_1fr]",
+          sidebarOpen
+            ? "md:grid-cols-[260px_minmax(0,1fr)]"
+            : "md:grid-cols-[64px_minmax(0,1fr)]",
         )}
       >
         {/* Sidebar */}
@@ -330,7 +332,7 @@ export default function AppShell({ children, title, breadcrumb, actions }: AppSh
         </aside>
 
         {/* Main area */}
-        <div className="flex flex-col min-h-screen overflow-hidden">
+        <div className="flex min-w-0 flex-col min-h-screen overflow-hidden">
           {activeImpersonation && (
             <div className="border-b border-amber-200 bg-amber-50 px-5 py-2.5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-amber-900 text-sm min-w-0">

@@ -26,6 +26,7 @@ import {
   Mail, 
   Eye,
   CreditCard,
+  KeyRound,
   MapPin,
   Trash2,
 } from "lucide-react";
@@ -90,6 +91,7 @@ export default function AdminUsers() {
     approveUserMutation,
     removeUserMutation,
     startImpersonationMutation,
+    sendPasswordResetMutation,
   } = useAdminUsersMutations();
 
   // Safe array handling for users data (agents and admins)
@@ -431,7 +433,7 @@ export default function AdminUsers() {
                           onClick={() => startImpersonationMutation.mutate({
                             targetUserId: user.id,
                             reason: 'Admin View as Agent',
-                          }, { onSuccess: () => setLocation('/agent/commission-center') })}
+                          }, { onSuccess: () => setLocation('/agent') })}
                           disabled={startImpersonationMutation.isPending}
                         >
                           <Eye className="h-3 w-3 mr-1" />
@@ -528,41 +530,6 @@ export default function AdminUsers() {
                     ) : null}
                     {user.role !== 'member' && user.id && (
                       <>
-                        {isCurrentUserSuperAdmin &&
-                          user.id !== currentUser?.id &&
-                          user.role !== 'super_admin' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-indigo-600 hover:text-indigo-700"
-                              onClick={() => {
-                                const userName = user.firstName && user.lastName
-                                  ? `${user.firstName} ${user.lastName}`
-                                  : user.firstName || user.lastName || user.email || "this user";
-                                const reason = prompt(
-                                  `Reason for live drop-in as ${userName}:`,
-                                  "Support investigation",
-                                );
-                                if (reason === null) return;
-
-                                startImpersonationMutation.mutate(
-                                  {
-                                    targetUserId: user.id,
-                                    reason: reason.trim() || "Super admin live drop-in",
-                                    durationMinutes: 60,
-                                  },
-                                  {
-                                    onSuccess: () => {
-                                      setLocation('/agent');
-                                    },
-                                  },
-                                );
-                              }}
-                              disabled={startImpersonationMutation.isPending}
-                            >
-                              {startImpersonationMutation.isPending ? 'Starting...' : 'Drop In'}
-                            </Button>
-                          )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -776,6 +743,19 @@ export default function AdminUsers() {
                   <p><span className="text-gray-500">Email:</span> {selectedProfileUser.email}</p>
                   <p><span className="text-gray-500">Role:</span> {getRoleDisplayName(selectedProfileUser.role)}</p>
                   <p><span className="text-gray-500">Agent #:</span> {selectedProfileUser.agentNumber || 'Not assigned'}</p>
+                  {isAgentScopeRole(selectedProfileUser.role) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3"
+                      disabled={sendPasswordResetMutation.isPending}
+                      onClick={() => sendPasswordResetMutation.mutate(selectedProfileUser.id)}
+                    >
+                      <KeyRound className="mr-2 h-4 w-4" />
+                      {sendPasswordResetMutation.isPending ? 'Sending...' : 'Send password reset'}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="rounded-md border p-3">

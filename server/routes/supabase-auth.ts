@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabaseClient";
 import { storage, updateAgentHierarchy } from "../storage";
 import { sendEmailVerification, sendWelcomeWithPassword } from "../email";
 import { isAtLeastAdmin } from "../auth/roles";
+import { deliverPasswordReset } from "../services/password-reset-service";
 import axios from "axios";
 
 const router = Router();
@@ -403,6 +404,35 @@ router.post("/api/auth/logout", async (req, res) => {
     console.error("[Logout] Error:", error);
     res.status(500).json({ message: "Logout failed" });
   }
+});
+
+router.post("/api/auth/forgot-password", async (req, res) => {
+  const email =
+    typeof req.body?.email === "string" ? req.body.email.trim() : "";
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    return res
+      .status(400)
+      .json({ message: "A valid email address is required" });
+  }
+
+  try {
+    const user = await storage.getUserByEmail(email);
+    if (user) {
+      const result = await deliverPasswordReset(email, user.firstName);
+      if (result.status !== "sent") {
+        console.error(
+          "[Password Reset] Public delivery did not complete:",
+          result.status,
+        );
+      }
+    }
+  } catch (error) {
+    console.error("[Password Reset] Public request failed:", error);
+  }
+
+  return res.json({
+    message: "If the email exists, a reset link will be sent",
+  });
 });
 
 // ============================================

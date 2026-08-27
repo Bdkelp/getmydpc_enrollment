@@ -243,6 +243,26 @@ export function useAdminUsersMutations() {
     },
   });
 
+  const sendPasswordResetMutation = useMutation({
+    mutationFn: (userId: string) =>
+      authedFetch(`/api/admin/users/${userId}/send-password-reset`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Reset email sent",
+        description: "The agent has been sent a secure password reset link.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Email not sent",
+        description: error.message || "Failed to send password reset email.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const stopImpersonationMutation = useMutation({
     mutationFn: () =>
       authedFetch(`/api/admin/impersonation/stop`, {
@@ -279,6 +299,7 @@ export function useAdminUsersMutations() {
     approveUserMutation,
     removeUserMutation,
     startImpersonationMutation,
+    sendPasswordResetMutation,
     stopImpersonationMutation,
   };
 }
