@@ -9,4 +9,6 @@ client/.env
 client/.env.production
 logs/
 tmp/
+scripts/output/*.json
+supabase/.temp/
 
