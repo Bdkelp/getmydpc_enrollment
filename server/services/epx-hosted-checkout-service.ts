@@ -77,17 +77,9 @@ function extractTransactionId(payload: any): string | undefined {
     payload.transaction_id,
     payload.TRAN_NBR,
     payload.tranNbr,
-    payload.orderNumber,
-    payload.ORDER_NUMBER,
-    payload.invoiceNumber,
-    payload.INVOICE_NUMBER,
     payload.result?.transactionId,
     payload.result?.TRANSACTION_ID,
     payload.result?.TRAN_NBR,
-    payload.result?.orderNumber,
-    payload.result?.ORDER_NUMBER,
-    payload.result?.invoiceNumber,
-    payload.result?.INVOICE_NUMBER,
   ];
 
   for (const value of candidates) {
@@ -107,11 +99,8 @@ function extractAuthCode(payload: any): string | undefined {
   const candidates = [
     payload.authCode,
     payload.AUTH_CODE,
-    payload.AUTH_RESP,
-    payload.authResp,
     payload.result?.authCode,
     payload.result?.AUTH_CODE,
-    payload.result?.AUTH_RESP,
   ];
 
   for (const value of candidates) {
@@ -253,7 +242,7 @@ export class EPXHostedCheckoutService {
         transactionId: extractTransactionId(payload),
         authCode: extractAuthCode(payload),
         amount: extractAmount(payload),
-        bricToken: payload.result?.GUID || payload.GUID, // BRIC token for recurring billing
+        bricToken: payload.result?.GUID || payload.GUID || payload.result?.BRIC || payload.BRIC || payload.result?.TransactionId || payload.TransactionId,
         authGuid
       };
     } else {
