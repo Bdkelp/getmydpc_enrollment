@@ -74,4 +74,84 @@ assert.doesNotMatch(
 assert.match(schedulerSource, /if \(!dryRun && !targetedRun\)/);
 assert.match(schedulerSource, /const staleLogs = targetedRun\s+\? \[\]/);
 
+const credentialResolverStart = schedulerSource.indexOf(
+  "function resolveRecurringCardAuthGuid(",
+);
+const credentialResolverEnd = schedulerSource.indexOf(
+  "async function finalizeScheduledMemberCancellations",
+  credentialResolverStart,
+);
+assert(
+  credentialResolverStart >= 0 &&
+    credentialResolverEnd > credentialResolverStart,
+);
+const credentialResolver = schedulerSource.slice(
+  credentialResolverStart,
+  credentialResolverEnd,
+);
+assert.match(credentialResolver, /Missing recurring token for card charge/);
+assert.match(
+  credentialResolver,
+  /Token decryption failed and no stored ORIG_AUTH_GUID was available/,
+);
+
+const credentialFailureStart = schedulerSource.indexOf(
+  'if ("error" in cardAuthGuidResult) {',
+);
+const credentialFailureEnd = schedulerSource.indexOf(
+  "authGuid = cardAuthGuidResult.authGuid;",
+  credentialFailureStart,
+);
+assert(
+  credentialFailureStart >= 0 && credentialFailureEnd > credentialFailureStart,
+);
+const credentialFailureBranch = schedulerSource.slice(
+  credentialFailureStart,
+  credentialFailureEnd,
+);
+assert.match(credentialFailureBranch, /status: "internal_error"/);
+assert.match(
+  credentialFailureBranch,
+  /chargeAttemptResult: "failed_auth_guid_resolution"/,
+);
+assert.doesNotMatch(
+  credentialFailureBranch,
+  /submitServerPostRecurringPayment/,
+  "missing or unreadable credentials must not call North",
+);
+assert.doesNotMatch(
+  credentialFailureBranch,
+  /createRecurringFailureAdminNotification/,
+  "credential errors must not enter decline/failure alert policy",
+);
+assert.doesNotMatch(
+  credentialFailureBranch,
+  /applyRecurringFailureSuspensionPolicy/,
+  "credential errors must not trigger suspension",
+);
+assert(
+  !RECURRING_BILLING_ATTEMPT_STATUSES.includes("internal_error" as never),
+  "credential errors must not increment the attempt/failure count",
+);
+
+const processorDeclineStart = schedulerSource.indexOf(
+  "const failureResponseMessage =",
+  schedulerSource.indexOf("if (result.success)"),
+);
+const processorDeclineEnd = schedulerSource.indexOf(
+  "} catch (epxError:",
+  processorDeclineStart,
+);
+assert(
+  processorDeclineStart >= 0 && processorDeclineEnd > processorDeclineStart,
+);
+const processorDeclineBranch = schedulerSource.slice(
+  processorDeclineStart,
+  processorDeclineEnd,
+);
+assert.match(processorDeclineBranch, /status: "failed"/);
+assert.match(processorDeclineBranch, /createRecurringFailureAdminNotification/);
+assert.match(processorDeclineBranch, /applyRecurringFailureSuspensionPolicy/);
+assert.match(processorDeclineBranch, /chargeAttemptResult: "declined"/);
+
 console.log("Recurring billing scheduler policy tests passed.");

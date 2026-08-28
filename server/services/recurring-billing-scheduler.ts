@@ -2178,7 +2178,6 @@ async function processSubscription(
         `${LOG_PREFIX} Failed to resolve auth GUID for subscription ${sub.subscriptionId}:`,
         cardAuthGuidResult.error,
       );
-      const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
       const billingEventId = await insertRecurringBillingLog({
         subscriptionId: sub.subscriptionId,
         memberId: sub.memberId,
@@ -2187,32 +2186,9 @@ async function processSubscription(
         amount: sub.amount,
         billingDate,
         attemptNumber,
-        status: "failed",
+        status: "internal_error",
         failureReason: cardAuthGuidResult.error,
-        nextRetryDate,
         processedAt: new Date().toISOString(),
-      });
-      await createRecurringFailureAdminNotification({
-        subscriptionId: sub.subscriptionId,
-        memberId: sub.memberId,
-        paymentMethodType: methodType,
-        errorMessage: cardAuthGuidResult.error,
-        nextRetryDate,
-        payerType: payerContext.payerType,
-        payerAccountId: payerContext.payerAccountId,
-        payerDisplayName: payerContext.payerDisplayName,
-        amount: sub.amount,
-      });
-      await applyRecurringFailureSuspensionPolicy({
-        subscriptionId: sub.subscriptionId,
-        memberId: sub.memberId,
-        paymentMethodType: methodType,
-        errorMessage: cardAuthGuidResult.error,
-        responseCode: null,
-        payerType: payerContext.payerType,
-        payerAccountId: payerContext.payerAccountId,
-        payerDisplayName: payerContext.payerDisplayName,
-        amount: sub.amount,
       });
       appendChargeAttempt({
         ...buildAttemptDiagBase(),
