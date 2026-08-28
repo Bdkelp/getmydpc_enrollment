@@ -845,13 +845,6 @@ const normalizeHostedAuthGuid = (
     return null;
   }
 
-  const bricToken =
-    typeof bricTokenCandidate === "string" ? bricTokenCandidate.trim() : "";
-
-  if (bricToken && trimmed === bricToken) {
-    return null;
-  }
-
   return trimmed;
 };
 

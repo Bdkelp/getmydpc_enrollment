@@ -453,7 +453,6 @@ export default function EPXHostedPayment({
       const safeAuthGuid = (
         typeof extractedAuthGuid === 'string'
         && extractedAuthGuid.trim().length > 0
-        && extractedAuthGuid.trim() !== tokenFromPayload
       )
         ? extractedAuthGuid.trim()
         : undefined;
@@ -1086,6 +1085,7 @@ const EPX_GUID_CANDIDATES = [
 
 const EPX_TOKEN_CANDIDATES = [
   'GUID',
+  'TransactionId',
   'paymentToken',
   'token',
   'BRIC',

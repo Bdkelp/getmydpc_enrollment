@@ -36,6 +36,7 @@
     "test:lineage-snapshot-hardening": "tsx scripts/test-lineage-snapshot-hardening.ts",
     "test:wp03-override-flow-up": "tsx scripts/test-wp03-override-flow-up.ts",
     "test:payment-confirmed-service": "tsx scripts/test-payment-confirmed-service.ts",
+    "test:hosted-checkout-semantics": "tsx scripts/test-hosted-checkout-semantics.ts",
     "test:commission-payout-schedule": "tsx scripts/test-commission-payout-schedule-service.ts",
     "test:commission-ledger-payout-flow": "tsx scripts/test-commission-ledger-payout-flow.ts",
     "test:commission-consolidation-phase2c": "tsx scripts/test-commission-consolidation-phase2c.ts",
