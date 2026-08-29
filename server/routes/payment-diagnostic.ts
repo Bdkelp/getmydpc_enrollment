@@ -4,12 +4,7 @@
  */
 
 import { Router, Response } from "express";
-import {
-  storage,
-  decryptPaymentToken,
-  getPlatformSetting,
-  upsertPlatformSetting,
-} from "../storage";
+import { storage, getPlatformSetting, upsertPlatformSetting } from "../storage";
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole, isAtLeastAdmin } from "../auth/roles";
 import { query } from "../lib/neonDb";
@@ -23,6 +18,10 @@ import {
   buildDraftPayoutBatches,
   getPayoutDashboardData,
 } from "../services/commission-ledger-service";
+import {
+  redactResolvedPaymentCredential,
+  resolveCanonicalPaymentCredential,
+} from "../services/payment-credential";
 import { calculateNextBillingDate } from "../utils/membership-dates";
 import * as fs from "fs";
 import * as path from "path";
@@ -43,12 +42,6 @@ const maskAuthGuid = (value: string | null | undefined): string | null => {
   return normalized.length > 8
     ? `${normalized.slice(0, 4)}****${normalized.slice(-4)}`
     : "********";
-};
-
-const looksLikeEncryptedToken = (value: string): boolean => {
-  const parts = value.split(":");
-  if (parts.length !== 2) return false;
-  return /^[0-9a-f]+$/i.test(parts[0]) && /^[0-9a-f]+$/i.test(parts[1]);
 };
 
 const isUsableAuthGuid = (
@@ -77,8 +70,7 @@ const resolveAuthGuidForRepairRow = (
   source:
     | "payments.epx_auth_guid"
     | "members.payment_token"
-    | "payment_tokens.bric_token_plain"
-    | "payment_tokens.bric_token_decrypted"
+    | "payment_tokens.bric_token"
     | null;
   unresolvedReason: string | null;
 } => {
@@ -97,73 +89,30 @@ const resolveAuthGuidForRepairRow = (
       ? row.member_payment_token.trim()
       : "";
   if (memberPaymentToken) {
-    if (
-      !looksLikeEncryptedToken(memberPaymentToken) &&
-      isUsableTrustedAuthGuid(memberPaymentToken)
-    ) {
+    if (isUsableTrustedAuthGuid(memberPaymentToken)) {
       return {
         authGuid: memberPaymentToken,
         source: "members.payment_token",
         unresolvedReason: null,
       };
     }
-
-    if (looksLikeEncryptedToken(memberPaymentToken)) {
-      try {
-        const decryptedMemberToken =
-          decryptPaymentToken(memberPaymentToken).trim();
-        if (isUsableAuthGuid(decryptedMemberToken)) {
-          return {
-            authGuid: decryptedMemberToken,
-            source: "members.payment_token",
-            unresolvedReason: null,
-          };
-        }
-      } catch {
-        // Continue to token fallback resolution
-      }
-    }
   }
 
   const tokenValue =
     typeof row?.bric_token === "string" ? row.bric_token.trim() : "";
-  if (!tokenValue) {
+  const resolution = resolveCanonicalPaymentCredential(tokenValue);
+  if (!resolution.error) {
     return {
-      authGuid: null,
-      source: null,
-      unresolvedReason: "No token data available for auth GUID resolution",
-    };
-  }
-
-  if (!looksLikeEncryptedToken(tokenValue) && isUsableAuthGuid(tokenValue)) {
-    return {
-      authGuid: tokenValue,
-      source: "payment_tokens.bric_token_plain",
+      authGuid: resolution.credential,
+      source: "payment_tokens.bric_token",
       unresolvedReason: null,
     };
   }
-
-  try {
-    const decrypted = decryptPaymentToken(tokenValue).trim();
-    if (isUsableAuthGuid(decrypted)) {
-      return {
-        authGuid: decrypted,
-        source: "payment_tokens.bric_token_decrypted",
-        unresolvedReason: null,
-      };
-    }
-    return {
-      authGuid: null,
-      source: null,
-      unresolvedReason: "Decrypted token did not produce a usable auth GUID",
-    };
-  } catch {
-    return {
-      authGuid: null,
-      source: null,
-      unresolvedReason: "Token decryption failed for repair candidate",
-    };
-  }
+  return {
+    authGuid: null,
+    source: null,
+    unresolvedReason: resolution.error,
+  };
 };
 
 const isRecentCycleEntry = (
@@ -755,7 +704,7 @@ router.post(
           candidateCount: candidates.length,
           resolvableCount: resolvableCandidates.length,
           unresolvedCount: unresolvedCandidates.length,
-          candidates,
+          candidates: candidates.map(redactResolvedPaymentCredential),
           note: "Preview only. No records were changed.",
         });
       }

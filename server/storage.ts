@@ -22,6 +22,7 @@ import {
   RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS,
   RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES,
 } from "../shared/recurringBillingPolicy";
+import { requireCanonicalPaymentCredential } from "./services/payment-credential";
 
 // Encryption utilities for sensitive data
 const ENCRYPTION_KEY =
@@ -67,14 +68,6 @@ export function validateDOB(dateOfBirth: string): boolean {
 export function validatePhoneNumber(phone: string): boolean {
   const cleaned = phone.replace(/\D/g, "");
   return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === "1");
-}
-
-export function encryptPaymentToken(token: string): string {
-  return encryptSensitiveData(token);
-}
-
-export function decryptPaymentToken(encryptedToken: string): string {
-  return decryptSensitiveData(encryptedToken);
 }
 
 // Helper functions for member field formatting (matching database CHAR fields)
@@ -8010,7 +8003,12 @@ export interface UpsertGroupPaymentTokenInput {
 export async function upsertMemberPaymentToken(
   input: UpsertPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const encryptedToken = encryptPaymentToken(input.token);
+  const credential = requireCanonicalPaymentCredential(input.token);
+  const originalNetworkTransId = input.originalNetworkTransId?.trim();
+  const distinctOriginalNetworkTransId =
+    originalNetworkTransId && originalNetworkTransId !== credential
+      ? originalNetworkTransId
+      : null;
 
   // Keep one active primary token per member + payment method type.
   await query(
@@ -8073,12 +8071,12 @@ export async function upsertMemberPaymentToken(
     [
       input.memberId,
       input.paymentMethodType,
-      encryptedToken,
+      credential,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      input.originalNetworkTransId ?? null,
+      distinctOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
       input.bankAccountNumber
         ? encryptSensitiveData(input.bankAccountNumber)
@@ -8096,7 +8094,12 @@ export async function upsertMemberPaymentToken(
 export async function upsertGroupPaymentToken(
   input: UpsertGroupPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const encryptedToken = encryptPaymentToken(input.token);
+  const credential = requireCanonicalPaymentCredential(input.token);
+  const originalNetworkTransId = input.originalNetworkTransId?.trim();
+  const distinctOriginalNetworkTransId =
+    originalNetworkTransId && originalNetworkTransId !== credential
+      ? originalNetworkTransId
+      : null;
 
   await query(
     `
@@ -8160,12 +8163,12 @@ export async function upsertGroupPaymentToken(
     [
       input.groupId,
       input.paymentMethodType,
-      encryptedToken,
+      credential,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      input.originalNetworkTransId ?? null,
+      distinctOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
       input.bankAccountNumber
         ? encryptSensitiveData(input.bankAccountNumber)
