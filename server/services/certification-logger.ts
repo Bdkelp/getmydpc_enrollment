@@ -49,6 +49,12 @@ const SENSITIVE_KEY_PATTERNS = [
   /social[_\s-]?security/i,
   /bank[_\s-]?account/i,
   /bank[_\s-]?routing/i,
+  /^auth[_\s-]?guid$/i,
+  /^orig[_\s-]?auth[_\s-]?guid$/i,
+  /^bric$/i,
+  /^guid$/i,
+  /^payment[_\s-]?token$/i,
+  /^transaction[_\s-]?id$/i,
 ];
 
 function maskSensitiveValue(value: unknown): string {

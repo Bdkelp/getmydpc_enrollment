@@ -19,6 +19,7 @@
     "check": "tsc",
     "test": "npm run test:scheduler",
     "test:scheduler": "tsx scripts/test-recurring-scheduler-policy.ts",
+    "test:hosted-semantics": "tsx scripts/test-hosted-checkout-semantics.ts",
     "test:payment-credential": "tsx scripts/test-payment-credential.ts",
     "test:plan-start-dates": "tsx scripts/test-plan-start-dates.ts",
     "test:lifecycle-summary-api": "node scripts/test-lifecycle-summary-api-contract.mjs",

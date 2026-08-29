@@ -9,6 +9,10 @@ import {
   RECURRING_BILLING_ATTEMPT_STATUSES,
   RECURRING_BILLING_IDEMPOTENCY_STATUSES,
 } from "../shared/recurringBillingPolicy";
+import {
+  PAYMENT_CREDENTIAL_ERROR,
+  resolveCanonicalPaymentCredential,
+} from "../server/services/payment-credential";
 
 assert(!RECURRING_BILLING_IDEMPOTENCY_STATUSES.includes("failed" as never));
 assert(RECURRING_BILLING_ATTEMPT_STATUSES.includes("failed"));
@@ -89,10 +93,20 @@ const credentialResolver = schedulerSource.slice(
   credentialResolverStart,
   credentialResolverEnd,
 );
-assert.match(credentialResolver, /Missing recurring token for card charge/);
+assert.deepEqual(resolveCanonicalPaymentCredential(""), {
+  credential: null,
+  error: PAYMENT_CREDENTIAL_ERROR.missing,
+});
+assert.deepEqual(
+  resolveCanonicalPaymentCredential(`${"a".repeat(32)}:${"b".repeat(64)}`),
+  {
+    credential: null,
+    error: PAYMENT_CREDENTIAL_ERROR.legacyEncrypted,
+  },
+);
 assert.match(
   credentialResolver,
-  /Token decryption failed and no stored ORIG_AUTH_GUID was available/,
+  /resolveCanonicalPaymentCredential\(sub\.bricToken\)/,
 );
 
 const credentialFailureStart = schedulerSource.indexOf(
@@ -118,6 +132,11 @@ assert.doesNotMatch(
   credentialFailureBranch,
   /submitServerPostRecurringPayment/,
   "missing or unreadable credentials must not call North",
+);
+assert.doesNotMatch(
+  credentialFailureBranch,
+  /nextRetryDate/,
+  "credential errors must not schedule a decline retry",
 );
 assert.doesNotMatch(
   credentialFailureBranch,
