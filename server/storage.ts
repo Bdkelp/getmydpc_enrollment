@@ -7678,9 +7678,9 @@ export interface BillableSubscription {
   groupId: string | null;
   groupName: string | null;
   tokenOwnerType: "member" | "group";
-  tokenId: number;
-  bricToken: string;
-  paymentMethodType: string;
+  tokenId: number | null;
+  bricToken: string | null;
+  paymentMethodType: string | null;
   tokenOriginalNetworkTransId: string | null;
   latestPaymentAuthGuid: string | null;
   processorReferenceConflict: boolean;
@@ -7773,7 +7773,6 @@ export async function getSubscriptionsDueForBilling(
         WHERE gp.group_id IS NOT NULL
           AND pt.group_id = gp.group_id
           AND pt.is_active = true
-          AND pt.payment_method_type = ANY($2::text[])
       `
     : "WHERE 1=0";
 
@@ -7805,7 +7804,7 @@ export async function getSubscriptionsDueForBilling(
         s.member_id,
         s.plan_id,
         s.amount,
-        s.next_billing_date,
+        TO_CHAR(s.next_billing_date, 'YYYY-MM-DD') AS next_billing_date,
         CASE WHEN gp.payer_type = 'group' THEN 'group' ELSE 'member' END AS payer_type,
         CASE
           WHEN gp.payer_type = 'group' THEN COALESCE(gp.group_id, s.member_id::text)
@@ -7921,8 +7920,9 @@ export async function getSubscriptionsDueForBilling(
         WHERE pt.member_id = s.member_id
           ${memberTokenGroupFilter}
           AND pt.is_active = true
-          AND pt.payment_method_type = ANY($2::text[])
-        ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
+        ORDER BY
+          CASE WHEN pt.payment_method_type = ANY($2::text[]) THEN 0 ELSE 1 END,
+          pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
       ) t_member ON true
       LEFT JOIN LATERAL (
@@ -7940,7 +7940,9 @@ export async function getSubscriptionsDueForBilling(
           pt.bank_account_last_four
         FROM payment_tokens pt
         ${groupTokenWhereClause}
-        ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
+        ORDER BY
+          CASE WHEN pt.payment_method_type = ANY($2::text[]) THEN 0 ELSE 1 END,
+          pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
       ) t_group ON true
       LEFT JOIN LATERAL (
@@ -7982,14 +7984,9 @@ export async function getSubscriptionsDueForBilling(
         AND s.member_id IS NOT NULL
         AND m.status = 'active'
         AND COALESCE(m.is_active, true) = true
-        AND (
-          (gp.payer_type = 'group' AND (t_group.id IS NOT NULL OR t_member.id IS NOT NULL))
-          OR
-          (COALESCE(gp.payer_type, 'member') <> 'group' AND t_member.id IS NOT NULL)
-        )
         AND s.next_billing_date IS NOT NULL
-        AND s.next_billing_date <= $1::timestamptz
-        AND (s.end_date IS NULL OR s.end_date > $1::timestamptz)
+        AND s.next_billing_date <= ($1::timestamptz AT TIME ZONE 'America/Chicago')
+        AND (s.end_date IS NULL OR s.end_date > ($1::timestamptz AT TIME ZONE 'America/Chicago'))
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND ($7::int[] IS NULL OR s.id = ANY($7::int[]))
         AND (

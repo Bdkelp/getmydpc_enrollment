@@ -117,7 +117,12 @@ const previewProjection = diagnosticSource.slice(
 assert(
   previewProjectionStart >= 0 && previewProjectionEnd > previewProjectionStart,
 );
-assert.doesNotMatch(previewProjection, /resolvedAuthGuid\s*:/);
+assert.match(previewProjection, /BRIC: row\.BRIC/);
+assert.match(previewProjection, /AUTH_GUID: row\.AUTH_GUID/);
+assert.match(previewProjection, /ORIG_AUTH_GUID: row\.ORIG_AUTH_GUID/);
+assert.match(previewProjection, /resolved_auth_guid: row\.resolvedAuthGuid/);
 assert.match(diagnosticSource, /candidates: previewTable/);
+assert.doesNotMatch(diagnosticSource, /maskAuthGuid|resolvedAuthGuidMasked/);
+assert.doesNotMatch(previewProjection, /card_number|pan|cvv/i);
 
 console.log("Payment credential storage tests passed.");

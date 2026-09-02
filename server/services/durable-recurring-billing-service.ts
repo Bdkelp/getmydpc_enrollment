@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { query } from "../lib/neonDb";
 import {
+  createAdminNotification,
   getSubscriptionsDueForBilling,
   type BillableSubscription,
 } from "../storage";
@@ -13,6 +14,7 @@ import { processConfirmedPayment } from "./payment-confirmed-service";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import {
   processClaimedBillingCycle,
+  processJustInTimeBatch,
   type DurableBillingCycle,
   type DurableCycleRepository,
   type ProcessorResult,
@@ -20,7 +22,8 @@ import {
 } from "./durable-recurring-billing-engine";
 
 const BILLING_TIMEZONE = "America/Chicago";
-const DEFAULT_CLAIM_LIMIT = 25;
+const MAX_CYCLES_PER_RUN = 25;
+const LEASE_SECONDS = 120;
 
 export type DurableBillingRunSummary = {
   runId: number | null;
@@ -45,7 +48,7 @@ export type DurableBillingRunSummary = {
     memberId: number;
     cycleDate: string;
     amount: string;
-    paymentMethodType: string;
+    paymentMethodType: string | null;
     credentialSource: string | null;
     exclusionReason: string | null;
   }>;
@@ -89,6 +92,17 @@ function resolveCredential(subscription: BillableSubscription): {
   source: string | null;
   error: string | null;
 } {
+  if (subscription.paymentMethodType !== "CreditCard") {
+    return {
+      credential: null,
+      source: null,
+      error: !subscription.tokenId
+        ? "missing_payment_credentials"
+        : subscription.paymentMethodType === "ACH"
+          ? "unsupported_ach"
+          : "unsupported_payment_method",
+    };
+  }
   if (subscription.processorReferenceConflict) {
     return {
       credential: null,
@@ -355,9 +369,42 @@ export async function runDurableRecurringBilling(options: {
     return {
       subscription,
       credential,
-      cycleDate: getBillingBusinessDate(new Date(subscription.nextBillingDate)),
+      cycleDate: subscription.nextBillingDate,
     };
   });
+  for (const candidate of candidates) {
+    if (candidate.credential.error) {
+      console.error("[DurableBilling][ALERT] Due subscription skipped", {
+        subscriptionId: candidate.subscription.subscriptionId,
+        memberId: candidate.subscription.memberId,
+        cycleDate: candidate.cycleDate,
+        reason: candidate.credential.error,
+      });
+      try {
+        await createAdminNotification({
+          type: "recurring_billing_exception",
+          memberId: candidate.subscription.memberId,
+          subscriptionId: candidate.subscription.subscriptionId,
+          errorMessage: candidate.credential.error,
+          metadata: {
+            cycleDate: candidate.cycleDate,
+            paymentMethodType: candidate.subscription.paymentMethodType,
+            triggerSource: options.triggerSource,
+            dryRun,
+          },
+        });
+      } catch (alertError: any) {
+        console.error(
+          "[DurableBilling][ALERT] Failed to persist exception alert",
+          {
+            subscriptionId: candidate.subscription.subscriptionId,
+            reason: candidate.credential.error,
+            alertError: alertError?.message || String(alertError),
+          },
+        );
+      }
+    }
+  }
   const summary: DurableBillingRunSummary = {
     runId: null,
     mode: dryRun ? "dry_run" : "live",
@@ -418,31 +465,36 @@ export async function runDurableRecurringBilling(options: {
   summary.runId = Number(run.rows[0].id);
 
   try {
-    const pendingSync = await query(
-      "SELECT * FROM public.claim_recurring_internal_sync_cycles($1, $2, $3, $4, $5::int[])",
-      [
-        workerId,
-        summary.runId,
-        DEFAULT_CLAIM_LIMIT,
-        120,
-        subscriptionIds.length ? subscriptionIds : null,
-      ],
-    );
     const repository = new PostgresCycleRepository();
-    for (const row of pendingSync.rows as ClaimedCycleRow[]) {
-      const cycle = mapClaimedCycle(row);
-      try {
-        await synchronizeConfirmedPayment(Number(row.payment_id));
-        await repository.completeInternalSync(cycle);
-        summary.internalRetried++;
-      } catch (error: any) {
-        await repository.markInternalSyncPending(
-          cycle,
-          `internal_financial_sync_retry:${error?.message || "unknown error"}`,
+    await processJustInTimeBatch<ClaimedCycleRow>({
+      limit: MAX_CYCLES_PER_RUN,
+      async claimOne() {
+        const pendingSync = await query(
+          "SELECT * FROM public.claim_recurring_internal_sync_cycles($1, $2, 1, $3, $4::int[])",
+          [
+            workerId,
+            summary.runId,
+            LEASE_SECONDS,
+            subscriptionIds.length ? subscriptionIds : null,
+          ],
         );
-        summary.internalPending++;
-      }
-    }
+        return (pendingSync.rows[0] as ClaimedCycleRow | undefined) || null;
+      },
+      async processOne(row) {
+        const cycle = mapClaimedCycle(row);
+        try {
+          await synchronizeConfirmedPayment(Number(row.payment_id));
+          await repository.completeInternalSync(cycle);
+          summary.internalRetried++;
+        } catch (error: any) {
+          await repository.markInternalSyncPending(
+            cycle,
+            `internal_financial_sync_retry:${error?.message || "unknown error"}`,
+          );
+          summary.internalPending++;
+        }
+      },
+    });
 
     for (const { subscription, credential, cycleDate } of candidates) {
       if (!credential.credential) continue;
@@ -469,39 +521,44 @@ export async function runDurableRecurringBilling(options: {
       );
     }
 
-    const claimed = await query(
-      "SELECT * FROM public.claim_recurring_billing_cycles($1, $2, $3, $4, $5::int[])",
-      [
-        workerId,
-        summary.runId,
-        DEFAULT_CLAIM_LIMIT,
-        120,
-        subscriptionIds.length ? subscriptionIds : null,
-      ],
-    );
-    summary.claimed = claimed.rows.length;
     const amounts = { succeeded: 0, declined: 0, unknown: 0 };
-    for (const row of claimed.rows as ClaimedCycleRow[]) {
-      const cycle = mapClaimedCycle(row);
-      const outcome = await processClaimedBillingCycle({
-        cycle,
-        repository,
-        processor,
-        synchronizeFinancials: synchronizeConfirmedPayment,
-      });
-      if (outcome === "completed") {
-        summary.succeeded++;
-        amounts.succeeded += Number(cycle.amount);
-      } else if (outcome === "declined") {
-        summary.declined++;
-        amounts.declined += Number(cycle.amount);
-      } else if (outcome === "unknown") {
-        summary.unknown++;
-        amounts.unknown += Number(cycle.amount);
-      } else {
-        summary.internalPending++;
-      }
-    }
+    await processJustInTimeBatch<ClaimedCycleRow>({
+      limit: MAX_CYCLES_PER_RUN,
+      async claimOne() {
+        const claimed = await query(
+          "SELECT * FROM public.claim_recurring_billing_cycles($1, $2, 1, $3, $4::int[])",
+          [
+            workerId,
+            summary.runId,
+            LEASE_SECONDS,
+            subscriptionIds.length ? subscriptionIds : null,
+          ],
+        );
+        return (claimed.rows[0] as ClaimedCycleRow | undefined) || null;
+      },
+      async processOne(row) {
+        summary.claimed++;
+        const cycle = mapClaimedCycle(row);
+        const outcome = await processClaimedBillingCycle({
+          cycle,
+          repository,
+          processor,
+          synchronizeFinancials: synchronizeConfirmedPayment,
+        });
+        if (outcome === "completed") {
+          summary.succeeded++;
+          amounts.succeeded += Number(cycle.amount);
+        } else if (outcome === "declined") {
+          summary.declined++;
+          amounts.declined += Number(cycle.amount);
+        } else if (outcome === "unknown") {
+          summary.unknown++;
+          amounts.unknown += Number(cycle.amount);
+        } else {
+          summary.internalPending++;
+        }
+      },
+    });
 
     summary.amountByOutcome = {
       succeeded: amounts.succeeded.toFixed(2),

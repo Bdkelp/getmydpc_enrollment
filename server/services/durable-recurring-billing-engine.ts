@@ -63,6 +63,21 @@ export type DurableCycleOutcome =
   | "unknown"
   | "internal_sync_pending";
 
+export async function processJustInTimeBatch<T>(options: {
+  limit: number;
+  claimOne(): Promise<T | null>;
+  processOne(item: T): Promise<void>;
+}): Promise<number> {
+  let processed = 0;
+  while (processed < options.limit) {
+    const item = await options.claimOne();
+    if (item === null) break;
+    await options.processOne(item);
+    processed++;
+  }
+  return processed;
+}
+
 function hasVerifiableProcessorResponse(result: ProcessorResult): boolean {
   return Boolean(
     String(result.responseFields.AUTH_RESP || "").trim() ||

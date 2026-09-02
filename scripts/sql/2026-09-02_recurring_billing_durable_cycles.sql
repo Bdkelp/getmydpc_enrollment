@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS public.recurring_billing_cycles (
   failure_classification text,
   skip_reason text,
   payment_id integer REFERENCES public.payments(id),
-  next_billing_date timestamptz,
+  next_billing_date timestamp without time zone,
   run_id bigint REFERENCES public.recurring_billing_runs(id),
   completed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT NOW(),
@@ -67,6 +67,25 @@ CREATE TABLE IF NOT EXISTS public.recurring_billing_cycles (
   UNIQUE (subscription_id, cycle_date),
   UNIQUE (processor_reference)
 );
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'recurring_billing_cycles'
+      AND column_name = 'next_billing_date'
+      AND data_type = 'timestamp with time zone'
+  ) THEN
+    EXECUTE $sql$
+      ALTER TABLE public.recurring_billing_cycles
+        ALTER COLUMN next_billing_date TYPE timestamp without time zone
+        USING next_billing_date AT TIME ZONE 'America/Chicago'
+    $sql$;
+  END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_recurring_billing_cycles_claimable
   ON public.recurring_billing_cycles (state, next_attempt_at, lease_expires_at, cycle_date);
@@ -258,7 +277,8 @@ DROP FUNCTION IF EXISTS public.finalize_recurring_cycle_success(
   bigint, text, text, text, text, text, timestamptz, timestamptz
 );
 
-CREATE OR REPLACE FUNCTION public.finalize_recurring_cycle_success(
+DROP FUNCTION IF EXISTS public.finalize_recurring_cycle_success(bigint, text, text, text, text, text, timestamptz, date);
+CREATE FUNCTION public.finalize_recurring_cycle_success(
   p_cycle_id bigint,
   p_transaction_id text,
   p_epx_auth_guid text,
@@ -268,7 +288,7 @@ CREATE OR REPLACE FUNCTION public.finalize_recurring_cycle_success(
   p_captured_at timestamptz,
   p_next_billing_date date
 )
-RETURNS TABLE(payment_id integer, next_billing_date timestamptz, already_completed boolean)
+RETURNS TABLE(payment_id integer, next_billing_date timestamp without time zone, already_completed boolean)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
@@ -277,8 +297,8 @@ DECLARE
   cycle public.recurring_billing_cycles;
   existing_payment public.payments%ROWTYPE;
   persisted_payment_id integer;
-  current_due timestamptz;
-  normalized_next_billing_date timestamptz;
+  current_due public.subscriptions.next_billing_date%TYPE;
+  normalized_next_billing_date public.subscriptions.next_billing_date%TYPE;
   affected_rows integer;
 BEGIN
   SELECT * INTO cycle
@@ -306,7 +326,7 @@ BEGIN
     RAISE EXCEPTION 'billing cycle state % cannot be finalized', cycle.state;
   END IF;
 
-  normalized_next_billing_date := p_next_billing_date::timestamp AT TIME ZONE 'America/Chicago';
+  normalized_next_billing_date := p_next_billing_date::timestamp;
 
   INSERT INTO public.payments (
     member_id, subscription_id, amount, currency, status, payment_method,
@@ -352,13 +372,13 @@ BEGIN
   WHERE subscription.id = cycle.subscription_id
   FOR UPDATE;
 
-  IF (current_due AT TIME ZONE 'America/Chicago')::date = cycle.cycle_date THEN
+  IF current_due::date = cycle.cycle_date THEN
     UPDATE public.subscriptions
     SET next_billing_date = normalized_next_billing_date, updated_at = NOW()
     WHERE id = cycle.subscription_id;
     GET DIAGNOSTICS affected_rows = ROW_COUNT;
     IF affected_rows <> 1 THEN RAISE EXCEPTION 'subscription billing date update affected % rows', affected_rows; END IF;
-  ELSIF (current_due AT TIME ZONE 'America/Chicago')::date < cycle.cycle_date THEN
+  ELSIF current_due::date < cycle.cycle_date THEN
     RAISE EXCEPTION 'subscription billing date is behind claimed cycle';
   END IF;
 

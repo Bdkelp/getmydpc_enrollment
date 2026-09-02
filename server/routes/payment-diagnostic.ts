@@ -43,15 +43,6 @@ const parseSubscriptionIds = (value: unknown): number[] =>
     ),
   );
 
-const maskAuthGuid = (value: string | null | undefined): string | null => {
-  if (!value) return null;
-  const normalized = String(value).trim();
-  if (!normalized) return null;
-  return normalized.length > 8
-    ? `${normalized.slice(0, 4)}****${normalized.slice(-4)}`
-    : "********";
-};
-
 const isUsableAuthGuid = (
   value: string | null | undefined,
 ): value is string => {
@@ -761,8 +752,10 @@ router.post(
                 ? "legacy_encrypted_bric"
                 : "no_verified_processor_source",
           paymentCreatedAt: row.payment_created_at,
+          BRIC: row.bric_token || null,
+          AUTH_GUID: row.epx_auth_guid || null,
+          ORIG_AUTH_GUID: row.original_network_trans_id || null,
           resolvedAuthGuid: resolution.authGuid,
-          resolvedAuthGuidMasked: maskAuthGuid(resolution.authGuid),
           resolutionSource: resolution.source,
           provenance: resolution.provenance,
           unresolvedReason: resolution.unresolvedReason,
@@ -807,6 +800,10 @@ router.post(
           amount_match: row.provenance.amountMatch,
           payment_status: row.paymentStatus,
           payment_date: row.paymentDate,
+          BRIC: row.BRIC,
+          AUTH_GUID: row.AUTH_GUID,
+          ORIG_AUTH_GUID: row.ORIG_AUTH_GUID,
+          resolved_auth_guid: row.resolvedAuthGuid,
           mid_match_or_na: row.provenance.midStatus,
           repair_action: autoRepairAllowed
             ? "backfill_original_network_trans_id"
@@ -838,7 +835,10 @@ router.post(
         tokenId: number;
         memberId: string;
         paymentId: number;
-        authGuidMasked: string | null;
+        BRIC: string | null;
+        AUTH_GUID: string | null;
+        ORIG_AUTH_GUID: string | null;
+        resolvedAuthGuid: string;
       }> = [];
 
       for (const row of resolvableCandidates) {
@@ -864,7 +864,10 @@ router.post(
             tokenId: row.tokenId,
             memberId: row.memberId,
             paymentId: row.paymentId,
-            authGuidMasked: row.resolvedAuthGuidMasked,
+            BRIC: row.BRIC,
+            AUTH_GUID: row.AUTH_GUID,
+            ORIG_AUTH_GUID: row.resolvedAuthGuid,
+            resolvedAuthGuid: row.resolvedAuthGuid,
           });
         }
       }

@@ -34,7 +34,7 @@ async function claim(
   subscriptionIds: number[] | null = null,
 ) {
   return pool.query(
-    "SELECT * FROM public.claim_recurring_billing_cycles($1, $2, 25, 30, $3::int[])",
+    "SELECT * FROM public.claim_recurring_billing_cycles($1, $2, 1, 30, $3::int[])",
     [workerId, runId, subscriptionIds],
   );
 }
@@ -51,7 +51,7 @@ async function seedSubscription(
   );
   await pool.query(
     `INSERT INTO subscriptions (id, member_id, status, pending_reason, next_billing_date)
-     VALUES ($1, $2, 'active', NULL, $3::timestamp AT TIME ZONE 'America/Chicago')`,
+      VALUES ($1, $2, 'active', NULL, $3::timestamp)`,
     [id, memberId, cycleDate],
   );
   await pool.query(
@@ -88,7 +88,7 @@ async function run() {
       member_id integer NOT NULL REFERENCES members(id),
       status text NOT NULL,
       pending_reason text,
-      next_billing_date timestamptz,
+      next_billing_date timestamp without time zone,
       updated_at timestamptz NOT NULL DEFAULT NOW()
     );
     CREATE TABLE payments (
@@ -190,13 +190,21 @@ async function run() {
   );
   assert.equal(repeated.rows[0].payment_id, finalized.rows[0].payment_id);
   assert.equal(repeated.rows[0].already_completed, true);
-  const advanced = await pool.query(
-    `SELECT (next_billing_date AT TIME ZONE 'America/Chicago')::date::text AS local_date,
-            next_billing_date::text AS instant
-     FROM subscriptions WHERE id = 104`,
-  );
-  assert.equal(advanced.rows[0].local_date, "2026-04-08");
-  assert.match(advanced.rows[0].instant, /05:00:00\+00$/);
+  for (const timezone of ["UTC", "America/Chicago"]) {
+    const timezoneClient = await pool.connect();
+    try {
+      await timezoneClient.query(`SET TIME ZONE '${timezone}'`);
+      const advanced = await timezoneClient.query(
+        `SELECT next_billing_date::text AS calendar_timestamp,
+                TO_CHAR(next_billing_date, 'YYYY-MM-DD') AS calendar_date
+         FROM subscriptions WHERE id = 104`,
+      );
+      assert.equal(advanced.rows[0].calendar_date, "2026-04-08");
+      assert.equal(advanced.rows[0].calendar_timestamp, "2026-04-08 00:00:00");
+    } finally {
+      timezoneClient.release();
+    }
+  }
   const paymentCount = await pool.query(
     "SELECT COUNT(*)::int AS count FROM payments WHERE transaction_id = $1",
     [dateCycle.processor_reference],

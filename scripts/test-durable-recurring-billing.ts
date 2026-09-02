@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   processClaimedBillingCycle,
+  processJustInTimeBatch,
   type DurableBillingCycle,
   type DurableCycleRepository,
   type ProcessorResult,
@@ -82,7 +83,12 @@ assert.match(
   /p_subscription_ids IS NULL OR cycle\.subscription_id = ANY\(p_subscription_ids\)/,
 );
 assert.match(migration, /claim_recurring_internal_sync_cycles/);
-assert.match(migration, /AT TIME ZONE 'America\/Chicago'/);
+assert.match(
+  migration,
+  /normalized_next_billing_date := p_next_billing_date::timestamp/,
+);
+assert.match(migration, /current_due::date = cycle\.cycle_date/);
+assert.match(migration, /next_billing_date timestamp without time zone/);
 assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
 assert.match(
   migration,
@@ -90,7 +96,33 @@ assert.match(
 );
 assert.match(service, /updated_at = NOW\(\),[\s\S]*next_attempt_at = NULL/);
 assert.match(storage, /s\.billing_mode = 'automatic'/);
-assert.match(storage, /s\.end_date IS NULL OR s\.end_date > \$1::timestamptz/);
+assert.match(
+  storage,
+  /TO_CHAR\(s\.next_billing_date, 'YYYY-MM-DD'\) AS next_billing_date/,
+);
+assert.match(
+  storage,
+  /s\.end_date IS NULL OR s\.end_date > \(\$1::timestamptz AT TIME ZONE 'America\/Chicago'\)/,
+);
+assert.doesNotMatch(service, /new Date\(subscription\.nextBillingDate\)/);
+assert.match(service, /cycleDate: subscription\.nextBillingDate/);
+assert.match(service, /claim_recurring_billing_cycles\(\$1, \$2, 1,/);
+assert.match(service, /claim_recurring_internal_sync_cycles\(\$1, \$2, 1,/);
+assert.match(service, /\[DurableBilling\]\[ALERT\] Due subscription skipped/);
+assert.match(
+  service,
+  /createAdminNotification\(\{[\s\S]*type: "recurring_billing_exception"/,
+);
+assert.match(service, /missing_payment_credentials/);
+assert.match(service, /unsupported_ach/);
+assert.doesNotMatch(
+  storage,
+  /AND pt\.payment_method_type = ANY\(\$2::text\[\]\)/,
+);
+assert.doesNotMatch(
+  storage,
+  /gp\.payer_type = 'group' AND \(t_group\.id IS NOT NULL/,
+);
 const dryRunBranch = service.slice(
   service.indexOf("if (dryRun) {"),
   service.indexOf("const run = await query", service.indexOf("if (dryRun) {")),
@@ -261,6 +293,34 @@ async function run() {
   assert.equal(leaseStore.finalize(cycle.processorReference), 1);
   assert.equal(leaseStore.finalize(cycle.processorReference), 1);
   assert.equal(leaseStore.payments.size, 1);
+
+  const leaseStates = ["ready", "ready"];
+  let releaseSlowProcessor!: () => void;
+  const slowProcessor = new Promise<void>((resolve) => {
+    releaseSlowProcessor = resolve;
+  });
+  const slowBatchPromise = processJustInTimeBatch<number>({
+    limit: 2,
+    async claimOne() {
+      const index = leaseStates.indexOf("ready");
+      if (index < 0) return null;
+      leaseStates[index] = "claimed";
+      return index;
+    },
+    async processOne(index) {
+      if (index === 0) await slowProcessor;
+      leaseStates[index] = "completed";
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    leaseStates,
+    ["claimed", "ready"],
+    "the later cycle must remain unleased while the first processor call is slow",
+  );
+  releaseSlowProcessor();
+  assert.equal(await slowBatchPromise, 2);
+  assert.deepEqual(leaseStates, ["completed", "completed"]);
 
   const february = calculateNextBillingDate(
     new Date("2027-01-31T00:00:00.000Z"),
