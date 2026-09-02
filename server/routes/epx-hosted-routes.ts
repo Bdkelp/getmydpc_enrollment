@@ -6193,7 +6193,22 @@ router.put(
               ? externalProcessedAt.trim()
               : new Date().toISOString(),
           updatedBy: req.user.email,
+          billingMode: "manual_external",
         };
+      }
+
+      if (status === "succeeded" && externalProcessing) {
+        const linkedSubscription = currentPayment.subscription_id
+          ? { id: Number(currentPayment.subscription_id) }
+          : currentPayment.member_id
+            ? await storage.getSubscriptionByMemberId(currentPayment.member_id)
+            : null;
+        if (linkedSubscription?.id) {
+          await storage.updateSubscription(linkedSubscription.id, {
+            billingMode: "manual_external",
+            updatedAt: new Date(),
+          });
+        }
       }
 
       // Update payment status
@@ -6387,7 +6402,7 @@ router.post(
         return res.status(409).json({
           success: false,
           error:
-            "No successful source payment found for this member. Refusing to fabricate a commission entitlement. Verify or record the payment first (see /api/admin/payments/:id/status or /api/admin/reconciliation/create-manual-payment), then retry.",
+            "No successful source payment found for this member. Refusing to fabricate a commission entitlement. Verify or record the payment through the Super Admin external-settlement workflow, then retry.",
           memberId,
           latestPaymentStatus: sourcePayment?.status || null,
         });
@@ -6499,7 +6514,7 @@ router.post(
         details: [] as any[],
         // Members where no successful source payment could be found — no
         // commission is fabricated for these; surfaced for manual follow-up
-        // (e.g. via /api/admin/reconciliation/create-manual-payment first).
+        // through the Super Admin external-settlement workflow first.
         unresolvedMembers: [] as any[],
       };
 

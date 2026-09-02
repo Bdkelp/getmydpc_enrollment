@@ -3316,6 +3316,55 @@ export async function updateMemberStatus(
   }
 }
 
+export async function cancelMemberSubscriptionAtomic(input: {
+  memberId: number;
+  subscriptionId: number;
+  immediate: boolean;
+  requestedAt: string;
+  effectiveAt: string;
+  reason: string;
+  reasonCode: string;
+  actorId: string;
+  actorType: string;
+  internalNotes: string | null;
+  serviceUsageStatus: string | null;
+  serviceUsageSource: string;
+  refundEligibility: string;
+  refundEligibilityReason: string;
+  refundEvaluatedAt: string;
+  refundStatus: string;
+  pendingDetails: Record<string, unknown>;
+}): Promise<{ member: any; subscription: any }> {
+  const { data, error } = await supabase.rpc(
+    "cancel_member_subscription_atomic",
+    {
+      p_member_id: input.memberId,
+      p_subscription_id: input.subscriptionId,
+      p_immediate: input.immediate,
+      p_requested_at: input.requestedAt,
+      p_effective_at: input.effectiveAt,
+      p_reason: input.reason,
+      p_reason_code: input.reasonCode,
+      p_actor_id: input.actorId,
+      p_actor_type: input.actorType,
+      p_internal_notes: input.internalNotes,
+      p_service_usage_status: input.serviceUsageStatus,
+      p_service_usage_source: input.serviceUsageSource,
+      p_refund_eligibility: input.refundEligibility,
+      p_refund_eligibility_reason: input.refundEligibilityReason,
+      p_refund_evaluated_at: input.refundEvaluatedAt,
+      p_refund_status: input.refundStatus,
+      p_pending_details: input.pendingDetails,
+    },
+  );
+
+  if (error) {
+    throw new Error(`Failed to cancel membership atomically: ${error.message}`);
+  }
+
+  return data as { member: any; subscription: any };
+}
+
 export async function activateMembershipNow(
   memberId: string | number,
   options?: { note?: string; initiatedBy?: string },
@@ -7629,9 +7678,9 @@ export interface BillableSubscription {
   groupId: string | null;
   groupName: string | null;
   tokenOwnerType: "member" | "group";
-  tokenId: number;
-  bricToken: string;
-  paymentMethodType: string;
+  tokenId: number | null;
+  bricToken: string | null;
+  paymentMethodType: string | null;
   tokenOriginalNetworkTransId: string | null;
   latestPaymentAuthGuid: string | null;
   processorReferenceConflict: boolean;
@@ -7665,6 +7714,7 @@ export async function getSubscriptionsDueForBilling(
   options?: {
     includeACH?: boolean;
     controlledRetrySubscriptionIds?: number[];
+    subscriptionIds?: number[];
   },
 ): Promise<BillableSubscription[]> {
   const includeACH = options?.includeACH === true;
@@ -7679,6 +7729,13 @@ export async function getSubscriptionsDueForBilling(
     ? ["CreditCard", "ACH"]
     : ["CreditCard"];
   const billingReadyStatuses = getRecurringBillingReadySubscriptionStatuses();
+  const subscriptionIds = Array.from(
+    new Set(
+      (options?.subscriptionIds || []).filter(
+        (id) => Number.isInteger(id) && id > 0,
+      ),
+    ),
+  );
 
   const paymentTokenColumnNames = [
     "group_id",
@@ -7716,7 +7773,6 @@ export async function getSubscriptionsDueForBilling(
         WHERE gp.group_id IS NOT NULL
           AND pt.group_id = gp.group_id
           AND pt.is_active = true
-          AND pt.payment_method_type = ANY($2::text[])
       `
     : "WHERE 1=0";
 
@@ -7748,7 +7804,7 @@ export async function getSubscriptionsDueForBilling(
         s.member_id,
         s.plan_id,
         s.amount,
-        s.next_billing_date,
+        TO_CHAR(s.next_billing_date, 'YYYY-MM-DD') AS next_billing_date,
         CASE WHEN gp.payer_type = 'group' THEN 'group' ELSE 'member' END AS payer_type,
         CASE
           WHEN gp.payer_type = 'group' THEN COALESCE(gp.group_id, s.member_id::text)
@@ -7864,8 +7920,9 @@ export async function getSubscriptionsDueForBilling(
         WHERE pt.member_id = s.member_id
           ${memberTokenGroupFilter}
           AND pt.is_active = true
-          AND pt.payment_method_type = ANY($2::text[])
-        ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
+        ORDER BY
+          CASE WHEN pt.payment_method_type = ANY($2::text[]) THEN 0 ELSE 1 END,
+          pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
       ) t_member ON true
       LEFT JOIN LATERAL (
@@ -7883,7 +7940,9 @@ export async function getSubscriptionsDueForBilling(
           pt.bank_account_last_four
         FROM payment_tokens pt
         ${groupTokenWhereClause}
-        ORDER BY pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
+        ORDER BY
+          CASE WHEN pt.payment_method_type = ANY($2::text[]) THEN 0 ELSE 1 END,
+          pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
         LIMIT 1
       ) t_group ON true
       LEFT JOIN LATERAL (
@@ -7921,17 +7980,15 @@ export async function getSubscriptionsDueForBilling(
         LIMIT 1
       ) retry_gate ON true
       WHERE s.status = ANY($3::text[])
+        AND s.billing_mode = 'automatic'
         AND s.member_id IS NOT NULL
         AND m.status = 'active'
         AND COALESCE(m.is_active, true) = true
-        AND (
-          (gp.payer_type = 'group' AND (t_group.id IS NOT NULL OR t_member.id IS NOT NULL))
-          OR
-          (COALESCE(gp.payer_type, 'member') <> 'group' AND t_member.id IS NOT NULL)
-        )
         AND s.next_billing_date IS NOT NULL
-        AND s.next_billing_date <= $1::timestamptz
+        AND s.next_billing_date <= ($1::timestamptz AT TIME ZONE 'America/Chicago')
+        AND (s.end_date IS NULL OR s.end_date > ($1::timestamptz AT TIME ZONE 'America/Chicago'))
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
+        AND ($7::int[] IS NULL OR s.id = ANY($7::int[]))
         AND (
           retry_gate.status IS DISTINCT FROM 'failed'
           OR (
@@ -7949,6 +8006,7 @@ export async function getSubscriptionsDueForBilling(
       [...RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES],
       [...RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS],
       controlledRetrySubscriptionIds,
+      subscriptionIds.length > 0 ? subscriptionIds : null,
     ],
   );
 
@@ -8000,7 +8058,7 @@ export async function getSubscriptionsDueForBilling(
 export interface RecurringBillingLogEntry {
   subscriptionId: number;
   memberId: number;
-  paymentTokenId: number;
+  paymentTokenId: number | null;
   paymentMethodType?: string | null;
   amount: string;
   billingDate: string;
@@ -8053,18 +8111,12 @@ export interface UpsertGroupPaymentTokenInput {
 export async function upsertMemberPaymentToken(
   input: UpsertPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const normalizedToken = normalizeProcessorReference(
-    input.token,
-    "BRIC token",
-    16,
-    64,
-  );
-  const normalizedOriginalNetworkTransId = input.originalNetworkTransId
-    ? normalizeProcessorReference(
-        input.originalNetworkTransId,
-        "Original network transaction ID",
-      )
+  const credential = requireCanonicalPaymentCredential(input.token);
+  const originalNetworkTransId = input.originalNetworkTransId
+    ? requireCanonicalPaymentCredential(input.originalNetworkTransId)
     : null;
+  const distinctOriginalNetworkTransId =
+    originalNetworkTransId !== credential ? originalNetworkTransId : null;
 
   // Keep one active primary token per member + payment method type.
   await query(
@@ -8127,12 +8179,12 @@ export async function upsertMemberPaymentToken(
     [
       input.memberId,
       input.paymentMethodType,
-      normalizedToken,
+      credential,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      normalizedOriginalNetworkTransId,
+      distinctOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
       input.bankAccountNumber?.replace(/\D/g, "") || null,
       input.bankAccountLastFour ?? null,
@@ -8148,18 +8200,12 @@ export async function upsertMemberPaymentToken(
 export async function upsertGroupPaymentToken(
   input: UpsertGroupPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const normalizedToken = normalizeProcessorReference(
-    input.token,
-    "BRIC token",
-    16,
-    64,
-  );
-  const normalizedOriginalNetworkTransId = input.originalNetworkTransId
-    ? normalizeProcessorReference(
-        input.originalNetworkTransId,
-        "Original network transaction ID",
-      )
+  const credential = requireCanonicalPaymentCredential(input.token);
+  const originalNetworkTransId = input.originalNetworkTransId
+    ? requireCanonicalPaymentCredential(input.originalNetworkTransId)
     : null;
+  const distinctOriginalNetworkTransId =
+    originalNetworkTransId !== credential ? originalNetworkTransId : null;
 
   await query(
     `
@@ -8223,12 +8269,12 @@ export async function upsertGroupPaymentToken(
     [
       input.groupId,
       input.paymentMethodType,
-      normalizedToken,
+      credential,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      normalizedOriginalNetworkTransId,
+      distinctOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
       input.bankAccountNumber?.replace(/\D/g, "") || null,
       input.bankAccountLastFour ?? null,
@@ -9058,6 +9104,91 @@ export async function createAdminNotification(notification: {
     console.error("[Storage] Failed to create admin notification:", error);
     throw error;
   }
+}
+
+export async function upsertRecurringBillingExceptionNotification(input: {
+  memberId: number;
+  subscriptionId: number;
+  cycleDate: string;
+  reason: string;
+  metadata?: Record<string, any>;
+}): Promise<any> {
+  const metadata = JSON.stringify({
+    ...(input.metadata || {}),
+    cycleDate: input.cycleDate,
+  });
+  const values = [
+    input.subscriptionId,
+    input.cycleDate,
+    input.reason,
+    input.memberId,
+    metadata,
+  ];
+  const result = await query(
+    `WITH superseded AS (
+       UPDATE public.admin_notifications
+       SET resolved = true, resolved_at = NOW(), resolved_by = NULL
+       WHERE type = 'recurring_billing_exception'
+         AND subscription_id = $1
+         AND metadata->>'cycleDate' = $2
+         AND error_message IS DISTINCT FROM $3
+         AND resolved = false
+       RETURNING id
+     ), refreshed AS (
+       UPDATE public.admin_notifications
+       SET member_id = $4, metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+           created_at = NOW()
+       WHERE type = 'recurring_billing_exception'
+         AND subscription_id = $1
+         AND metadata->>'cycleDate' = $2
+         AND error_message = $3
+         AND resolved = false
+       RETURNING *
+     ), inserted AS (
+       INSERT INTO public.admin_notifications (
+         type, member_id, subscription_id, error_message, metadata, resolved, created_at
+       )
+       SELECT 'recurring_billing_exception', $4, $1, $3, $5::jsonb, false, NOW()
+       WHERE NOT EXISTS (SELECT 1 FROM refreshed)
+         AND (SELECT COUNT(*) FROM superseded) >= 0
+       ON CONFLICT DO NOTHING
+       RETURNING *
+     )
+     SELECT * FROM refreshed
+     UNION ALL
+     SELECT * FROM inserted
+     LIMIT 1`,
+    values,
+  );
+  if (result.rows[0]) return result.rows[0];
+
+  const existing = await query(
+    `SELECT * FROM public.admin_notifications
+     WHERE type = 'recurring_billing_exception'
+       AND subscription_id = $1
+       AND metadata->>'cycleDate' = $2
+       AND error_message = $3
+       AND resolved = false
+     LIMIT 1`,
+    values.slice(0, 3),
+  );
+  return existing.rows[0] || null;
+}
+
+export async function resolveRecurringBillingExceptionNotifications(input: {
+  subscriptionId: number;
+  cycleDate: string;
+}): Promise<number> {
+  const result = await query(
+    `UPDATE public.admin_notifications
+     SET resolved = true, resolved_at = NOW(), resolved_by = NULL
+     WHERE type = 'recurring_billing_exception'
+       AND subscription_id = $1
+       AND metadata->>'cycleDate' = $2
+       AND resolved = false`,
+    [input.subscriptionId, input.cycleDate],
+  );
+  return result.rowCount || 0;
 }
 
 /**
@@ -10074,6 +10205,7 @@ export const storage = {
   setAgencyAssignments,
   getEnrollmentDetails,
   updateMemberStatus,
+  cancelMemberSubscriptionAtomic,
   activateMembershipNow,
   getMembersOnly,
   recordEnrollmentModification,
@@ -10132,6 +10264,7 @@ export const storage = {
         userId: raw.user_id,
         planId: raw.plan_id,
         status: raw.status,
+        billingMode: raw.billing_mode || "automatic",
         pendingReason: raw.pending_reason,
         pendingDetails: raw.pending_details,
         startDate: raw.start_date,
@@ -10289,6 +10422,8 @@ export const storage = {
       dbUpdates.pending_reason = updates.pendingReason;
     if (updates.pendingDetails !== undefined)
       dbUpdates.pending_details = updates.pendingDetails;
+    if (updates.billingMode !== undefined)
+      dbUpdates.billing_mode = updates.billingMode;
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
     if (updates.nextBillingDate !== undefined)
       dbUpdates.next_billing_date = updates.nextBillingDate;

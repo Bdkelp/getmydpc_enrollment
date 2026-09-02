@@ -8,21 +8,19 @@ import { storage, getPlatformSetting, upsertPlatformSetting } from "../storage";
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole, isAtLeastAdmin } from "../auth/roles";
 import { query } from "../lib/neonDb";
+import { supabaseAdmin as supabase } from "../lib/supabaseClient";
 import { getRecentEPXLogs } from "../services/epx-payment-logger";
 import {
-  getRecurringBillingSchedulerStatus,
-  runRecurringBillingCycleOnce,
-} from "../services/recurring-billing-scheduler";
+  getDurableBillingConfiguration,
+  runDurableRecurringBilling,
+} from "../services/durable-recurring-billing-service";
 import {
   syncCommissionLedgerFromFeed,
   buildDraftPayoutBatches,
   getPayoutDashboardData,
 } from "../services/commission-ledger-service";
 import { getHistoricalCutoverSchemaStatus } from "../services/historical-commission-external-settlement-service";
-import {
-  redactResolvedPaymentCredential,
-  resolveCanonicalPaymentCredential,
-} from "../services/payment-credential";
+import { resolveCanonicalPaymentCredential } from "../services/payment-credential";
 import { calculateNextBillingDate } from "../utils/membership-dates";
 import * as fs from "fs";
 import * as path from "path";
@@ -36,14 +34,17 @@ const DEFAULT_RECURRING_SCHEDULER_STALE_ALERT_MINUTES = 180;
 
 type OperatorMode = "preview" | "live";
 
-const maskAuthGuid = (value: string | null | undefined): string | null => {
-  if (!value) return null;
-  const normalized = String(value).trim();
-  if (!normalized) return null;
-  return normalized.length > 8
-    ? `${normalized.slice(0, 4)}****${normalized.slice(-4)}`
-    : "********";
-};
+const looksLikeLegacyEncryptedValue = (value: string): boolean =>
+  /^[0-9A-Fa-f]+:[0-9A-Fa-f]+$/.test(value.trim());
+
+const parseSubscriptionIds = (value: unknown): number[] =>
+  Array.from(
+    new Set<number>(
+      (Array.isArray(value) ? value : [])
+        .map((item: unknown) => Number(item))
+        .filter((item: number) => Number.isInteger(item) && item > 0),
+    ),
+  );
 
 const isUsableAuthGuid = (
   value: string | null | undefined,
@@ -103,6 +104,12 @@ const resolveAuthGuidForRepairRow = (
     Number.isFinite(paymentDate) && Number.isFinite(nextBillingDate)
       ? (nextBillingDate - paymentDate) / (24 * 60 * 60 * 1000)
       : Number.NaN;
+  const midStatus: "verified" | "not_available" | "failed" =
+    paymentMid && receiptMid
+      ? paymentMid === receiptMid
+        ? "verified"
+        : "failed"
+      : "not_available";
   const provenance = {
     memberMatch:
       String(row?.payment_member_id || "") === String(row?.member_id || ""),
@@ -122,12 +129,7 @@ const resolveAuthGuidForRepairRow = (
       Number.isFinite(cycleDistanceDays) &&
       cycleDistanceDays >= 20 &&
       cycleDistanceDays <= 40,
-    midStatus:
-      paymentMid && receiptMid
-        ? paymentMid === receiptMid
-          ? "verified"
-          : "failed"
-        : "not_available",
+    midStatus,
   };
   const paymentAuthGuid =
     typeof row?.epx_auth_guid === "string" ? row.epx_auth_guid.trim() : "";
@@ -156,7 +158,7 @@ const resolveAuthGuidForRepairRow = (
   }
 
   if (
-    !looksLikeEncryptedToken(tokenValue) &&
+    !looksLikeLegacyEncryptedValue(tokenValue) &&
     isUsableAuthGuid(tokenValue) &&
     row?.bric_conflict !== true
   ) {
@@ -175,7 +177,7 @@ const resolveAuthGuidForRepairRow = (
     unresolvedReason:
       row?.payment_auth_conflict === true || row?.bric_conflict === true
         ? "Processor reference conflicts across member records"
-        : looksLikeEncryptedToken(tokenValue)
+        : looksLikeLegacyEncryptedValue(tokenValue)
           ? "Legacy encrypted-looking platform value requires one-time conversion"
           : "No usable platform-stored EPX reference is available",
   };
@@ -415,12 +417,18 @@ router.get(
         return res.status(403).json({ error: "Admin access required" });
       }
 
-      const status = getRecurringBillingSchedulerStatus();
+      const configuration = getDurableBillingConfiguration();
       const health = await getRecurringSchedulerHealthSnapshot();
 
       res.json({
         success: true,
-        scheduler: status,
+        scheduler: {
+          running: false,
+          triggerMode: "external_only",
+          enabled: configuration.enabled,
+          dryRun: configuration.defaultDryRun,
+          killSwitch: configuration.killSwitchActive,
+        },
         health,
       });
     } catch (error: any) {
@@ -452,64 +460,24 @@ router.post(
       const forceDryRun =
         typeof requestedDryRun === "boolean" ? requestedDryRun : true;
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
-      const subscriptionIds = Array.from(
-        new Set(
-          (Array.isArray(req.body?.subscriptionIds)
-            ? req.body.subscriptionIds
-            : []
-          )
-            .map((value: unknown) => Number(value))
-            .filter((value: number) => Number.isInteger(value) && value > 0),
-        ),
-      );
-      const controlledRetrySubscriptionIds = Array.from(
-        new Set(
-          (Array.isArray(req.body?.controlledRetrySubscriptionIds)
-            ? req.body.controlledRetrySubscriptionIds
-            : []
-          )
-            .map((value: unknown) => Number(value))
-            .filter((value: number) => Number.isInteger(value) && value > 0),
-        ),
-      );
-
+      const subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
       if (forceDryRun === false && !isSuperAdmin) {
         return res.status(403).json({
           success: false,
           error: "Only super admin can override dry-run mode",
         });
       }
-      if (controlledRetrySubscriptionIds.length > 0 && !isSuperAdmin) {
-        return res.status(403).json({
-          success: false,
-          error: "Only super admin can approve a controlled retry",
-        });
-      }
-      if (
-        forceDryRun === false &&
-        controlledRetrySubscriptionIds.length > 0 &&
-        req.body?.confirmedNoExternalCapture !== true
-      ) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Controlled live retry requires confirmedNoExternalCapture=true after EPX/North review",
-        });
-      }
-
-      const requestedBy = req.user.email || req.user.id || "unknown-admin";
-      const result = await runRecurringBillingCycleOnce({
-        forceDryRun,
-        requestedBy,
+      const result = await runDurableRecurringBilling({
+        dryRun: forceDryRun,
+        triggerSource: "manual",
         subscriptionIds:
           subscriptionIds.length > 0 ? subscriptionIds : undefined,
-        controlledRetrySubscriptionIds,
       });
 
       res.json({
         success: true,
         run: result,
-        scheduler: getRecurringBillingSchedulerStatus(),
+        scheduler: getDurableBillingConfiguration(),
       });
     } catch (error: any) {
       console.error(
@@ -540,6 +508,7 @@ router.post(
       const modeRaw = String(req.body?.mode || "preview").toLowerCase();
       const mode: OperatorMode = modeRaw === "live" ? "live" : "preview";
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
+      const subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
 
       if (mode === "live" && !isSuperAdmin) {
         return res.status(403).json({
@@ -559,36 +528,17 @@ router.post(
         });
       }
 
-      const requestedBy = req.user.email || req.user.id || "unknown-admin";
-      const run = await runRecurringBillingCycleOnce({
-        forceDryRun: mode !== "live",
-        requestedBy,
+      const run = await runDurableRecurringBilling({
+        dryRun: mode !== "live",
+        triggerSource: "manual",
+        subscriptionIds:
+          subscriptionIds.length > 0 ? subscriptionIds : undefined,
       });
-
-      const scheduler = getRecurringBillingSchedulerStatus();
-      const recentDueDecisions = (
-        scheduler.launchDiagnostics?.recentDueDecisions || []
-      ).filter((entry: any) => {
-        return (
-          entry.source === "manual" &&
-          isRecentCycleEntry(entry.at, run.startedAt, run.completedAt)
-        );
-      });
-      const recentChargeAttempts = (
-        scheduler.launchDiagnostics?.recentChargeAttempts || []
-      ).filter((entry: any) => {
-        return (
-          entry.source === "manual" &&
-          isRecentCycleEntry(entry.at, run.startedAt, run.completedAt)
-        );
-      });
-
-      const dueRows = buildCycleRows(recentDueDecisions, recentChargeAttempts);
-      const billingOutcome = summarizeBillingOutcomes(recentChargeAttempts);
+      const scheduler = getDurableBillingConfiguration();
 
       if (mode === "preview") {
-        const readyPreviewCount = dueRows.filter(
-          (row) => row.readinessState === "ready_preview",
+        const readyPreviewCount = run.candidates.filter(
+          (row) => row.exclusionReason === null,
         ).length;
 
         return res.json({
@@ -596,8 +546,8 @@ router.post(
           mode,
           run,
           duePreview: {
-            dueCount: dueRows.length,
-            rows: dueRows,
+            dueCount: run.candidates.length,
+            rows: run.candidates,
             estimatedCommissionImpact: {
               potentialSuccessfulPayments: readyPreviewCount,
               estimatedCommissionEntries: readyPreviewCount,
@@ -606,80 +556,35 @@ router.post(
             note: "Preview only. No payments or commissions have been created.",
           },
           billingSummary: {
-            totalDue: dueRows.length,
-            ...billingOutcome,
+            totalDue: run.selected,
+            succeeded: run.succeeded,
+            declined: run.declined,
+            unknown: run.unknown,
+            skipped: run.skipped,
+            internalPending: run.internalPending,
           },
           commissionSchema,
           scheduler,
         });
       }
 
-      const succeededChargeAttempts = recentChargeAttempts.filter(
-        (entry: any) => entry.chargeAttemptResult === "success",
-      );
-      const failedOrSkippedRows = dueRows.filter(
-        (row) => row.chargeAttemptResult !== "success",
-      );
-      const billingEventIds = succeededChargeAttempts
-        .map((entry: any) => Number(entry.billingEventId))
-        .filter((id: number) => Number.isFinite(id));
-
-      const recurringLogRows = await loadRecurringLogRows(billingEventIds);
-      const successfulPaymentIds = Array.from(
-        new Set(
-          recurringLogRows
-            .map((row: any) => Number(row.payment_id))
-            .filter((id: number) => Number.isFinite(id) && id > 0),
-        ),
-      );
-
-      const commissionPayoutRows = await loadCommissionPayoutRowsForPayments(
-        successfulPaymentIds,
-        run.startedAt,
-      );
-      const paymentsWithCommission = Array.from(
-        new Set(
-          commissionPayoutRows
-            .map((row: any) => Number(row.member_payment_id))
-            .filter((id: number) => Number.isFinite(id)),
-        ),
-      );
-
-      const commissionFollowUp = await runCommissionFollowUpSequence();
-
       return res.json({
         success: true,
         mode,
         run,
         billingSummary: {
-          totalDue: dueRows.length,
-          ...billingOutcome,
+          totalDue: run.selected,
+          succeeded: run.succeeded,
+          declined: run.declined,
+          unknown: run.unknown,
+          skipped: run.skipped,
+          internalPending: run.internalPending,
         },
-        dueRows,
+        dueRows: run.candidates,
         commissionSummary: {
-          successfulPaymentsThatCreatedCommissionEntries:
-            paymentsWithCommission.length,
-          totalCommissionEntriesCreated: commissionPayoutRows.length,
-          payoutBatchesAffectedGenerated: (
-            commissionFollowUp.generatedBatches || []
-          ).map((batch: any) => ({
-            id: batch.id,
-            batchName: batch.batch_name,
-            totalRecords: batch.total_records,
-            totalAmount: batch.total_amount,
-          })),
-          membersOrAccountsWithNoCommissionBecausePaymentFailedSkipped:
-            failedOrSkippedRows.map((row) => ({
-              memberId: row.memberId,
-              memberOrAccountName: row.memberOrAccountName,
-              payerType: row.payerType,
-              reason:
-                row.skipReason ||
-                row.chargeAttemptResult ||
-                "failed_or_skipped",
-            })),
+          internalSynchronizationIsPerPayment: true,
+          internalPending: run.internalPending,
         },
-        commissionFollowUp,
         scheduler,
       });
     } catch (error: any) {
@@ -850,15 +755,17 @@ router.post(
             row.payment_auth_conflict === true || row.bric_conflict === true,
           candidateSourceType: isUsableTrustedAuthGuid(row.epx_auth_guid)
             ? "payments.epx_auth_guid"
-            : !looksLikeEncryptedToken(String(row.bric_token || "")) &&
+            : !looksLikeLegacyEncryptedValue(String(row.bric_token || "")) &&
                 isUsableAuthGuid(row.bric_token)
               ? "payment_tokens.bric_token_plain"
-              : looksLikeEncryptedToken(String(row.bric_token || ""))
+              : looksLikeLegacyEncryptedValue(String(row.bric_token || ""))
                 ? "legacy_encrypted_bric"
                 : "no_verified_processor_source",
           paymentCreatedAt: row.payment_created_at,
+          BRIC: row.bric_token || null,
+          AUTH_GUID: row.epx_auth_guid || null,
+          ORIG_AUTH_GUID: row.original_network_trans_id || null,
           resolvedAuthGuid: resolution.authGuid,
-          resolvedAuthGuidMasked: maskAuthGuid(resolution.authGuid),
           resolutionSource: resolution.source,
           provenance: resolution.provenance,
           unresolvedReason: resolution.unresolvedReason,
@@ -903,6 +810,10 @@ router.post(
           amount_match: row.provenance.amountMatch,
           payment_status: row.paymentStatus,
           payment_date: row.paymentDate,
+          BRIC: row.BRIC,
+          AUTH_GUID: row.AUTH_GUID,
+          ORIG_AUTH_GUID: row.ORIG_AUTH_GUID,
+          resolved_auth_guid: row.resolvedAuthGuid,
           mid_match_or_na: row.provenance.midStatus,
           repair_action: autoRepairAllowed
             ? "backfill_original_network_trans_id"
@@ -933,8 +844,11 @@ router.post(
       const updated: Array<{
         tokenId: number;
         memberId: string;
-        paymentId: number;
-        authGuidMasked: string | null;
+        paymentId: number | null;
+        BRIC: string | null;
+        AUTH_GUID: string | null;
+        ORIG_AUTH_GUID: string | null;
+        resolvedAuthGuid: string;
       }> = [];
 
       for (const row of resolvableCandidates) {
@@ -959,8 +873,11 @@ router.post(
           updated.push({
             tokenId: row.tokenId,
             memberId: row.memberId,
-            paymentId: row.paymentId,
-            authGuidMasked: row.resolvedAuthGuidMasked,
+            paymentId: row.paymentId || null,
+            BRIC: row.BRIC,
+            AUTH_GUID: row.AUTH_GUID,
+            ORIG_AUTH_GUID: row.resolvedAuthGuid,
+            resolvedAuthGuid: String(row.resolvedAuthGuid),
           });
         }
       }

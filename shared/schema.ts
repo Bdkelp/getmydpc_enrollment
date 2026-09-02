@@ -243,6 +243,7 @@ export const subscriptions = pgTable(
     status: varchar("status").notNull(), // active, cancelled, suspended, pending
     pendingReason: varchar("pending_reason"), // payment_required, verification_needed, missing_documents, agent_review
     pendingDetails: text("pending_details"), // Additional details about why it's pending
+    billingMode: varchar("billing_mode").default("automatic").notNull(), // automatic, manual_external, disabled
     startDate: timestamp("start_date").defaultNow(),
     endDate: timestamp("end_date"),
     nextBillingDate: timestamp("next_billing_date"),

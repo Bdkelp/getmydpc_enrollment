@@ -13,8 +13,8 @@ dotenv.config();
 
 // Fix SSL certificate validation issues in production (DigitalOcean App Platform)
 // This is needed for Supabase connections when DO injects custom certs
-if (process.env.NODE_ENV === 'production') {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+if (process.env.NODE_ENV === "production") {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 }
 
 import express, { type Request, Response, NextFunction } from "express";
@@ -23,11 +23,10 @@ import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
-import { scheduleRecurringBilling } from "./services/recurring-billing-scheduler";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
-import debugPaymentsRoutes from './routes/debug-payments';
-import debugRecentPaymentsRoutes from './routes/debug-recent-payments';
+import debugPaymentsRoutes from "./routes/debug-payments";
+import debugRecentPaymentsRoutes from "./routes/debug-recent-payments";
 import devUtilitiesRoutes from "./routes/dev-utilities";
 import epxCertificationRoutes from "./routes/epx-certification";
 import adminNotificationsRoutes from "./routes/admin-notifications";
@@ -37,6 +36,7 @@ import { initializePaymentEnvironment } from "./services/payment-environment-ser
 import groupEnrollmentRoutes from "./routes/group-enrollment";
 import paymentReconciliationRoutes from "./routes/payment-reconciliation";
 import paymentDiagnosticRoutes from "./routes/payment-diagnostic";
+import internalRecurringBillingRoutes from "./routes/internal-recurring-billing";
 import paymentTrackingRoutes from "./routes/payment-tracking";
 import financialExceptionRoutes from "./routes/financial-exceptions";
 import { scheduleFinancialReconciliation } from "./services/financial-reconciliation-worker";
@@ -69,7 +69,7 @@ app.use(
       "https://getmydpc-enrollment-gjk6m.ondigitalocean.app",
       "https://enrollment.getmydpc.com",
       "http://localhost:5173",
-      "http://localhost:5000"
+      "http://localhost:5000",
     ],
     credentials: true,
     optionsSuccessStatus: 200,
@@ -77,8 +77,8 @@ app.use(
 );
 
 // Debug middleware to log all routes
-app.use('*', (req, res, next) => {
-  if (req.path.includes('/api/epx/')) {
+app.use("*", (req, res, next) => {
+  if (req.path.includes("/api/epx/")) {
     console.log(`[Route Debug] ${req.method} ${req.path} - EPX route accessed`);
   }
   next();
@@ -89,7 +89,7 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -98,7 +98,7 @@ app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -175,31 +175,35 @@ app.use((req, res, next) => {
     const env = await initializePaymentEnvironment();
     console.log(`[Server] Payment environment initialized: ${env}`);
   } catch (error: any) {
-    console.warn('[Server] Failed to initialize payment environment from storage:', error?.message || error);
+    console.warn(
+      "[Server] Failed to initialize payment environment from storage:",
+      error?.message || error,
+    );
   }
 
   // Register EPX Hosted Checkout routes (existing, always active)
-  app.use('/', epxHostedRoutes);
-  app.use('/', epxCertificationRoutes);
+  app.use("/", epxHostedRoutes);
+  app.use("/", epxCertificationRoutes);
   // Register literal agent routes before registerRoutes adds /api/agent/:agentId.
-  app.use('/', financialExceptionRoutes);
-  
+  app.use("/", financialExceptionRoutes);
+
   // Register all API routes
   const server = await registerRoutes(app);
 
   // Register additional admin/debug routes
-  app.use('/', adminLogsRoutes);
-  app.use('/', adminNotificationsRoutes);
-  app.use('/', discountCodesRoutes);
-  app.use('/', debugPaymentsRoutes);
-  app.use('/', debugRecentPaymentsRoutes);
-  app.use('/', devUtilitiesRoutes);
-  app.use('/', paymentsRoutes);
-  app.use('/', groupEnrollmentRoutes);
-  app.use('/', paymentReconciliationRoutes);
-  app.use('/', paymentDiagnosticRoutes);
-  app.use('/', paymentTrackingRoutes);
-  app.use('/api/payments/ach', achPaymentRoutes);
+  app.use("/", adminLogsRoutes);
+  app.use("/", adminNotificationsRoutes);
+  app.use("/", discountCodesRoutes);
+  app.use("/", debugPaymentsRoutes);
+  app.use("/", debugRecentPaymentsRoutes);
+  app.use("/", devUtilitiesRoutes);
+  app.use("/", paymentsRoutes);
+  app.use("/", groupEnrollmentRoutes);
+  app.use("/", paymentReconciliationRoutes);
+  app.use("/", paymentDiagnosticRoutes);
+  app.use("/", internalRecurringBillingRoutes);
+  app.use("/", paymentTrackingRoutes);
+  app.use("/api/payments/ach", achPaymentRoutes);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -211,52 +215,69 @@ app.use((req, res, next) => {
 
   // Serve frontend - different behavior for production vs development
   const isProduction = process.env.NODE_ENV === "production";
-  
+
   if (isProduction) {
     // Production: serve the built client from client/dist
-    const clientDistPath = path.resolve(__dirname, '../client/dist');
-    
+    const clientDistPath = path.resolve(__dirname, "../client/dist");
+
     console.log(`[Production] Serving static files from: ${clientDistPath}`);
-    console.log(`[Production] Directory exists: ${fs.existsSync(clientDistPath)}`);
-    
+    console.log(
+      `[Production] Directory exists: ${fs.existsSync(clientDistPath)}`,
+    );
+
     if (fs.existsSync(clientDistPath)) {
       // Serve static assets (JS, CSS, images, etc.)
-      app.use(express.static(clientDistPath, {
-        etag: true,
-        setHeaders: (res, filePath) => {
-          const normalizedPath = filePath.replace(/\\/g, '/');
+      app.use(
+        express.static(clientDistPath, {
+          etag: true,
+          setHeaders: (res, filePath) => {
+            const normalizedPath = filePath.replace(/\\/g, "/");
 
-          // Avoid stale index.html being cached and referencing removed hashed bundles.
-          if (normalizedPath.endsWith('/index.html')) {
-            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-            res.setHeader('Pragma', 'no-cache');
-            res.setHeader('Expires', '0');
-            return;
-          }
+            // Avoid stale index.html being cached and referencing removed hashed bundles.
+            if (normalizedPath.endsWith("/index.html")) {
+              res.setHeader(
+                "Cache-Control",
+                "no-store, no-cache, must-revalidate, proxy-revalidate",
+              );
+              res.setHeader("Pragma", "no-cache");
+              res.setHeader("Expires", "0");
+              return;
+            }
 
-          // Fingerprinted assets are safe to cache aggressively.
-          if (/\/assets\/.*-[A-Za-z0-9_-]{6,}\.[a-z0-9]+$/i.test(normalizedPath)) {
-            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-          }
-        },
-      }));
-      
+            // Fingerprinted assets are safe to cache aggressively.
+            if (
+              /\/assets\/.*-[A-Za-z0-9_-]{6,}\.[a-z0-9]+$/i.test(normalizedPath)
+            ) {
+              res.setHeader(
+                "Cache-Control",
+                "public, max-age=31536000, immutable",
+              );
+            }
+          },
+        }),
+      );
+
       // For any non-API route, serve the index.html (SPA fallback)
-      app.get('*', (req, res, next) => {
-        if (req.path.startsWith('/api')) {
+      app.get("*", (req, res, next) => {
+        if (req.path.startsWith("/api")) {
           return next();
         }
         // Never return HTML for missing asset files. This prevents module MIME errors.
-        if (req.path.startsWith('/assets/') || /\.[a-z0-9]+$/i.test(req.path)) {
-          return res.status(404).type('text/plain').send('Not found');
+        if (req.path.startsWith("/assets/") || /\.[a-z0-9]+$/i.test(req.path)) {
+          return res.status(404).type("text/plain").send("Not found");
         }
-        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-        res.setHeader('Pragma', 'no-cache');
-        res.setHeader('Expires', '0');
-        res.sendFile(path.join(clientDistPath, 'index.html'));
+        res.setHeader(
+          "Cache-Control",
+          "no-store, no-cache, must-revalidate, proxy-revalidate",
+        );
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.sendFile(path.join(clientDistPath, "index.html"));
       });
     } else {
-      console.warn(`[Production] Client dist folder not found at ${clientDistPath}`);
+      console.warn(
+        `[Production] Client dist folder not found at ${clientDistPath}`,
+      );
     }
   } else {
     // Development: use Vite dev server
@@ -266,41 +287,43 @@ app.use((req, res, next) => {
   // Use platform-provided PORT in production, fallback to 5000 for local dev
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 5000;
   const serverInstance = server.listen(port, "0.0.0.0", () => {
-      log(`serving on port ${port}`);
-      console.log(`Server running on port ${port}`);
-      console.log(`Environment: ${process.env.NODE_ENV}`);
-      console.log('EPX Hosted Checkout service configured and ready');
-      console.log('[Supabase Client Diagnostics]', getSupabaseClientDiagnostics());
+    log(`serving on port ${port}`);
+    console.log(`Server running on port ${port}`);
+    console.log(`Environment: ${process.env.NODE_ENV}`);
+    console.log("EPX Hosted Checkout service configured and ready");
+    console.log(
+      "[Supabase Client Diagnostics]",
+      getSupabaseClientDiagnostics(),
+    );
 
-      // Initialize weekly recap service
-      WeeklyRecapService.scheduleWeeklyRecap();
+    // Initialize weekly recap service
+    WeeklyRecapService.scheduleWeeklyRecap();
 
-      // Initialize membership activation scheduler
-      scheduleMembershipActivation();
+    // Initialize membership activation scheduler
+    scheduleMembershipActivation();
 
-      // Initialize recurring billing scheduler (card-only Phase 1)
-      scheduleRecurringBilling();
-      scheduleFinancialReconciliation();
+    // Recurring billing is invoked only by the protected external scheduler endpoint.
+    scheduleFinancialReconciliation();
 
-      // Validate EPX configuration
-      try {
-        console.log('[Server] Validating EPX configuration...');
-        console.log('[Server] EPX Environment Variables:', {
-            EPX_CUST_NBR: process.env.EPX_CUST_NBR || 'NOT SET',
-            EPX_MERCH_NBR: process.env.EPX_MERCH_NBR || 'NOT SET',
-            EPX_DBA_NBR: process.env.EPX_DBA_NBR || 'NOT SET',
-            EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || 'NOT SET',
-            EPX_MAC: process.env.EPX_MAC ? 'SET' : 'NOT SET',
-            EPX_MAC_KEY: process.env.EPX_MAC_KEY ? 'SET' : 'NOT SET',
-            MAC_RESOLVED: (process.env.EPX_MAC || process.env.EPX_MAC_KEY) ? 'SET' : 'NOT SET'
-          });
-      } catch (error: any) {
-        console.warn('[Server] EPX configuration check failed:', error.message);
-      }
+    // Validate EPX configuration
+    try {
+      console.log("[Server] Validating EPX configuration...");
+      console.log("[Server] EPX Environment Variables:", {
+        EPX_CUST_NBR: process.env.EPX_CUST_NBR || "NOT SET",
+        EPX_MERCH_NBR: process.env.EPX_MERCH_NBR || "NOT SET",
+        EPX_DBA_NBR: process.env.EPX_DBA_NBR || "NOT SET",
+        EPX_TERMINAL_NBR: process.env.EPX_TERMINAL_NBR || "NOT SET",
+        EPX_MAC: process.env.EPX_MAC ? "SET" : "NOT SET",
+        EPX_MAC_KEY: process.env.EPX_MAC_KEY ? "SET" : "NOT SET",
+        MAC_RESOLVED:
+          process.env.EPX_MAC || process.env.EPX_MAC_KEY ? "SET" : "NOT SET",
+      });
+    } catch (error: any) {
+      console.warn("[Server] EPX configuration check failed:", error.message);
+    }
 
-      return serverInstance;
-    },
-  );
+    return serverInstance;
+  });
 })();
 
 export default app;

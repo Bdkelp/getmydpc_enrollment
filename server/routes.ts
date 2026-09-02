@@ -4364,12 +4364,10 @@ router.patch(
       !Number.isFinite(memberId) ||
       !["refunded", "denied", "cancelled"].includes(refundStatus)
     ) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Valid member ID and refundStatus (refunded, denied, cancelled) are required",
-        });
+      return res.status(400).json({
+        message:
+          "Valid member ID and refundStatus (refunded, denied, cancelled) are required",
+      });
     }
     const now = new Date().toISOString();
     const { data: member, error: memberError } = await supabase
@@ -4830,12 +4828,10 @@ router.patch(
           normalizedReasonCode === "member_requested" &&
           !["yes", "no", "unknown"].includes(String(serviceUsageStatus || ""))
         ) {
-          return res
-            .status(400)
-            .json({
-              message:
-                "Service usage verification is required for member-requested cancellation",
-            });
+          return res.status(400).json({
+            message:
+              "Service usage verification is required for member-requested cancellation",
+          });
         }
         const cancellationRequestedAt = new Date().toISOString();
         const cancellationReason =
@@ -4862,49 +4858,44 @@ router.patch(
         let subscription = existingSubscription;
 
         if (immediateCancel) {
-          member = await storage.updateMemberStatus(memberId, "cancelled", {
-            reason: cancellationReason,
-            reasonCode: normalizedReasonCode,
-            requestedAt: cancellationRequestedAt,
-            effectiveAt: cancellationRequestedAt,
-            actorId: req.user.id,
-            actorType: "admin",
-            internalNotes:
-              typeof internalNotes === "string"
-                ? internalNotes.trim() || null
-                : null,
-            serviceUsageStatus: serviceUsageStatus || null,
-            serviceUsageSource: "admin_cancellation_workflow",
-            refundEligibility: refundEvaluation.eligibility,
-            refundEligibilityReason: refundEvaluation.reason,
-            refundEligibilityEvaluatedAt: cancellationRequestedAt,
-            refundStatus: refundEvaluation.refundStatus,
-          });
-
-          if (existingSubscription.status !== "cancelled") {
-            subscription = await storage.updateSubscription(
-              existingSubscription.id,
-              {
-                status: "cancelled",
-                pendingReason: "member_cancelled",
-                pendingDetails: JSON.stringify({
-                  reason: cancellationReason,
-                  reasonCode: normalizedReasonCode,
-                  internalNotes:
-                    typeof internalNotes === "string"
-                      ? internalNotes.trim() || null
-                      : null,
-                  serviceUsageStatus: serviceUsageStatus || null,
-                  refundEligibility: refundEvaluation,
-                  immediate: true,
-                  requestedByUserId: req.user.id,
-                  requestedByRole: req.user.role,
-                  requestedAt: new Date().toISOString(),
-                }),
-                updatedAt: new Date(),
+          const cancellationResult =
+            await storage.cancelMemberSubscriptionAtomic({
+              memberId: parsedMemberId,
+              subscriptionId: existingSubscription.id,
+              immediate: true,
+              requestedAt: cancellationRequestedAt,
+              effectiveAt: cancellationRequestedAt,
+              reason: cancellationReason,
+              reasonCode: normalizedReasonCode,
+              actorId: req.user.id,
+              actorType: "admin",
+              internalNotes:
+                typeof internalNotes === "string"
+                  ? internalNotes.trim() || null
+                  : null,
+              serviceUsageStatus: serviceUsageStatus || null,
+              serviceUsageSource: "admin_cancellation_workflow",
+              refundEligibility: refundEvaluation.eligibility,
+              refundEligibilityReason: refundEvaluation.reason,
+              refundEvaluatedAt: cancellationRequestedAt,
+              refundStatus: refundEvaluation.refundStatus,
+              pendingDetails: {
+                reason: cancellationReason,
+                reasonCode: normalizedReasonCode,
+                internalNotes:
+                  typeof internalNotes === "string"
+                    ? internalNotes.trim() || null
+                    : null,
+                serviceUsageStatus: serviceUsageStatus || null,
+                refundEligibility: refundEvaluation,
+                immediate: true,
+                requestedByUserId: req.user.id,
+                requestedByRole: req.user.role,
+                requestedAt: cancellationRequestedAt,
               },
-            );
-          }
+            });
+          member = cancellationResult.member;
+          subscription = cancellationResult.subscription;
 
           try {
             await supabase.from("admin_logs").insert({
@@ -4947,57 +4938,41 @@ router.patch(
             -1,
           );
 
-          subscription = await storage.updateSubscription(
-            existingSubscription.id,
-            {
-              status: "active",
-              endDate: paidThroughDate,
-              pendingReason: "member_cancelled",
-              pendingDetails: JSON.stringify({
-                reason: cancellationReason,
-                immediate: false,
-                requestedByUserId: req.user.id,
-                requestedByRole: req.user.role,
-                requestedAt: new Date().toISOString(),
-                paidThroughDate,
-              }),
-              updatedAt: new Date(),
-            },
-          );
-
-          const { data: memberData, error: memberUpdateError } = await supabase
-            .from("members")
-            .update({
-              cancellation_date: new Date().toISOString(),
-              cancellation_reason: cancellationReason,
-              cancellation_requested_at: cancellationRequestedAt,
-              cancellation_effective_at: paidThroughDate,
-              cancellation_reason_code: normalizedReasonCode,
-              cancellation_actor_id: req.user.id,
-              cancellation_actor_type: "admin",
-              cancellation_internal_notes:
+          const cancellationResult =
+            await storage.cancelMemberSubscriptionAtomic({
+              memberId: parsedMemberId,
+              subscriptionId: existingSubscription.id,
+              immediate: false,
+              requestedAt: cancellationRequestedAt,
+              effectiveAt: new Date(
+                `${paidThroughDate}T00:00:00.000Z`,
+              ).toISOString(),
+              reason: cancellationReason,
+              reasonCode: normalizedReasonCode,
+              actorId: req.user.id,
+              actorType: "admin",
+              internalNotes:
                 typeof internalNotes === "string"
                   ? internalNotes.trim() || null
                   : null,
-              service_usage_status: serviceUsageStatus || null,
-              service_usage_verification_source: "admin_cancellation_workflow",
-              refund_eligibility: refundEvaluation.eligibility,
-              refund_eligibility_reason: refundEvaluation.reason,
-              refund_eligibility_evaluated_at: cancellationRequestedAt,
-              refund_status: refundEvaluation.refundStatus,
-              status: "active",
-              is_active: true,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", parsedMemberId)
-            .select("*")
-            .single();
-
-          if (memberUpdateError) {
-            throw memberUpdateError;
-          }
-
-          member = memberData;
+              serviceUsageStatus: serviceUsageStatus || null,
+              serviceUsageSource: "admin_cancellation_workflow",
+              refundEligibility: refundEvaluation.eligibility,
+              refundEligibilityReason: refundEvaluation.reason,
+              refundEvaluatedAt: cancellationRequestedAt,
+              refundStatus: refundEvaluation.refundStatus,
+              pendingDetails: {
+                reason: cancellationReason,
+                reasonCode: normalizedReasonCode,
+                immediate: false,
+                requestedByUserId: req.user.id,
+                requestedByRole: req.user.role,
+                requestedAt: cancellationRequestedAt,
+                paidThroughDate,
+              },
+            });
+          member = cancellationResult.member;
+          subscription = cancellationResult.subscription;
 
           await applyCancellationToLedger({
             memberId: String(parsedMemberId),
@@ -5275,7 +5250,10 @@ router.patch(
       });
     } catch (error: any) {
       console.error("Error updating membership:", error);
-      res.status(500).json({
+      const billingSubmissionInProgress = String(error?.message || "").includes(
+        "billing submission is in progress",
+      );
+      res.status(billingSubmissionInProgress ? 409 : 500).json({
         message: "Failed to update membership",
         error: error.message,
       });
@@ -12061,11 +12039,11 @@ export async function registerRoutes(app: any) {
             ? rawAccountNumber.replace(/\D/g, "").slice(-4)
             : null);
 
-        const [{ data: tokenRows }, { data: paymentRows }] = await Promise.all([
+        const [tokenResult, paymentResult] = await Promise.all([
           storage.supabase
             .from("payment_tokens")
             .select(
-              "id, payment_method_type, bric_token, original_network_trans_id, is_active, is_primary, created_at",
+              "id, payment_method_type, bric_token, original_network_trans_id, bank_routing_number, is_active, is_primary, created_at",
             )
             .eq("member_id", member.id)
             .order("is_active", { ascending: false })
@@ -12080,8 +12058,15 @@ export async function registerRoutes(app: any) {
             .order("created_at", { ascending: false })
             .limit(1),
         ]);
+        if (tokenResult.error) throw tokenResult.error;
+        if (paymentResult.error) throw paymentResult.error;
+        const tokenRows = tokenResult.data;
+        const paymentRows = paymentResult.data;
         const paymentToken = tokenRows?.[0] || null;
         const paymentReceipt = paymentRows?.[0] || null;
+        const rawTokenRoutingNumber = resolveReadableBankValue(
+          paymentToken?.bank_routing_number,
+        );
 
         // Log access for audit trail
         const accessLog = {
@@ -12157,7 +12142,9 @@ export async function registerRoutes(app: any) {
             },
             bankInfo: {
               routingNumber: revealBank ? rawRoutingNumber : null,
-              routingNumberReadable: rawRoutingNumber,
+              routingNumberMasked: maskLastFour(rawRoutingNumber),
+              tokenRoutingNumber: revealBank ? rawTokenRoutingNumber : null,
+              tokenRoutingNumberMasked: maskLastFour(rawTokenRoutingNumber),
               accountNumber: revealBank ? rawAccountNumber : null,
               accountLastFour,
               accountType: member.bankAccountType || null,
