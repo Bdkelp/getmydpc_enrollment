@@ -96,6 +96,9 @@ assert.match(
 );
 assert.match(service, /updated_at = NOW\(\),[\s\S]*next_attempt_at = NULL/);
 assert.match(storage, /s\.billing_mode = 'automatic'/);
+assert.match(storage, /paymentTokenId: number \| null/);
+assert.match(storage, /payment_token_id: entry\.paymentTokenId/);
+assert.doesNotMatch(storage, /payment_token_id: entry\.paymentTokenId\s*\?\?/);
 assert.match(
   storage,
   /TO_CHAR\(s\.next_billing_date, 'YYYY-MM-DD'\) AS next_billing_date/,

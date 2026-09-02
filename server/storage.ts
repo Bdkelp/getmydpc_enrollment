@@ -8058,7 +8058,7 @@ export async function getSubscriptionsDueForBilling(
 export interface RecurringBillingLogEntry {
   subscriptionId: number;
   memberId: number;
-  paymentTokenId: number;
+  paymentTokenId: number | null;
   paymentMethodType?: string | null;
   amount: string;
   billingDate: string;
