@@ -47,7 +47,7 @@ try {
         CASE WHEN s.status <> 'active' THEN 'subscription_not_active' END,
         CASE WHEN m.status <> 'active' OR COALESCE(m.is_active, true) = false THEN 'member_not_active' END,
         CASE WHEN COALESCE(s.pending_reason, '') = 'member_cancelled' THEN 'cancellation_pending' END,
-        CASE WHEN s.end_date IS NOT NULL AND s.end_date <= NOW() THEN 'access_period_ended' END,
+        CASE WHEN s.termination_effective_at IS NOT NULL AND s.termination_effective_at <= NOW() THEN 'termination_effective' END,
         CASE WHEN s.next_billing_date IS NULL THEN 'missing_next_billing_date' END
       ) AS reason
     FROM public.subscriptions s
@@ -58,7 +58,7 @@ try {
         OR m.status <> 'active'
         OR COALESCE(m.is_active, true) = false
         OR COALESCE(s.pending_reason, '') = 'member_cancelled'
-        OR (s.end_date IS NOT NULL AND s.end_date <= NOW())
+        OR (s.termination_effective_at IS NOT NULL AND s.termination_effective_at <= NOW())
         OR s.next_billing_date IS NULL
       )
     ORDER BY s.id

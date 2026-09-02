@@ -746,10 +746,13 @@ const scheduleLinkedMemberCancellationAtPeriodEnd = async (
   const paidThroughDate = new Date(nextBillingDate);
   paidThroughDate.setUTCDate(paidThroughDate.getUTCDate() - 1);
   const paidThroughDateIso = toIsoDateOnly(paidThroughDate);
+  const terminationEffectiveAt = new Date(
+    nextBillingDate.getTime() - 1,
+  ).toISOString();
 
   await storage.updateSubscription(subscription.id, {
     status: 'active',
-    endDate: paidThroughDateIso,
+    terminationEffectiveAt,
     pendingReason: 'member_cancelled',
     pendingDetails: JSON.stringify({
       source: 'group_member_termination',
@@ -766,6 +769,7 @@ const scheduleLinkedMemberCancellationAtPeriodEnd = async (
     .from('members')
     .update({
       cancellation_date: new Date().toISOString(),
+      cancellation_effective_at: terminationEffectiveAt,
       cancellation_reason: reason,
       status: 'active',
       is_active: true,
@@ -811,6 +815,7 @@ const reactivateLinkedMemberLifecycle = async (
     status: 'active',
     pendingReason: null,
     pendingDetails: null,
+    terminationEffectiveAt: null,
     cancellationReason: null,
     cancelledAt: null,
     updatedAt: now,

@@ -7986,7 +7986,10 @@ export async function getSubscriptionsDueForBilling(
         AND COALESCE(m.is_active, true) = true
         AND s.next_billing_date IS NOT NULL
         AND s.next_billing_date <= ($1::timestamptz AT TIME ZONE 'America/Chicago')
-        AND (s.end_date IS NULL OR s.end_date > ($1::timestamptz AT TIME ZONE 'America/Chicago'))
+        AND (
+          s.termination_effective_at IS NULL
+          OR s.termination_effective_at > $1::timestamptz
+        )
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND ($7::int[] IS NULL OR s.id = ANY($7::int[]))
         AND (
@@ -10351,14 +10354,15 @@ export const storage = {
           status,
           amount,
           start_date,
-          end_date,
+          current_period_start,
+          current_period_end,
           pending_reason,
           pending_details,
           next_billing_date,
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW()
         )
         RETURNING *;
       `;
@@ -10370,9 +10374,8 @@ export const storage = {
         sub.status || "pending_payment",
         sub.amount,
         sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
-        sub.currentPeriodEnd ||
-          sub.endDate ||
-          new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        sub.currentPeriodStart || sub.startDate || new Date().toISOString(),
+        sub.currentPeriodEnd || sub.nextBillingDate || null,
         sub.pendingReason || null,
         sub.pendingDetails || null,
         sub.nextBillingDate || null,
@@ -10400,8 +10403,9 @@ export const storage = {
         startDate: data.start_date,
         endDate: data.end_date,
         nextBillingDate: data.next_billing_date,
-        currentPeriodStart: data.start_date, // Map for compatibility
-        currentPeriodEnd: data.end_date, // Map for compatibility
+        currentPeriodStart: data.current_period_start,
+        currentPeriodEnd: data.current_period_end,
+        terminationEffectiveAt: data.termination_effective_at,
         amount: parseFloat(data.amount),
         createdAt: data.created_at,
         updatedAt: data.updated_at,
@@ -10425,6 +10429,12 @@ export const storage = {
     if (updates.billingMode !== undefined)
       dbUpdates.billing_mode = updates.billingMode;
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
+    if (updates.currentPeriodStart !== undefined)
+      dbUpdates.current_period_start = updates.currentPeriodStart;
+    if (updates.currentPeriodEnd !== undefined)
+      dbUpdates.current_period_end = updates.currentPeriodEnd;
+    if (updates.terminationEffectiveAt !== undefined)
+      dbUpdates.termination_effective_at = updates.terminationEffectiveAt;
     if (updates.nextBillingDate !== undefined)
       dbUpdates.next_billing_date = updates.nextBillingDate;
     if (updates.updatedAt !== undefined)
@@ -10453,6 +10463,9 @@ export const storage = {
       pendingDetails: updatedSub.pending_details,
       startDate: updatedSub.start_date,
       endDate: updatedSub.end_date,
+      currentPeriodStart: updatedSub.current_period_start,
+      currentPeriodEnd: updatedSub.current_period_end,
+      terminationEffectiveAt: updatedSub.termination_effective_at,
       nextBillingDate: updatedSub.next_billing_date,
       amount: updatedSub.amount,
       createdAt: updatedSub.created_at,

@@ -106,7 +106,7 @@ async function advanceBillingDateIdempotently(options: RecurringPostSuccessOptio
 
   const { data: currentSub, error: readError } = await supabase
     .from('subscriptions')
-    .select('id, next_billing_date, start_date')
+    .select('id, next_billing_date, start_date, current_period_start, current_period_end')
     .eq('id', options.subscriptionId)
     .single();
 
@@ -144,6 +144,8 @@ async function advanceBillingDateIdempotently(options: RecurringPostSuccessOptio
   const { data: updatedRows, error: updateError } = await supabase
     .from('subscriptions')
     .update({
+      current_period_start: currentNextBillingDate,
+      current_period_end: computedNextBillingDate,
       next_billing_date: computedNextBillingDate,
       updated_at: new Date().toISOString(),
     })

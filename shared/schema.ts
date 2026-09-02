@@ -245,7 +245,12 @@ export const subscriptions = pgTable(
     pendingDetails: text("pending_details"), // Additional details about why it's pending
     billingMode: varchar("billing_mode").default("automatic").notNull(), // automatic, manual_external, disabled
     startDate: timestamp("start_date").defaultNow(),
-    endDate: timestamp("end_date"),
+    endDate: timestamp("end_date"), // Deprecated legacy field; not authoritative for termination.
+    currentPeriodStart: timestamp("current_period_start"),
+    currentPeriodEnd: timestamp("current_period_end"),
+    terminationEffectiveAt: timestamp("termination_effective_at", {
+      withTimezone: true,
+    }),
     nextBillingDate: timestamp("next_billing_date"),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     epxSubscriptionId: varchar("epx_subscription_id", { length: 100 }).unique(), // EPX recurring billing subscription ID
