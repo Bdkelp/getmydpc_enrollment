@@ -11,8 +11,11 @@ import { query } from "../lib/neonDb";
 import { getRecentEPXLogs } from "../services/epx-payment-logger";
 import {
   getRecurringBillingSchedulerStatus,
-  runRecurringBillingCycleOnce,
 } from "../services/recurring-billing-scheduler";
+import {
+  getDurableBillingConfiguration,
+  runDurableRecurringBilling,
+} from "../services/durable-recurring-billing-service";
 import {
   syncCommissionLedgerFromFeed,
   buildDraftPayoutBatches,
@@ -462,54 +465,23 @@ router.post(
             .filter((value: number) => Number.isInteger(value) && value > 0),
         ),
       );
-      const controlledRetrySubscriptionIds = Array.from(
-        new Set(
-          (Array.isArray(req.body?.controlledRetrySubscriptionIds)
-            ? req.body.controlledRetrySubscriptionIds
-            : []
-          )
-            .map((value: unknown) => Number(value))
-            .filter((value: number) => Number.isInteger(value) && value > 0),
-        ),
-      );
-
       if (forceDryRun === false && !isSuperAdmin) {
         return res.status(403).json({
           success: false,
           error: "Only super admin can override dry-run mode",
         });
       }
-      if (controlledRetrySubscriptionIds.length > 0 && !isSuperAdmin) {
-        return res.status(403).json({
-          success: false,
-          error: "Only super admin can approve a controlled retry",
-        });
-      }
-      if (
-        forceDryRun === false &&
-        controlledRetrySubscriptionIds.length > 0 &&
-        req.body?.confirmedNoExternalCapture !== true
-      ) {
-        return res.status(400).json({
-          success: false,
-          error:
-            "Controlled live retry requires confirmedNoExternalCapture=true after EPX/North review",
-        });
-      }
-
-      const requestedBy = req.user.email || req.user.id || "unknown-admin";
-      const result = await runRecurringBillingCycleOnce({
-        forceDryRun,
-        requestedBy,
+      const result = await runDurableRecurringBilling({
+        dryRun: forceDryRun,
+        triggerSource: "manual",
         subscriptionIds:
           subscriptionIds.length > 0 ? subscriptionIds : undefined,
-        controlledRetrySubscriptionIds,
       });
 
       res.json({
         success: true,
         run: result,
-        scheduler: getRecurringBillingSchedulerStatus(),
+        scheduler: getDurableBillingConfiguration(),
       });
     } catch (error: any) {
       console.error(
@@ -559,36 +531,15 @@ router.post(
         });
       }
 
-      const requestedBy = req.user.email || req.user.id || "unknown-admin";
-      const run = await runRecurringBillingCycleOnce({
-        forceDryRun: mode !== "live",
-        requestedBy,
+      const run = await runDurableRecurringBilling({
+        dryRun: mode !== "live",
+        triggerSource: "manual",
       });
-
-      const scheduler = getRecurringBillingSchedulerStatus();
-      const recentDueDecisions = (
-        scheduler.launchDiagnostics?.recentDueDecisions || []
-      ).filter((entry: any) => {
-        return (
-          entry.source === "manual" &&
-          isRecentCycleEntry(entry.at, run.startedAt, run.completedAt)
-        );
-      });
-      const recentChargeAttempts = (
-        scheduler.launchDiagnostics?.recentChargeAttempts || []
-      ).filter((entry: any) => {
-        return (
-          entry.source === "manual" &&
-          isRecentCycleEntry(entry.at, run.startedAt, run.completedAt)
-        );
-      });
-
-      const dueRows = buildCycleRows(recentDueDecisions, recentChargeAttempts);
-      const billingOutcome = summarizeBillingOutcomes(recentChargeAttempts);
+      const scheduler = getDurableBillingConfiguration();
 
       if (mode === "preview") {
-        const readyPreviewCount = dueRows.filter(
-          (row) => row.readinessState === "ready_preview",
+        const readyPreviewCount = run.candidates.filter(
+          (row) => row.exclusionReason === null,
         ).length;
 
         return res.json({
@@ -596,8 +547,8 @@ router.post(
           mode,
           run,
           duePreview: {
-            dueCount: dueRows.length,
-            rows: dueRows,
+            dueCount: run.candidates.length,
+            rows: run.candidates,
             estimatedCommissionImpact: {
               potentialSuccessfulPayments: readyPreviewCount,
               estimatedCommissionEntries: readyPreviewCount,
@@ -606,80 +557,35 @@ router.post(
             note: "Preview only. No payments or commissions have been created.",
           },
           billingSummary: {
-            totalDue: dueRows.length,
-            ...billingOutcome,
+            totalDue: run.selected,
+            succeeded: run.succeeded,
+            declined: run.declined,
+            unknown: run.unknown,
+            skipped: run.skipped,
+            internalPending: run.internalPending,
           },
           commissionSchema,
           scheduler,
         });
       }
 
-      const succeededChargeAttempts = recentChargeAttempts.filter(
-        (entry: any) => entry.chargeAttemptResult === "success",
-      );
-      const failedOrSkippedRows = dueRows.filter(
-        (row) => row.chargeAttemptResult !== "success",
-      );
-      const billingEventIds = succeededChargeAttempts
-        .map((entry: any) => Number(entry.billingEventId))
-        .filter((id: number) => Number.isFinite(id));
-
-      const recurringLogRows = await loadRecurringLogRows(billingEventIds);
-      const successfulPaymentIds = Array.from(
-        new Set(
-          recurringLogRows
-            .map((row: any) => Number(row.payment_id))
-            .filter((id: number) => Number.isFinite(id) && id > 0),
-        ),
-      );
-
-      const commissionPayoutRows = await loadCommissionPayoutRowsForPayments(
-        successfulPaymentIds,
-        run.startedAt,
-      );
-      const paymentsWithCommission = Array.from(
-        new Set(
-          commissionPayoutRows
-            .map((row: any) => Number(row.member_payment_id))
-            .filter((id: number) => Number.isFinite(id)),
-        ),
-      );
-
-      const commissionFollowUp = await runCommissionFollowUpSequence();
-
       return res.json({
         success: true,
         mode,
         run,
         billingSummary: {
-          totalDue: dueRows.length,
-          ...billingOutcome,
+          totalDue: run.selected,
+          succeeded: run.succeeded,
+          declined: run.declined,
+          unknown: run.unknown,
+          skipped: run.skipped,
+          internalPending: run.internalPending,
         },
-        dueRows,
+        dueRows: run.candidates,
         commissionSummary: {
-          successfulPaymentsThatCreatedCommissionEntries:
-            paymentsWithCommission.length,
-          totalCommissionEntriesCreated: commissionPayoutRows.length,
-          payoutBatchesAffectedGenerated: (
-            commissionFollowUp.generatedBatches || []
-          ).map((batch: any) => ({
-            id: batch.id,
-            batchName: batch.batch_name,
-            totalRecords: batch.total_records,
-            totalAmount: batch.total_amount,
-          })),
-          membersOrAccountsWithNoCommissionBecausePaymentFailedSkipped:
-            failedOrSkippedRows.map((row) => ({
-              memberId: row.memberId,
-              memberOrAccountName: row.memberOrAccountName,
-              payerType: row.payerType,
-              reason:
-                row.skipReason ||
-                row.chargeAttemptResult ||
-                "failed_or_skipped",
-            })),
+          internalSynchronizationIsPerPayment: true,
+          internalPending: run.internalPending,
         },
-        commissionFollowUp,
         scheduler,
       });
     } catch (error: any) {

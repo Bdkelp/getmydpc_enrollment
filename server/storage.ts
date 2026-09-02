@@ -3316,6 +3316,55 @@ export async function updateMemberStatus(
   }
 }
 
+export async function cancelMemberSubscriptionAtomic(input: {
+  memberId: number;
+  subscriptionId: number;
+  immediate: boolean;
+  requestedAt: string;
+  effectiveAt: string;
+  reason: string;
+  reasonCode: string;
+  actorId: string;
+  actorType: string;
+  internalNotes: string | null;
+  serviceUsageStatus: string | null;
+  serviceUsageSource: string;
+  refundEligibility: string;
+  refundEligibilityReason: string;
+  refundEvaluatedAt: string;
+  refundStatus: string;
+  pendingDetails: Record<string, unknown>;
+}): Promise<{ member: any; subscription: any }> {
+  const { data, error } = await supabase.rpc(
+    "cancel_member_subscription_atomic",
+    {
+      p_member_id: input.memberId,
+      p_subscription_id: input.subscriptionId,
+      p_immediate: input.immediate,
+      p_requested_at: input.requestedAt,
+      p_effective_at: input.effectiveAt,
+      p_reason: input.reason,
+      p_reason_code: input.reasonCode,
+      p_actor_id: input.actorId,
+      p_actor_type: input.actorType,
+      p_internal_notes: input.internalNotes,
+      p_service_usage_status: input.serviceUsageStatus,
+      p_service_usage_source: input.serviceUsageSource,
+      p_refund_eligibility: input.refundEligibility,
+      p_refund_eligibility_reason: input.refundEligibilityReason,
+      p_refund_evaluated_at: input.refundEvaluatedAt,
+      p_refund_status: input.refundStatus,
+      p_pending_details: input.pendingDetails,
+    },
+  );
+
+  if (error) {
+    throw new Error(`Failed to cancel membership atomically: ${error.message}`);
+  }
+
+  return data as { member: any; subscription: any };
+}
+
 export async function activateMembershipNow(
   memberId: string | number,
   options?: { note?: string; initiatedBy?: string },
@@ -7921,6 +7970,7 @@ export async function getSubscriptionsDueForBilling(
         LIMIT 1
       ) retry_gate ON true
       WHERE s.status = ANY($3::text[])
+        AND s.billing_mode = 'automatic'
         AND s.member_id IS NOT NULL
         AND m.status = 'active'
         AND COALESCE(m.is_active, true) = true
@@ -7931,6 +7981,7 @@ export async function getSubscriptionsDueForBilling(
         )
         AND s.next_billing_date IS NOT NULL
         AND s.next_billing_date <= $1::timestamptz
+        AND (s.end_date IS NULL OR s.end_date > $1::timestamptz)
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND (
           retry_gate.status IS DISTINCT FROM 'failed'
@@ -10074,6 +10125,7 @@ export const storage = {
   setAgencyAssignments,
   getEnrollmentDetails,
   updateMemberStatus,
+  cancelMemberSubscriptionAtomic,
   activateMembershipNow,
   getMembersOnly,
   recordEnrollmentModification,
@@ -10132,6 +10184,7 @@ export const storage = {
         userId: raw.user_id,
         planId: raw.plan_id,
         status: raw.status,
+        billingMode: raw.billing_mode || "automatic",
         pendingReason: raw.pending_reason,
         pendingDetails: raw.pending_details,
         startDate: raw.start_date,
@@ -10289,6 +10342,8 @@ export const storage = {
       dbUpdates.pending_reason = updates.pendingReason;
     if (updates.pendingDetails !== undefined)
       dbUpdates.pending_details = updates.pendingDetails;
+    if (updates.billingMode !== undefined)
+      dbUpdates.billing_mode = updates.billingMode;
     if (updates.amount !== undefined) dbUpdates.amount = updates.amount;
     if (updates.nextBillingDate !== undefined)
       dbUpdates.next_billing_date = updates.nextBillingDate;

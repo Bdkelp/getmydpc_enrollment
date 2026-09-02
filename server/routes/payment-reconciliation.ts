@@ -227,79 +227,16 @@ router.get('/api/admin/reconciliation/dashboard', authenticateToken, async (req:
   }
 });
 
-/**
- * Create manual payment record for member (admin recovery tool)
- */
+/** Retained temporarily so stale clients fail closed with migration guidance. */
 router.post('/api/admin/reconciliation/create-manual-payment', authenticateToken, async (req: AuthRequest, res: Response) => {
-  try {
-    if (!req.user || !isAtLeastAdmin(req.user.role)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    const { memberId, amount, notes } = req.body;
-
-    if (!memberId || !amount) {
-      return res.status(400).json({ 
-        error: 'memberId and amount are required' 
-      });
-    }
-
-    // Get member details
-    const member = await storage.getMemberById(memberId);
-    if (!member) {
-      return res.status(404).json({ error: 'Member not found' });
-    }
-
-    // Check if payment already exists
-    const existingPaymentResult = await query(
-      'SELECT COUNT(*) AS count FROM payments WHERE member_id = $1',
-      [memberId]
-    );
-
-    if (parseInt(existingPaymentResult.rows[0]?.count) > 0) {
-      return res.status(409).json({ 
-        error: 'Payment record already exists for this member' 
-      });
-    }
-
-    // Create synthetic payment record const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const transactionId = `MANUAL-RECOVERY-M${memberId}-${timestamp}`;
-
-    const paymentData = {
-      memberId: memberId,
-      userId: member.enrolled_by_agent_id || req.user.id,
-      amount: amount.toString(),
-      currency: 'USD',
-      status: 'succeeded',
-      paymentMethod: 'card',
-      transactionId: transactionId,
-      metadata: {
-        environment: 'production',
-        source: 'manual-recovery',
-        reason: 'Payment record missing during enrollment - created retroactively',
-        original_enrollment_date: member.enrollment_date,
-        recovery_date: new Date().toISOString(),
-        recovery_by: req.user.email,
-        admin_notes: notes || 'No notes provided',
-        member_customer_number: member.customer_number
-      }
-    };
-
-    const createdPayment = await storage.createPayment(paymentData);
-
-    res.json({
-      success: true,
-      payment: createdPayment,
-      warning: 'This is a synthetic payment record for tracking only. It does not verify actual money receipt or provide BRIC token for recurring billing.'
-    });
-
-  } catch (error: any) {
-    console.error('[Reconciliation] Error creating manual payment:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
+  if (!req.user || !isAtLeastAdmin(req.user.role)) {
+    return res.status(403).json({ error: 'Admin access required' });
   }
+
+  return res.status(410).json({
+    success: false,
+    error: 'Synthetic succeeded payments are no longer supported. Use the Super Admin payment-status workflow with processedExternally=true, an external method, and an external reference.',
+  });
 });
 
 export default router;

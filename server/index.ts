@@ -23,7 +23,6 @@ import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
-import { scheduleRecurringBilling } from "./services/recurring-billing-scheduler";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import debugPaymentsRoutes from './routes/debug-payments';
@@ -37,6 +36,7 @@ import { initializePaymentEnvironment } from "./services/payment-environment-ser
 import groupEnrollmentRoutes from "./routes/group-enrollment";
 import paymentReconciliationRoutes from "./routes/payment-reconciliation";
 import paymentDiagnosticRoutes from "./routes/payment-diagnostic";
+import internalRecurringBillingRoutes from "./routes/internal-recurring-billing";
 import paymentTrackingRoutes from "./routes/payment-tracking";
 import financialExceptionRoutes from "./routes/financial-exceptions";
 import { scheduleFinancialReconciliation } from "./services/financial-reconciliation-worker";
@@ -198,6 +198,7 @@ app.use((req, res, next) => {
   app.use('/', groupEnrollmentRoutes);
   app.use('/', paymentReconciliationRoutes);
   app.use('/', paymentDiagnosticRoutes);
+  app.use('/', internalRecurringBillingRoutes);
   app.use('/', paymentTrackingRoutes);
   app.use('/api/payments/ach', achPaymentRoutes);
 
@@ -278,8 +279,7 @@ app.use((req, res, next) => {
       // Initialize membership activation scheduler
       scheduleMembershipActivation();
 
-      // Initialize recurring billing scheduler (card-only Phase 1)
-      scheduleRecurringBilling();
+      // Recurring billing is invoked only by the protected external scheduler endpoint.
       scheduleFinancialReconciliation();
 
       // Validate EPX configuration

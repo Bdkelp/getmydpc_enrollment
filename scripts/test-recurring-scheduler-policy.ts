@@ -145,8 +145,13 @@ assert.match(
 );
 assert.match(
   paymentDiagnosticSource,
-  /confirmedNoExternalCapture !== true[\s\S]*Controlled live retry requires confirmedNoExternalCapture=true/,
-  "controlled live retries must attest that EPX/North did not capture the prior no-response attempt",
+  /runDurableRecurringBilling/,
+  "admin billing routes must use durable cycle claims",
+);
+assert.doesNotMatch(
+  paymentDiagnosticSource,
+  /controlledRetrySubscriptionIds|confirmedNoExternalCapture/,
+  "ambiguous processor outcomes must not have a legacy resubmission bypass",
 );
 assert.match(
   schedulerSource,
