@@ -4,12 +4,7 @@
  */
 
 import { Router, Response } from "express";
-import {
-  storage,
-  decryptPaymentToken,
-  getPlatformSetting,
-  upsertPlatformSetting,
-} from "../storage";
+import { storage, getPlatformSetting, upsertPlatformSetting } from "../storage";
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole, isAtLeastAdmin } from "../auth/roles";
 import { query } from "../lib/neonDb";
@@ -74,55 +69,79 @@ const resolveAuthGuidForRepairRow = (
   row: any,
 ): {
   authGuid: string | null;
-  source:
-    | "payments.epx_auth_guid"
-    | "members.payment_token"
-    | "payment_tokens.bric_token_plain"
-    | "payment_tokens.bric_token_decrypted"
-    | null;
+  source: "payments.epx_auth_guid" | "payment_tokens.bric_token_plain" | null;
+  provenance: {
+    memberMatch: boolean;
+    successfulPaymentMatch: boolean;
+    amountMatch: boolean;
+    transactionMatch: boolean;
+    dateCycleMatch: boolean;
+    midStatus: "verified" | "not_available" | "failed";
+  };
   unresolvedReason: string | null;
 } => {
+  const hasPaymentAmount =
+    row?.payment_amount !== null &&
+    row?.payment_amount !== undefined &&
+    String(row.payment_amount).trim() !== "";
+  const hasSubscriptionAmount =
+    row?.subscription_amount !== null &&
+    row?.subscription_amount !== undefined &&
+    String(row.subscription_amount).trim() !== "";
+  const paymentAmount = hasPaymentAmount
+    ? Number(row.payment_amount)
+    : Number.NaN;
+  const subscriptionAmount = hasSubscriptionAmount
+    ? Number(row.subscription_amount)
+    : Number.NaN;
+  const paymentDate = Date.parse(
+    String(row?.payment_transaction_at || row?.payment_created_at || ""),
+  );
+  const nextBillingDate = Date.parse(String(row?.next_billing_date || ""));
+  const paymentMid = String(row?.payment_mid || "").trim();
+  const receiptMid = String(row?.receipt_mid || "").trim();
+  const cycleDistanceDays =
+    Number.isFinite(paymentDate) && Number.isFinite(nextBillingDate)
+      ? (nextBillingDate - paymentDate) / (24 * 60 * 60 * 1000)
+      : Number.NaN;
+  const provenance = {
+    memberMatch:
+      String(row?.payment_member_id || "") === String(row?.member_id || ""),
+    successfulPaymentMatch: ["success", "succeeded", "completed"].includes(
+      String(row?.payment_status || "")
+        .trim()
+        .toLowerCase(),
+    ),
+    amountMatch:
+      Number.isFinite(paymentAmount) &&
+      Number.isFinite(subscriptionAmount) &&
+      Math.abs(paymentAmount - subscriptionAmount) <= 0.01,
+    transactionMatch: Boolean(
+      String(row?.payment_receipt_reference || "").trim(),
+    ),
+    dateCycleMatch:
+      Number.isFinite(cycleDistanceDays) &&
+      cycleDistanceDays >= 20 &&
+      cycleDistanceDays <= 40,
+    midStatus:
+      paymentMid && receiptMid
+        ? paymentMid === receiptMid
+          ? "verified"
+          : "failed"
+        : "not_available",
+  };
   const paymentAuthGuid =
     typeof row?.epx_auth_guid === "string" ? row.epx_auth_guid.trim() : "";
-  if (isUsableTrustedAuthGuid(paymentAuthGuid)) {
+  if (
+    isUsableTrustedAuthGuid(paymentAuthGuid) &&
+    row?.payment_auth_conflict !== true
+  ) {
     return {
       authGuid: paymentAuthGuid,
       source: "payments.epx_auth_guid",
+      provenance,
       unresolvedReason: null,
     };
-  }
-
-  const memberPaymentToken =
-    typeof row?.member_payment_token === "string"
-      ? row.member_payment_token.trim()
-      : "";
-  if (memberPaymentToken) {
-    if (
-      !looksLikeEncryptedToken(memberPaymentToken) &&
-      isUsableTrustedAuthGuid(memberPaymentToken)
-    ) {
-      return {
-        authGuid: memberPaymentToken,
-        source: "members.payment_token",
-        unresolvedReason: null,
-      };
-    }
-
-    if (looksLikeEncryptedToken(memberPaymentToken)) {
-      try {
-        const decryptedMemberToken =
-          decryptPaymentToken(memberPaymentToken).trim();
-        if (isUsableAuthGuid(decryptedMemberToken)) {
-          return {
-            authGuid: decryptedMemberToken,
-            source: "members.payment_token",
-            unresolvedReason: null,
-          };
-        }
-      } catch {
-        // Continue to token fallback resolution
-      }
-    }
   }
 
   const tokenValue =
@@ -131,39 +150,35 @@ const resolveAuthGuidForRepairRow = (
     return {
       authGuid: null,
       source: null,
+      provenance,
       unresolvedReason: "No token data available for auth GUID resolution",
     };
   }
 
-  if (!looksLikeEncryptedToken(tokenValue) && isUsableAuthGuid(tokenValue)) {
+  if (
+    !looksLikeEncryptedToken(tokenValue) &&
+    isUsableAuthGuid(tokenValue) &&
+    row?.bric_conflict !== true
+  ) {
     return {
       authGuid: tokenValue,
       source: "payment_tokens.bric_token_plain",
+      provenance,
       unresolvedReason: null,
     };
   }
 
-  try {
-    const decrypted = decryptPaymentToken(tokenValue).trim();
-    if (isUsableAuthGuid(decrypted)) {
-      return {
-        authGuid: decrypted,
-        source: "payment_tokens.bric_token_decrypted",
-        unresolvedReason: null,
-      };
-    }
-    return {
-      authGuid: null,
-      source: null,
-      unresolvedReason: "Decrypted token did not produce a usable auth GUID",
-    };
-  } catch {
-    return {
-      authGuid: null,
-      source: null,
-      unresolvedReason: "Token decryption failed for repair candidate",
-    };
-  }
+  return {
+    authGuid: null,
+    source: null,
+    provenance,
+    unresolvedReason:
+      row?.payment_auth_conflict === true || row?.bric_conflict === true
+        ? "Processor reference conflicts across member records"
+        : looksLikeEncryptedToken(tokenValue)
+          ? "Legacy encrypted-looking platform value requires one-time conversion"
+          : "No usable platform-stored EPX reference is available",
+  };
 };
 
 const isRecentCycleEntry = (
@@ -437,6 +452,26 @@ router.post(
       const forceDryRun =
         typeof requestedDryRun === "boolean" ? requestedDryRun : true;
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
+      const subscriptionIds = Array.from(
+        new Set(
+          (Array.isArray(req.body?.subscriptionIds)
+            ? req.body.subscriptionIds
+            : []
+          )
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => Number.isInteger(value) && value > 0),
+        ),
+      );
+      const controlledRetrySubscriptionIds = Array.from(
+        new Set(
+          (Array.isArray(req.body?.controlledRetrySubscriptionIds)
+            ? req.body.controlledRetrySubscriptionIds
+            : []
+          )
+            .map((value: unknown) => Number(value))
+            .filter((value: number) => Number.isInteger(value) && value > 0),
+        ),
+      );
 
       if (forceDryRun === false && !isSuperAdmin) {
         return res.status(403).json({
@@ -444,11 +479,31 @@ router.post(
           error: "Only super admin can override dry-run mode",
         });
       }
+      if (controlledRetrySubscriptionIds.length > 0 && !isSuperAdmin) {
+        return res.status(403).json({
+          success: false,
+          error: "Only super admin can approve a controlled retry",
+        });
+      }
+      if (
+        forceDryRun === false &&
+        controlledRetrySubscriptionIds.length > 0 &&
+        req.body?.confirmedNoExternalCapture !== true
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Controlled live retry requires confirmedNoExternalCapture=true after EPX/North review",
+        });
+      }
 
       const requestedBy = req.user.email || req.user.id || "unknown-admin";
       const result = await runRecurringBillingCycleOnce({
         forceDryRun,
         requestedBy,
+        subscriptionIds:
+          subscriptionIds.length > 0 ? subscriptionIds : undefined,
+        controlledRetrySubscriptionIds,
       });
 
       res.json({
@@ -690,27 +745,70 @@ router.post(
         SELECT
           pt.id AS token_id,
           pt.member_id,
+          TRIM(CONCAT(COALESCE(m.first_name, ''), ' ', COALESCE(m.last_name, ''))) AS member_name,
           pt.bric_token,
           pt.payment_method_type,
           pt.original_network_trans_id,
-          m.payment_token AS member_payment_token,
+          s.amount AS subscription_amount,
+          s.next_billing_date,
           p.id AS payment_id,
+          p.member_id AS payment_member_id,
+          p.status AS payment_status,
+          p.amount AS payment_amount,
+          COALESCE(
+            NULLIF(TRIM(p.transaction_id), ''),
+            NULLIF(TRIM(p.metadata->>'invoiceNumber'), ''),
+            NULLIF(TRIM(p.metadata->>'Invoice'), ''),
+            NULLIF(TRIM(p.metadata->>'orderNumber'), '')
+          ) AS payment_receipt_reference,
           p.epx_auth_guid,
-          p.created_at AS payment_created_at
+          p.payment_transaction_at,
+          p.created_at AS payment_created_at,
+          COALESCE(p.metadata->>'MID', p.metadata->>'mid', p.metadata->>'merchantId') AS payment_mid,
+          COALESCE(
+            p.metadata->'hostedCallback'->>'MID',
+            p.metadata->'hostedCallback'->>'mid',
+            p.metadata->'hostedCallback'->>'merchantId'
+          ) AS receipt_mid,
+          CASE WHEN p.epx_auth_guid IS NULL THEN false ELSE EXISTS (
+            SELECT 1
+            FROM payments p2
+            WHERE TRIM(p2.epx_auth_guid) = TRIM(p.epx_auth_guid)
+              AND p2.member_id::text <> pt.member_id::text
+          ) END AS payment_auth_conflict,
+          CASE WHEN pt.bric_token IS NULL THEN false ELSE EXISTS (
+            SELECT 1
+            FROM payment_tokens pt2
+            WHERE TRIM(pt2.bric_token) = TRIM(pt.bric_token)
+              AND pt2.id <> pt.id
+              AND pt2.member_id::text <> pt.member_id::text
+          ) END AS bric_conflict
         FROM payment_tokens pt
         LEFT JOIN members m
           ON m.id::text = pt.member_id::text
+        INNER JOIN LATERAL (
+          SELECT amount, next_billing_date
+          FROM subscriptions
+          WHERE member_id::text = pt.member_id::text
+            AND status = 'active'
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        ) s ON true
         LEFT JOIN LATERAL (
-          SELECT id, epx_auth_guid, created_at
+          SELECT id, member_id, status, amount, transaction_id, epx_auth_guid,
+                 payment_transaction_at, created_at, metadata
           FROM payments
           WHERE member_id::text = pt.member_id::text
             AND epx_auth_guid IS NOT NULL
             AND LENGTH(TRIM(epx_auth_guid::text)) >= 8
+            AND LOWER(COALESCE(status, '')) IN ('success', 'succeeded', 'completed')
           ORDER BY created_at DESC, id DESC
           LIMIT 1
         ) p ON true
         WHERE pt.is_active = true
           AND pt.payment_method_type = 'CreditCard'
+          AND m.status = 'active'
+          AND COALESCE(m.is_active, true) = true
           AND (
             pt.original_network_trans_id IS NULL
             OR LENGTH(TRIM(pt.original_network_trans_id::text)) < 16
@@ -729,10 +827,28 @@ router.post(
           tokenId: Number(row.token_id),
           memberId: String(row.member_id),
           paymentId: Number(row.payment_id || 0) || null,
+          memberName: String(row.member_name || "").trim(),
+          sourceTransactionOrInvoice: row.payment_receipt_reference || null,
+          sourceAmount: row.payment_amount ?? null,
+          subscriptionAmount: row.subscription_amount ?? null,
+          paymentStatus: row.payment_status || null,
+          paymentDate:
+            row.payment_transaction_at || row.payment_created_at || null,
+          referenceConflict:
+            row.payment_auth_conflict === true || row.bric_conflict === true,
+          candidateSourceType: isUsableTrustedAuthGuid(row.epx_auth_guid)
+            ? "payments.epx_auth_guid"
+            : !looksLikeEncryptedToken(String(row.bric_token || "")) &&
+                isUsableAuthGuid(row.bric_token)
+              ? "payment_tokens.bric_token_plain"
+              : looksLikeEncryptedToken(String(row.bric_token || ""))
+                ? "legacy_encrypted_bric"
+                : "no_verified_processor_source",
           paymentCreatedAt: row.payment_created_at,
           resolvedAuthGuid: resolution.authGuid,
           resolvedAuthGuidMasked: maskAuthGuid(resolution.authGuid),
           resolutionSource: resolution.source,
+          provenance: resolution.provenance,
           unresolvedReason: resolution.unresolvedReason,
         };
       });
@@ -746,6 +862,48 @@ router.post(
         (row: any) => !isUsableAuthGuid(row.resolvedAuthGuid),
       );
 
+      const previewTable = candidates.map((row: any) => {
+        const failedChecks = [
+          !row.provenance.memberMatch ? "member match missing or failed" : null,
+          !row.provenance.successfulPaymentMatch
+            ? "successful payment status missing or failed"
+            : null,
+          !row.provenance.amountMatch
+            ? "amount comparison missing or outside one cent"
+            : null,
+          !row.provenance.transactionMatch
+            ? "transaction/order/invoice reference missing"
+            : null,
+          !row.provenance.dateCycleMatch
+            ? "payment date does not fit expected cycle"
+            : null,
+          row.provenance.midStatus === "failed" ? "MID mismatch" : null,
+        ].filter(Boolean);
+        const autoRepairAllowed = isUsableAuthGuid(row.resolvedAuthGuid);
+
+        return {
+          member_id: row.memberId,
+          member_name: row.memberName,
+          source_type: row.candidateSourceType,
+          source_transaction_or_invoice: row.sourceTransactionOrInvoice,
+          source_amount: row.sourceAmount,
+          subscription_amount: row.subscriptionAmount,
+          amount_match: row.provenance.amountMatch,
+          payment_status: row.paymentStatus,
+          payment_date: row.paymentDate,
+          mid_match_or_na: row.provenance.midStatus,
+          repair_action: autoRepairAllowed
+            ? "backfill_original_network_trans_id"
+            : "review_only",
+          auto_repair_allowed: autoRepairAllowed,
+          review_reason: autoRepairAllowed
+            ? null
+            : [...failedChecks, row.unresolvedReason]
+                .filter(Boolean)
+                .join("; "),
+        };
+      });
+
       if (mode === "preview") {
         return res.json({
           success: true,
@@ -755,7 +913,7 @@ router.post(
           candidateCount: candidates.length,
           resolvableCount: resolvableCandidates.length,
           unresolvedCount: unresolvedCandidates.length,
-          candidates,
+          candidates: previewTable,
           note: "Preview only. No records were changed.",
         });
       }

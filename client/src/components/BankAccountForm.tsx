@@ -387,7 +387,7 @@ export default function BankAccountForm({
 
         {/* Security Notice */}
         <div className="mt-4 text-center text-xs text-muted-foreground">
-          <p>🔒 Your bank account information is encrypted and secure</p>
+          <p>Your bank account information is available only to authorized staff.</p>
         </div>
       </CardContent>
     </Card>

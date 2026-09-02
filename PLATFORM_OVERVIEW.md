@@ -257,17 +257,15 @@ server startup
 
 ### 5b. Member Status Lifecycle
 
-```
+```text
 lead → enrolled → pending_activation → active → suspended / cancelled
 ```
 
 ### 5c. Encryption
 
-SSNs and payment tokens are **AES-256-CBC encrypted at rest** via helpers in `server/storage.ts`:
+SSNs are protected separately using the key sourced from `ENCRYPTION_KEY` (64 hex chars / 32 bytes).
 
-- `encryptSensitiveData()` / `decryptSensitiveData()`
-- `encryptPaymentToken()` / `decryptPaymentToken()`
-- Key sourced from `ENCRYPTION_KEY` env var (must be 64 hex chars = 32 bytes)
+Provider BRIC/auth references and ACH account/routing values are stored as normalized server-readable values so billing remains portable across deployments. UI masking is only a screen-privacy convenience. Authorized admin reveals return full account and processor-reference values and are audit logged. Routing numbers remain readable. Historical payment ciphertext must be migrated from authoritative North/Payments Hub or successful payment receipt data; the application does not decrypt it.
 
 ---
 
@@ -275,7 +273,7 @@ SSNs and payment tokens are **AES-256-CBC encrypted at rest** via helpers in `se
 
 ### 6a. Initial Enrollment (Hosted Checkout)
 
-```
+```text
 1. Member completes enrollment form → POST /api/enroll
 2. Server creates member record (status: enrolled)
 3. Frontend loads EPXHostedPayment component
@@ -290,7 +288,7 @@ SSNs and payment tokens are **AES-256-CBC encrypted at rest** via helpers in `se
 
 ### 6b. Recurring Billing (Automated — LIVE)
 
-```
+```text
 Scheduler wakes (hourly or fixed 8am/8pm CT)
   → queries subscriptions WHERE next_billing_date <= today AND status = active
   → for each due subscription:
@@ -305,7 +303,7 @@ Scheduler wakes (hourly or fixed 8am/8pm CT)
 
 Same Server Post path with ACH credentials. All three gates enabled in production:
 
-```
+```dotenv
 ACH_RECURRING_ENABLED=true
 ACH_RECURRING_ALLOW_PRODUCTION=true
 ACH_RECURRING_TEST_MODE=false
@@ -315,7 +313,7 @@ ACH_RECURRING_TEST_MODE=false
 
 ## 7. Commission System
 
-```
+```text
 Enrollment payment captured
   → calculateCommission(planName, memberType, hasRxValet)
   → INSERT agent_commissions (status: scheduled, date: next 1st or 15th)

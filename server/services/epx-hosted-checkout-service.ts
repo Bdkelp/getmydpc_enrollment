@@ -34,7 +34,7 @@ export interface HostedCheckoutResponse {
 }
 
 function extractAuthGuid(payload: any): string | undefined {
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== "object") {
     return undefined;
   }
 
@@ -50,11 +50,11 @@ function extractAuthGuid(payload: any): string | undefined {
     payload.result?.ORIG_AUTH_GUID,
     payload.result?.origAuthGuid,
     payload.result?.ORIG_AUTH,
-    payload.result?.origAuth
+    payload.result?.origAuth,
   ];
 
   for (const value of candidates) {
-    if (typeof value === 'string' && value.trim().length) {
+    if (typeof value === "string" && value.trim().length) {
       return value.trim();
     }
   }
@@ -63,11 +63,13 @@ function extractAuthGuid(payload: any): string | undefined {
 }
 
 function normalizeStatus(value: unknown): string {
-  return String(value ?? '').trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function extractTransactionId(payload: any): string | undefined {
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== "object") {
     return undefined;
   }
 
@@ -83,7 +85,7 @@ function extractTransactionId(payload: any): string | undefined {
   ];
 
   for (const value of candidates) {
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === "string" && value.trim().length > 0) {
       return value.trim();
     }
   }
@@ -92,7 +94,7 @@ function extractTransactionId(payload: any): string | undefined {
 }
 
 function extractAuthCode(payload: any): string | undefined {
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== "object") {
     return undefined;
   }
 
@@ -104,7 +106,7 @@ function extractAuthCode(payload: any): string | undefined {
   ];
 
   for (const value of candidates) {
-    if (typeof value === 'string' && value.trim().length > 0) {
+    if (typeof value === "string" && value.trim().length > 0) {
       return value.trim();
     }
   }
@@ -113,7 +115,7 @@ function extractAuthCode(payload: any): string | undefined {
 }
 
 function extractAmount(payload: any): number | undefined {
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== "object") {
     return undefined;
   }
 
@@ -126,7 +128,8 @@ function extractAmount(payload: any): number | undefined {
   ];
 
   for (const value of candidates) {
-    const parsed = typeof value === 'number' ? value : parseFloat(String(value));
+    const parsed =
+      typeof value === "number" ? value : parseFloat(String(value));
     if (Number.isFinite(parsed)) {
       return parsed;
     }
@@ -142,20 +145,21 @@ export class EPXHostedCheckoutService {
 
   constructor(config: EPXHostedCheckoutConfig) {
     this.config = config;
-    
+
     // Set URLs based on environment
-    const baseUrl = config.environment === "production" 
-      ? "https://hosted.epx.com"
-      : "https://hosted.epxuap.com";
-    
+    const baseUrl =
+      config.environment === "production"
+        ? "https://hosted.epx.com"
+        : "https://hosted.epxuap.com";
+
     this.scriptUrl = `${baseUrl}/post.js`;
     this.buttonScriptUrl = `${baseUrl}/button.js`;
-    
+
     console.log("[EPX Hosted Checkout] Service initialized:", {
       environment: config.environment,
       terminalProfileId: config.terminalProfileId,
       scriptUrl: this.scriptUrl,
-      hasPublicKey: !!config.publicKey
+      hasPublicKey: !!config.publicKey,
     });
   }
 
@@ -173,12 +177,12 @@ export class EPXHostedCheckoutService {
       city?: string;
       state?: string;
       postalCode?: string;
-    }
+    },
   ): HostedCheckoutResponse {
     try {
       // Generate order number if not provided
       const finalOrderNumber = orderNumber || Date.now().toString().slice(-10);
-      
+
       // For Hosted Checkout, we just return the configuration
       // The actual payment form is handled client-side with post.js
       return {
@@ -190,7 +194,7 @@ export class EPXHostedCheckoutService {
       console.error("[EPX Hosted Checkout] Error creating session:", error);
       return {
         success: false,
-        error: error.message || "Failed to create checkout session"
+        error: error.message || "Failed to create checkout session",
       };
     }
   }
@@ -208,7 +212,7 @@ export class EPXHostedCheckoutService {
       environment: this.config.environment,
       successCallback: this.config.successCallback || "epxSuccessCallback",
       failureCallback: this.config.failureCallback || "epxFailureCallback",
-      captchaMode: 'recaptcha-v3'
+      captchaMode: "recaptcha-v3",
     };
   }
 
@@ -227,13 +231,28 @@ export class EPXHostedCheckoutService {
   } {
     console.log("[EPX Hosted Checkout] Processing callback:", payload);
 
-    const status = normalizeStatus(payload?.status || payload?.Status || payload?.result?.status || payload?.result?.Status);
-    const authResp = normalizeStatus(payload?.AUTH_RESP || payload?.authResp || payload?.result?.AUTH_RESP || payload?.result?.authResp);
-    const successFlag = payload?.success === true || payload?.Success === true || payload?.approved === true || payload?.Approved === true;
+    const status = normalizeStatus(
+      payload?.status ||
+        payload?.Status ||
+        payload?.result?.status ||
+        payload?.result?.Status,
+    );
+    const authResp = normalizeStatus(
+      payload?.AUTH_RESP ||
+        payload?.authResp ||
+        payload?.result?.AUTH_RESP ||
+        payload?.result?.authResp,
+    );
+    const successFlag =
+      payload?.success === true ||
+      payload?.Success === true ||
+      payload?.approved === true ||
+      payload?.Approved === true;
     // EPX callback variants can mark success via status strings, booleans, or auth response code.
-    const isApproved = successFlag
-      || ['approved', 'success', 'succeeded', 'completed'].includes(status)
-      || ['00', '0', 'approved', 'success'].includes(authResp);
+    const isApproved =
+      successFlag ||
+      ["approved", "success", "succeeded", "completed"].includes(status) ||
+      ["00", "0", "approved", "success"].includes(authResp);
 
     if (isApproved) {
       const authGuid = extractAuthGuid(payload);
@@ -242,13 +261,23 @@ export class EPXHostedCheckoutService {
         transactionId: extractTransactionId(payload),
         authCode: extractAuthCode(payload),
         amount: extractAmount(payload),
-        bricToken: payload.result?.GUID || payload.GUID || payload.result?.BRIC || payload.BRIC || payload.result?.TransactionId || payload.TransactionId,
-        authGuid
+        bricToken:
+          payload.result?.GUID ||
+          payload.GUID ||
+          payload.result?.BRIC ||
+          payload.BRIC ||
+          payload.result?.TransactionId ||
+          payload.TransactionId,
+        authGuid,
       };
     } else {
       return {
         isApproved: false,
-        error: payload.error || payload.message || payload.StatusMessage || "Transaction declined"
+        error:
+          payload.error ||
+          payload.message ||
+          payload.StatusMessage ||
+          "Transaction declined",
       };
     }
   }
@@ -259,7 +288,9 @@ export class EPXHostedCheckoutService {
   validateCallbackSignature(payload: any, signature?: string): boolean {
     // For now, return true as Hosted Checkout may not use signatures
     // This can be implemented if EPX provides signature validation
-    console.log("[EPX Hosted Checkout] Signature validation not implemented for Hosted Checkout");
+    console.log(
+      "[EPX Hosted Checkout] Signature validation not implemented for Hosted Checkout",
+    );
     return true;
   }
 
