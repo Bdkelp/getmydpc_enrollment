@@ -74,7 +74,7 @@ async function run() {
     DO $$ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
     DO $$ BEGIN CREATE ROLE service_role; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-    DROP TABLE IF EXISTS recurring_billing_cycles, recurring_billing_runs, payments,
+    DROP TABLE IF EXISTS recurring_billing_cycles, recurring_billing_runs, admin_notifications, payments,
       subscriptions, members CASCADE;
     CREATE TABLE members (
       id integer PRIMARY KEY,
@@ -109,6 +109,18 @@ async function run() {
       created_at timestamptz,
       updated_at timestamptz
     );
+    CREATE TABLE admin_notifications (
+      id serial PRIMARY KEY,
+      type text NOT NULL,
+      member_id integer REFERENCES members(id),
+      subscription_id integer REFERENCES subscriptions(id),
+      error_message text,
+      metadata jsonb,
+      resolved boolean NOT NULL DEFAULT false,
+      resolved_at timestamptz,
+      resolved_by text,
+      created_at timestamptz NOT NULL DEFAULT NOW()
+    );
   `);
   await pool.query(migration);
 
@@ -131,6 +143,26 @@ async function run() {
   );
   const firstRunId = Number(runRows.rows[0].id);
   const secondRunId = Number(runRows.rows[1].id);
+
+  await seedSubscription(100, 1000, "2026-01-15");
+  const insertException = () =>
+    pool.query(
+      `INSERT INTO admin_notifications (
+         type, member_id, subscription_id, error_message, metadata, resolved
+       ) VALUES (
+         'recurring_billing_exception', 1000, 100, 'missing_payment_credentials',
+         '{"cycleDate":"2026-01-15"}'::jsonb, false
+       ) ON CONFLICT DO NOTHING`,
+    );
+  await Promise.all([insertException(), insertException()]);
+  const exceptionCount = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM admin_notifications
+     WHERE subscription_id = 100
+       AND metadata->>'cycleDate' = '2026-01-15'
+       AND error_message = 'missing_payment_credentials'
+       AND resolved = false`,
+  );
+  assert.equal(exceptionCount.rows[0].count, 1);
 
   await seedSubscription(101, 1001, "2026-01-31");
   const concurrent = await Promise.all([

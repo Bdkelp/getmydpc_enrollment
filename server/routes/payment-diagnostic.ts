@@ -8,8 +8,8 @@ import { storage, getPlatformSetting, upsertPlatformSetting } from "../storage";
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole, isAtLeastAdmin } from "../auth/roles";
 import { query } from "../lib/neonDb";
+import { supabaseAdmin as supabase } from "../lib/supabaseClient";
 import { getRecentEPXLogs } from "../services/epx-payment-logger";
-import { getRecurringBillingSchedulerStatus } from "../services/recurring-billing-scheduler";
 import {
   getDurableBillingConfiguration,
   runDurableRecurringBilling,
@@ -33,6 +33,9 @@ const RECURRING_SCHEDULER_HEARTBEAT_SETTING_KEY =
 const DEFAULT_RECURRING_SCHEDULER_STALE_ALERT_MINUTES = 180;
 
 type OperatorMode = "preview" | "live";
+
+const looksLikeLegacyEncryptedValue = (value: string): boolean =>
+  /^[0-9A-Fa-f]+:[0-9A-Fa-f]+$/.test(value.trim());
 
 const parseSubscriptionIds = (value: unknown): number[] =>
   Array.from(
@@ -101,6 +104,12 @@ const resolveAuthGuidForRepairRow = (
     Number.isFinite(paymentDate) && Number.isFinite(nextBillingDate)
       ? (nextBillingDate - paymentDate) / (24 * 60 * 60 * 1000)
       : Number.NaN;
+  const midStatus: "verified" | "not_available" | "failed" =
+    paymentMid && receiptMid
+      ? paymentMid === receiptMid
+        ? "verified"
+        : "failed"
+      : "not_available";
   const provenance = {
     memberMatch:
       String(row?.payment_member_id || "") === String(row?.member_id || ""),
@@ -120,12 +129,7 @@ const resolveAuthGuidForRepairRow = (
       Number.isFinite(cycleDistanceDays) &&
       cycleDistanceDays >= 20 &&
       cycleDistanceDays <= 40,
-    midStatus:
-      paymentMid && receiptMid
-        ? paymentMid === receiptMid
-          ? "verified"
-          : "failed"
-        : "not_available",
+    midStatus,
   };
   const paymentAuthGuid =
     typeof row?.epx_auth_guid === "string" ? row.epx_auth_guid.trim() : "";
@@ -154,7 +158,7 @@ const resolveAuthGuidForRepairRow = (
   }
 
   if (
-    !looksLikeEncryptedToken(tokenValue) &&
+    !looksLikeLegacyEncryptedValue(tokenValue) &&
     isUsableAuthGuid(tokenValue) &&
     row?.bric_conflict !== true
   ) {
@@ -173,7 +177,7 @@ const resolveAuthGuidForRepairRow = (
     unresolvedReason:
       row?.payment_auth_conflict === true || row?.bric_conflict === true
         ? "Processor reference conflicts across member records"
-        : looksLikeEncryptedToken(tokenValue)
+        : looksLikeLegacyEncryptedValue(tokenValue)
           ? "Legacy encrypted-looking platform value requires one-time conversion"
           : "No usable platform-stored EPX reference is available",
   };
@@ -413,12 +417,18 @@ router.get(
         return res.status(403).json({ error: "Admin access required" });
       }
 
-      const status = getRecurringBillingSchedulerStatus();
+      const configuration = getDurableBillingConfiguration();
       const health = await getRecurringSchedulerHealthSnapshot();
 
       res.json({
         success: true,
-        scheduler: status,
+        scheduler: {
+          running: false,
+          triggerMode: "external_only",
+          enabled: configuration.enabled,
+          dryRun: configuration.defaultDryRun,
+          killSwitch: configuration.killSwitchActive,
+        },
         health,
       });
     } catch (error: any) {
@@ -745,10 +755,10 @@ router.post(
             row.payment_auth_conflict === true || row.bric_conflict === true,
           candidateSourceType: isUsableTrustedAuthGuid(row.epx_auth_guid)
             ? "payments.epx_auth_guid"
-            : !looksLikeEncryptedToken(String(row.bric_token || "")) &&
+            : !looksLikeLegacyEncryptedValue(String(row.bric_token || "")) &&
                 isUsableAuthGuid(row.bric_token)
               ? "payment_tokens.bric_token_plain"
-              : looksLikeEncryptedToken(String(row.bric_token || ""))
+              : looksLikeLegacyEncryptedValue(String(row.bric_token || ""))
                 ? "legacy_encrypted_bric"
                 : "no_verified_processor_source",
           paymentCreatedAt: row.payment_created_at,
@@ -834,7 +844,7 @@ router.post(
       const updated: Array<{
         tokenId: number;
         memberId: string;
-        paymentId: number;
+        paymentId: number | null;
         BRIC: string | null;
         AUTH_GUID: string | null;
         ORIG_AUTH_GUID: string | null;
@@ -863,11 +873,11 @@ router.post(
           updated.push({
             tokenId: row.tokenId,
             memberId: row.memberId,
-            paymentId: row.paymentId,
+            paymentId: row.paymentId || null,
             BRIC: row.BRIC,
             AUTH_GUID: row.AUTH_GUID,
             ORIG_AUTH_GUID: row.resolvedAuthGuid,
-            resolvedAuthGuid: row.resolvedAuthGuid,
+            resolvedAuthGuid: String(row.resolvedAuthGuid),
           });
         }
       }

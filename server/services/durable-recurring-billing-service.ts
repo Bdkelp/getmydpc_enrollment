@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import { query } from "../lib/neonDb";
 import {
-  createAdminNotification,
   getSubscriptionsDueForBilling,
+  resolveRecurringBillingExceptionNotifications,
   type BillableSubscription,
+  upsertRecurringBillingExceptionNotification,
 } from "../storage";
 import {
   calculateNextBillingCycleDate,
@@ -381,13 +382,12 @@ export async function runDurableRecurringBilling(options: {
         reason: candidate.credential.error,
       });
       try {
-        await createAdminNotification({
-          type: "recurring_billing_exception",
+        await upsertRecurringBillingExceptionNotification({
           memberId: candidate.subscription.memberId,
           subscriptionId: candidate.subscription.subscriptionId,
-          errorMessage: candidate.credential.error,
+          cycleDate: candidate.cycleDate,
+          reason: candidate.credential.error,
           metadata: {
-            cycleDate: candidate.cycleDate,
             paymentMethodType: candidate.subscription.paymentMethodType,
             triggerSource: options.triggerSource,
             dryRun,
@@ -403,6 +403,11 @@ export async function runDurableRecurringBilling(options: {
           },
         );
       }
+    } else {
+      await resolveRecurringBillingExceptionNotifications({
+        subscriptionId: candidate.subscription.subscriptionId,
+        cycleDate: candidate.cycleDate,
+      });
     }
   }
   const summary: DurableBillingRunSummary = {

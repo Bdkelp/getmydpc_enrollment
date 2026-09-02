@@ -97,6 +97,31 @@ CREATE INDEX IF NOT EXISTS idx_recurring_billing_runs_completed
   ON public.recurring_billing_runs (completed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_recurring_due
   ON public.subscriptions (next_billing_date, id) WHERE status = 'active';
+
+WITH ranked_exceptions AS (
+  SELECT id,
+         ROW_NUMBER() OVER (
+           PARTITION BY subscription_id, metadata->>'cycleDate', error_message
+           ORDER BY created_at DESC, id DESC
+         ) AS duplicate_rank
+  FROM public.admin_notifications
+  WHERE type = 'recurring_billing_exception'
+    AND resolved = false
+)
+UPDATE public.admin_notifications notification
+SET resolved = true, resolved_at = NOW()
+FROM ranked_exceptions duplicate
+WHERE notification.id = duplicate.id
+  AND duplicate.duplicate_rank > 1;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_recurring_billing_exception_unresolved
+  ON public.admin_notifications (
+    subscription_id,
+    (metadata->>'cycleDate'),
+    error_message
+  )
+  WHERE type = 'recurring_billing_exception'
+    AND resolved = false;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_successful_recurring_transaction
   ON public.payments (transaction_id)
   WHERE transaction_id IS NOT NULL AND status IN ('success', 'succeeded', 'completed');

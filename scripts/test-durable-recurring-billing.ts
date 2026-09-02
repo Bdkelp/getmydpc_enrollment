@@ -109,10 +109,14 @@ assert.match(service, /cycleDate: subscription\.nextBillingDate/);
 assert.match(service, /claim_recurring_billing_cycles\(\$1, \$2, 1,/);
 assert.match(service, /claim_recurring_internal_sync_cycles\(\$1, \$2, 1,/);
 assert.match(service, /\[DurableBilling\]\[ALERT\] Due subscription skipped/);
+assert.match(service, /upsertRecurringBillingExceptionNotification\(\{/);
+assert.match(service, /resolveRecurringBillingExceptionNotifications\(\{/);
 assert.match(
-  service,
-  /createAdminNotification\(\{[\s\S]*type: "recurring_billing_exception"/,
+  storage,
+  /error_message IS DISTINCT FROM \$3[\s\S]*resolved = false/,
 );
+assert.match(storage, /metadata->>'cycleDate' = \$2[\s\S]*error_message = \$3/);
+assert.match(migration, /uq_recurring_billing_exception_unresolved/);
 assert.match(service, /missing_payment_credentials/);
 assert.match(service, /unsupported_ach/);
 assert.doesNotMatch(

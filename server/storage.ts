@@ -9106,6 +9106,91 @@ export async function createAdminNotification(notification: {
   }
 }
 
+export async function upsertRecurringBillingExceptionNotification(input: {
+  memberId: number;
+  subscriptionId: number;
+  cycleDate: string;
+  reason: string;
+  metadata?: Record<string, any>;
+}): Promise<any> {
+  const metadata = JSON.stringify({
+    ...(input.metadata || {}),
+    cycleDate: input.cycleDate,
+  });
+  const values = [
+    input.subscriptionId,
+    input.cycleDate,
+    input.reason,
+    input.memberId,
+    metadata,
+  ];
+  const result = await query(
+    `WITH superseded AS (
+       UPDATE public.admin_notifications
+       SET resolved = true, resolved_at = NOW(), resolved_by = NULL
+       WHERE type = 'recurring_billing_exception'
+         AND subscription_id = $1
+         AND metadata->>'cycleDate' = $2
+         AND error_message IS DISTINCT FROM $3
+         AND resolved = false
+       RETURNING id
+     ), refreshed AS (
+       UPDATE public.admin_notifications
+       SET member_id = $4, metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
+           created_at = NOW()
+       WHERE type = 'recurring_billing_exception'
+         AND subscription_id = $1
+         AND metadata->>'cycleDate' = $2
+         AND error_message = $3
+         AND resolved = false
+       RETURNING *
+     ), inserted AS (
+       INSERT INTO public.admin_notifications (
+         type, member_id, subscription_id, error_message, metadata, resolved, created_at
+       )
+       SELECT 'recurring_billing_exception', $4, $1, $3, $5::jsonb, false, NOW()
+       WHERE NOT EXISTS (SELECT 1 FROM refreshed)
+         AND (SELECT COUNT(*) FROM superseded) >= 0
+       ON CONFLICT DO NOTHING
+       RETURNING *
+     )
+     SELECT * FROM refreshed
+     UNION ALL
+     SELECT * FROM inserted
+     LIMIT 1`,
+    values,
+  );
+  if (result.rows[0]) return result.rows[0];
+
+  const existing = await query(
+    `SELECT * FROM public.admin_notifications
+     WHERE type = 'recurring_billing_exception'
+       AND subscription_id = $1
+       AND metadata->>'cycleDate' = $2
+       AND error_message = $3
+       AND resolved = false
+     LIMIT 1`,
+    values.slice(0, 3),
+  );
+  return existing.rows[0] || null;
+}
+
+export async function resolveRecurringBillingExceptionNotifications(input: {
+  subscriptionId: number;
+  cycleDate: string;
+}): Promise<number> {
+  const result = await query(
+    `UPDATE public.admin_notifications
+     SET resolved = true, resolved_at = NOW(), resolved_by = NULL
+     WHERE type = 'recurring_billing_exception'
+       AND subscription_id = $1
+       AND metadata->>'cycleDate' = $2
+       AND resolved = false`,
+    [input.subscriptionId, input.cycleDate],
+  );
+  return result.rowCount || 0;
+}
+
 /**
  * Get unresolved admin notifications
  */

@@ -23,6 +23,7 @@
     "test:scheduler": "tsx scripts/test-recurring-scheduler-policy.ts",
     "test:durable-billing": "tsx scripts/test-durable-recurring-billing.ts",
     "test:durable-billing:postgres": "tsx scripts/test-durable-recurring-billing-postgres.ts",
+    "test:staging-billing-safety": "tsx scripts/test-staging-billing-safety.ts",
     "test:hosted-semantics": "tsx scripts/test-hosted-checkout-semantics.ts",
     "test:payment-credential": "tsx scripts/test-payment-credential.ts",
     "test:plan-start-dates": "tsx scripts/test-plan-start-dates.ts",
