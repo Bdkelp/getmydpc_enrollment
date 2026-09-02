@@ -43,6 +43,7 @@ import { resolveCanonicalPaymentCredential } from "./payment-credential";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import { persistRecurringPostSuccess } from "./recurring-post-success-persistence";
 import { paymentEnvironment } from "./payment-environment-service";
+import { getHistoricalCutoverSchemaStatus } from "./historical-commission-external-settlement-service";
 import {
   sendRecurringBillingCycleReport,
   sendRecurringPaymentFailureAlert,
@@ -1570,6 +1571,17 @@ async function runBillingCycle(options?: {
   let dueCount = 0;
 
   try {
+    if (!dryRun) {
+      const commissionSchema = await getHistoricalCutoverSchemaStatus();
+      if (!commissionSchema.ready) {
+        throw new Error(
+          `COMMISSION_SCHEMA_NOT_READY: missing ${commissionSchema.missingRelations.join(
+            ", ",
+          )}; apply ${commissionSchema.requiredMigration}`,
+        );
+      }
+    }
+
     // 2. Finalize scheduled cancellations that reached end-of-paid-period.
     if (!dryRun && !targetedRun) {
       const cancellationFinalizationResult =

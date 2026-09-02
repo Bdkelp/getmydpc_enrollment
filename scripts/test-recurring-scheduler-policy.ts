@@ -189,6 +189,16 @@ assert.match(
   "automatic repair must reject cross-member processor-reference conflicts",
 );
 assert.match(
+  paymentDiagnosticSource,
+  /mode === "live" && !commissionSchema\.ready[\s\S]*COMMISSION_SCHEMA_NOT_READY/,
+  "operator live billing must stop before charging when commission schema is incomplete",
+);
+assert.match(
+  schedulerSource,
+  /if \(!dryRun\)[\s\S]*getHistoricalCutoverSchemaStatus\(\)[\s\S]*COMMISSION_SCHEMA_NOT_READY/,
+  "automatic live billing must stop before charging when commission schema is incomplete",
+);
+assert.match(
   storageSource,
   /AS processor_reference_conflict/,
   "billing selection must identify cross-member processor-reference conflicts",
