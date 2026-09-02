@@ -1226,11 +1226,11 @@ async function finalizeScheduledMemberCancellations() {
   const nowIso = new Date().toISOString();
   const { data: dueCancellations, error } = await supabase
     .from("subscriptions")
-    .select("id, member_id, end_date, pending_reason, status")
+    .select("id, member_id, termination_effective_at, pending_reason, status")
     .eq("status", "active")
     .eq("pending_reason", "member_cancelled")
-    .not("end_date", "is", null)
-    .lte("end_date", nowIso);
+    .not("termination_effective_at", "is", null)
+    .lte("termination_effective_at", nowIso);
 
   if (error) {
     console.error(
@@ -1286,7 +1286,7 @@ async function finalizeScheduledMemberCancellations() {
         {
           subscriptionId: row.id,
           memberId: row.member_id,
-          paidThroughDate: row.end_date,
+          terminationEffectiveAt: row.termination_effective_at,
           finalizedAt: timestamp,
         },
       );

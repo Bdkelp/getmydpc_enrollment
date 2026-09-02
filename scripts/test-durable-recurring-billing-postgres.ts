@@ -27,6 +27,20 @@ const migration = fs.readFileSync(
   ),
   "utf8",
 );
+const lifecycleMigration = fs.readFileSync(
+  path.join(
+    process.cwd(),
+    "scripts/sql/2026-09-02c_subscription_billing_mode_lifecycle.sql",
+  ),
+  "utf8",
+);
+const periodTerminationMigration = fs.readFileSync(
+  path.join(
+    process.cwd(),
+    "scripts/sql/2026-09-02d_subscription_period_termination_semantics.sql",
+  ),
+  "utf8",
+);
 
 async function claim(
   workerId: string,
@@ -81,13 +95,31 @@ async function run() {
       status text NOT NULL,
       is_active boolean NOT NULL,
       first_payment_date timestamptz,
-      enrollment_date timestamptz
+      enrollment_date timestamptz,
+      cancellation_date timestamptz,
+      cancellation_reason text,
+      cancellation_requested_at timestamptz,
+      cancellation_effective_at timestamptz,
+      cancellation_reason_code text,
+      cancellation_actor_id uuid,
+      cancellation_actor_type text,
+      cancellation_internal_notes text,
+      service_usage_status text,
+      service_usage_verification_source text,
+      refund_eligibility text,
+      refund_eligibility_reason text,
+      refund_eligibility_evaluated_at timestamptz,
+      refund_status text,
+      updated_at timestamptz NOT NULL DEFAULT NOW()
     );
     CREATE TABLE subscriptions (
       id integer PRIMARY KEY,
       member_id integer NOT NULL REFERENCES members(id),
       status text NOT NULL,
       pending_reason text,
+      pending_details text,
+      start_date timestamp without time zone,
+      end_date timestamp without time zone,
       next_billing_date timestamp without time zone,
       updated_at timestamptz NOT NULL DEFAULT NOW()
     );
@@ -123,6 +155,8 @@ async function run() {
     );
   `);
   await pool.query(migration);
+  await pool.query(lifecycleMigration);
+  await pool.query(periodTerminationMigration);
 
   const anonymousClient = await pool.connect();
   try {
@@ -242,6 +276,17 @@ async function run() {
     [dateCycle.processor_reference],
   );
   assert.equal(paymentCount.rows[0].count, 1);
+  const advancedPeriod = await pool.query(
+    `SELECT current_period_start::date::text AS period_start,
+            current_period_end::date::text AS period_end,
+            next_billing_date::date::text AS next_billing_date
+     FROM subscriptions WHERE id = 104`,
+  );
+  assert.deepEqual(advancedPeriod.rows[0], {
+    period_start: "2026-03-08",
+    period_end: "2026-04-08",
+    next_billing_date: "2026-04-08",
+  });
 
   await pool.query(
     `UPDATE recurring_billing_cycles
@@ -261,6 +306,13 @@ async function run() {
     [dateCycle.processor_reference],
   );
   assert.equal(paymentCountAfterRetryClaim.rows[0].count, 1);
+  const repeatedPeriod = await pool.query(
+    `SELECT current_period_start::date::text AS period_start,
+            current_period_end::date::text AS period_end,
+            next_billing_date::date::text AS next_billing_date
+     FROM subscriptions WHERE id = 104`,
+  );
+  assert.deepEqual(repeatedPeriod.rows[0], advancedPeriod.rows[0]);
 
   await seedSubscription(105, 1005, "2026-03-09");
   const conflictClaim = await claim("conflict-worker", secondRunId, [105]);
@@ -287,6 +339,91 @@ async function run() {
     ),
     /conflicts with another payment identity/,
   );
+
+  await seedSubscription(106, 1006, "2026-04-10");
+  await pool.query(
+    "UPDATE subscriptions SET end_date = '2026-05-10'::timestamp WHERE id = 106",
+  );
+  const staleEndDateClaim = await claim("stale-end-worker", firstRunId, [106]);
+  assert.equal(
+    staleEndDateClaim.rowCount,
+    1,
+    "historical end_date must not exclude an active non-terminating subscription",
+  );
+
+  await seedSubscription(107, 1007, "2026-05-15");
+  await pool.query(
+    "UPDATE subscriptions SET end_date = '2026-06-15'::timestamp WHERE id = 107",
+  );
+  await pool.query(
+    `INSERT INTO members (id, status, is_active, first_payment_date, enrollment_date)
+     VALUES (1008, 'cancelled', false, '2026-05-16T12:00:00Z', '2026-05-16T12:00:00Z')`,
+  );
+  await pool.query(
+    `INSERT INTO subscriptions
+       (id, member_id, status, pending_reason, start_date, end_date, next_billing_date)
+     VALUES
+       (108, 1008, 'cancelled', 'member_cancelled', '2026-05-16', '2026-06-16', '2026-06-16')`,
+  );
+  const legacyCandidates = await pool.query(
+    `SELECT subscription_id
+     FROM subscription_legacy_period_date_candidates
+     WHERE subscription_id IN (107, 108)
+     ORDER BY subscription_id`,
+  );
+  assert.deepEqual(legacyCandidates.rows.map((row) => row.subscription_id), [107]);
+  const repairedLegacy = await pool.query(
+    "SELECT * FROM repair_legacy_subscription_period_dates(ARRAY[107, 108])",
+  );
+  assert.deepEqual(repairedLegacy.rows.map((row) => row.subscription_id), [107]);
+  const legacyAfterRepair = await pool.query(
+    `SELECT id, end_date::date::text AS end_date,
+            current_period_end::date::text AS current_period_end
+     FROM subscriptions WHERE id IN (107, 108) ORDER BY id`,
+  );
+  assert.deepEqual(legacyAfterRepair.rows, [
+    { id: 107, end_date: null, current_period_end: "2026-05-15" },
+    { id: 108, end_date: "2026-06-16", current_period_end: null },
+  ]);
+
+  await seedSubscription(109, 1009, "2026-06-01");
+  await pool.query(
+    `SELECT public.cancel_member_subscription_atomic(
+       1009, 109, false, '2026-05-20T12:00:00Z', '2026-05-31T12:00:00Z',
+       'Owner requested cancellation', 'owner_request', NULL, 'owner', NULL,
+       'not_used', 'owner', 'not_eligible', 'scheduled',
+       '2026-05-20T12:00:00Z', 'not_requested', '{}'::jsonb
+     )`,
+  );
+  const scheduledClaim = await claim("scheduled-cancel-worker", secondRunId, [109]);
+  assert.equal(scheduledClaim.rowCount, 0);
+  const scheduledBeforeFinalization = await pool.query(
+    `SELECT status, billing_mode, pending_reason,
+            termination_effective_at IS NOT NULL AS has_termination
+     FROM subscriptions WHERE id = 109`,
+  );
+  assert.deepEqual(scheduledBeforeFinalization.rows[0], {
+    status: "active",
+    billing_mode: "disabled",
+    pending_reason: "member_cancelled",
+    has_termination: true,
+  });
+  const cancellationFinalization = await pool.query(
+    "SELECT * FROM finalize_due_scheduled_cancellations('2026-06-02T12:00:00Z')",
+  );
+  assert.equal(cancellationFinalization.rows[0].finalized_count, 1);
+  const scheduledAfterFinalization = await pool.query(
+    `SELECT subscription.status AS subscription_status,
+            member.status AS member_status, member.is_active
+     FROM subscriptions subscription
+     JOIN members member ON member.id = subscription.member_id
+     WHERE subscription.id = 109`,
+  );
+  assert.deepEqual(scheduledAfterFinalization.rows[0], {
+    subscription_status: "cancelled",
+    member_status: "cancelled",
+    is_active: false,
+  });
 
   console.log("Durable recurring billing PostgreSQL integration tests passed.");
 }

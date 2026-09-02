@@ -38,6 +38,13 @@ const lifecycleMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const periodTerminationMigration = fs.readFileSync(
+  path.join(
+    root,
+    "scripts/sql/2026-09-02d_subscription_period_termination_semantics.sql",
+  ),
+  "utf8",
+);
 const service = fs.readFileSync(
   path.join(root, "server/services/durable-recurring-billing-service.ts"),
   "utf8",
@@ -105,8 +112,9 @@ assert.match(
 );
 assert.match(
   storage,
-  /s\.end_date IS NULL OR s\.end_date > \(\$1::timestamptz AT TIME ZONE 'America\/Chicago'\)/,
+  /s\.termination_effective_at IS NULL[\s\S]*s\.termination_effective_at > \$1::timestamptz/,
 );
+assert.doesNotMatch(storage, /s\.end_date IS NULL OR s\.end_date >/);
 assert.doesNotMatch(service, /new Date\(subscription\.nextBillingDate\)/);
 assert.match(service, /cycleDate: subscription\.nextBillingDate/);
 assert.match(service, /claim_recurring_billing_cycles\(\$1, \$2, 1,/);
@@ -165,6 +173,24 @@ assert.match(lifecycleMigration, /state IN \('ready', 'claimed', 'declined'\)/);
 assert.match(lifecycleMigration, /AT TIME ZONE 'America\/Chicago'/);
 assert.match(lifecycleMigration, /finalize_due_scheduled_cancellations/);
 assert.match(lifecycleMigration, /GET DIAGNOSTICS [a-z_]+ = ROW_COUNT/);
+assert.match(periodTerminationMigration, /ADD COLUMN IF NOT EXISTS termination_effective_at timestamptz/);
+assert.match(periodTerminationMigration, /subscription_legacy_period_date_candidates/);
+assert.match(
+  periodTerminationMigration,
+  /SET current_period_start = cycle\.cycle_date::timestamp,[\s\S]*current_period_end = normalized_next_billing_date,[\s\S]*next_billing_date = normalized_next_billing_date/,
+);
+assert.match(
+  periodTerminationMigration,
+  /pending_reason = 'member_cancelled',[\s\S]*termination_effective_at = v_effective_at/,
+);
+assert.match(
+  periodTerminationMigration,
+  /subscription\.termination_effective_at IS NOT NULL[\s\S]*subscription\.termination_effective_at <= p_now/,
+);
+assert.doesNotMatch(
+  periodTerminationMigration,
+  /SET[\s\S]{0,120}end_date = v_effective_at/,
+);
 assert.match(service, /finalize_due_scheduled_cancellations/);
 assert.match(service, /claim_recurring_internal_sync_cycles/);
 assert.match(service, /assertSingleCycleUpdate/);
