@@ -5322,16 +5322,18 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
           logEPX({
             level: "info",
             phase: "callback",
-            message: confirmedPaymentResult.commissionsCreated > 0
-              ? "✅ Commission/override rows created via PaymentConfirmedService"
-              : "PaymentConfirmedService processed callback (no new commission rows — likely already existed or no enrolling agent)",
+            message:
+              confirmedPaymentResult.commissionsCreated > 0
+                ? "✅ Commission/override rows created via PaymentConfirmedService"
+                : "PaymentConfirmedService processed callback (no new commission rows — likely already existed or no enrolling agent)",
             data: {
               memberId: paymentRecordForLogging.member_id,
               paymentId: paymentRecordForLogging.id,
               alreadyConfirmed: confirmedPaymentResult.alreadyConfirmed,
               commissionsCreated: confirmedPaymentResult.commissionsCreated,
               overridesRetained: confirmedPaymentResult.overridesRetained,
-              commissionSkippedReason: confirmedPaymentResult.commissionSkippedReason || null,
+              commissionSkippedReason:
+                confirmedPaymentResult.commissionSkippedReason || null,
             },
           });
         }
@@ -6244,7 +6246,8 @@ router.put(
           logEPX({
             level: "error",
             phase: "admin-update",
-            message: "PaymentConfirmedService failed during manual verification",
+            message:
+              "PaymentConfirmedService failed during manual verification",
             data: {
               error: confirmationError?.message,
               paymentId,
@@ -6363,7 +6366,8 @@ router.post(
       logEPX({
         level: "info",
         phase: "admin-commission",
-        message: "Admin manually creating commission via PaymentConfirmedService",
+        message:
+          "Admin manually creating commission via PaymentConfirmedService",
         data: {
           memberId,
           adminUserId: req.user.id,
@@ -6527,7 +6531,10 @@ router.post(
             member.id,
           );
 
-          if (!sourcePayment || !isSuccessfulPaymentStatus(sourcePayment.status)) {
+          if (
+            !sourcePayment ||
+            !isSuccessfulPaymentStatus(sourcePayment.status)
+          ) {
             results.unresolvedMembers.push({
               memberId: member.id,
               memberName: `${member.first_name} ${member.last_name}`,
@@ -6563,7 +6570,8 @@ router.post(
                 logEPX({
                   level: "info",
                   phase: "commission-repair",
-                  message: "✅ Commission created via repair utility (PaymentConfirmedService)",
+                  message:
+                    "✅ Commission created via repair utility (PaymentConfirmedService)",
                   data: {
                     memberId: member.id,
                     sourcePaymentId: sourcePayment.id,

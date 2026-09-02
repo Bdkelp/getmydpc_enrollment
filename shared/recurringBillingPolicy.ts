@@ -18,6 +18,7 @@ export const RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS = [
   "%token decryption failed%",
   "%missing recurring token%",
   "%resolved orig_auth_guid%",
+  "%controlled retry pending super admin review%",
 ] as const;
 
 export function isRecurringBillingFailureRetryable(options: {
@@ -38,6 +39,7 @@ export function isRecurringBillingFailureRetryable(options: {
     "token decryption failed",
     "missing recurring token",
     "resolved orig_auth_guid",
+    "controlled retry pending super admin review",
   ].some((fragment) => failureReason.includes(fragment));
 }
 

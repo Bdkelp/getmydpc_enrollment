@@ -15,7 +15,6 @@ import {
   isValidSSN,
   formatSSN as formatSSNNumber,
 } from "./utils/encryption";
-import crypto from "crypto";
 import {
   RECURRING_BILLING_ATTEMPT_STATUSES,
   RECURRING_BILLING_IDEMPOTENCY_STATUSES,
@@ -23,31 +22,6 @@ import {
   RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES,
 } from "../shared/recurringBillingPolicy";
 import { requireCanonicalPaymentCredential } from "./services/payment-credential";
-
-// Encryption utilities for sensitive data
-const ENCRYPTION_KEY =
-  process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString("hex");
-const IV_LENGTH = 16; // For AES, this is always 16
-
-export function encryptSensitiveData(data: string): string {
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), "hex"); // Ensure 32 bytes key
-  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
-  let encrypted = cipher.update(data, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return iv.toString("hex") + ":" + encrypted;
-}
-
-export function decryptSensitiveData(encryptedData: string): string {
-  const parts = encryptedData.split(":");
-  const iv = Buffer.from(parts.shift()!, "hex");
-  const encrypted = parts.join(":");
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), "hex"); // Ensure 32 bytes key
-  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
-}
 
 export function getLastFourSSN(ssn: string): string {
   return ssn.replace(/\D/g, "").slice(-4);
@@ -68,6 +42,23 @@ export function validateDOB(dateOfBirth: string): boolean {
 export function validatePhoneNumber(phone: string): boolean {
   const cleaned = phone.replace(/\D/g, "");
   return cleaned.length === 10 || (cleaned.length === 11 && cleaned[0] === "1");
+}
+
+export function normalizeProcessorReference(
+  value: string,
+  fieldName: string,
+  minimumLength = 8,
+  maximumLength = 128,
+): string {
+  const normalized = value.trim();
+  if (
+    normalized.length < minimumLength ||
+    normalized.length > maximumLength ||
+    !/^[A-Za-z0-9-]+$/.test(normalized)
+  ) {
+    throw new Error(`${fieldName} is not a valid processor reference`);
+  }
+  return normalized;
 }
 
 // Helper functions for member field formatting (matching database CHAR fields)
@@ -3275,18 +3266,29 @@ export async function updateMemberStatus(
     if (options?.reason) {
       updates.cancellation_reason = options.reason;
     }
-    if (options?.reasonCode) updates.cancellation_reason_code = options.reasonCode;
-    if (options?.requestedAt) updates.cancellation_requested_at = options.requestedAt;
-    if (options?.effectiveAt) updates.cancellation_effective_at = options.effectiveAt;
+    if (options?.reasonCode)
+      updates.cancellation_reason_code = options.reasonCode;
+    if (options?.requestedAt)
+      updates.cancellation_requested_at = options.requestedAt;
+    if (options?.effectiveAt)
+      updates.cancellation_effective_at = options.effectiveAt;
     if (options?.actorId) updates.cancellation_actor_id = options.actorId;
     if (options?.actorType) updates.cancellation_actor_type = options.actorType;
-    if (options?.internalNotes !== undefined) updates.cancellation_internal_notes = options.internalNotes;
-    if (options?.serviceUsageStatus !== undefined) updates.service_usage_status = options.serviceUsageStatus;
-    if (options?.serviceUsageSource !== undefined) updates.service_usage_verification_source = options.serviceUsageSource;
-    if (options?.refundEligibility !== undefined) updates.refund_eligibility = options.refundEligibility;
-    if (options?.refundEligibilityReason !== undefined) updates.refund_eligibility_reason = options.refundEligibilityReason;
-    if (options?.refundEligibilityEvaluatedAt !== undefined) updates.refund_eligibility_evaluated_at = options.refundEligibilityEvaluatedAt;
-    if (options?.refundStatus !== undefined) updates.refund_status = options.refundStatus;
+    if (options?.internalNotes !== undefined)
+      updates.cancellation_internal_notes = options.internalNotes;
+    if (options?.serviceUsageStatus !== undefined)
+      updates.service_usage_status = options.serviceUsageStatus;
+    if (options?.serviceUsageSource !== undefined)
+      updates.service_usage_verification_source = options.serviceUsageSource;
+    if (options?.refundEligibility !== undefined)
+      updates.refund_eligibility = options.refundEligibility;
+    if (options?.refundEligibilityReason !== undefined)
+      updates.refund_eligibility_reason = options.refundEligibilityReason;
+    if (options?.refundEligibilityEvaluatedAt !== undefined)
+      updates.refund_eligibility_evaluated_at =
+        options.refundEligibilityEvaluatedAt;
+    if (options?.refundStatus !== undefined)
+      updates.refund_status = options.refundStatus;
   }
 
   try {
@@ -5918,9 +5920,10 @@ export async function getAllCommissionsNew(
       // Phase 2B: group commissions must use the group's own cycle effective
       // date (never payment-capture/created_at as a stand-in) where known.
       // If it cannot be determined, flag rather than silently guess.
-      const groupRecord = isGroupCommission && groupMember?.group_id
-        ? (groupsMap.get(Number(groupMember.group_id)) as any)
-        : undefined;
+      const groupRecord =
+        isGroupCommission && groupMember?.group_id
+          ? (groupsMap.get(Number(groupMember.group_id)) as any)
+          : undefined;
       const groupMetadataRecord =
         groupRecord?.metadata && typeof groupRecord.metadata === "object"
           ? groupRecord.metadata
@@ -5929,7 +5932,8 @@ export async function getAllCommissionsNew(
         groupMetadataRecord?.groupBillingLifecycle?.expectedCycleDate ||
         groupMetadataRecord?.billingScheduler?.scheduledStartDate ||
         null;
-      const effectiveDateUnresolved = isGroupCommission && !groupCycleEffectiveDate;
+      const effectiveDateUnresolved =
+        isGroupCommission && !groupCycleEffectiveDate;
       const resolvedEffectiveDate = isGroupCommission
         ? groupCycleEffectiveDate || commission.created_at || null
         : member?.membership_start_date || commission.created_at || null;
@@ -5942,7 +5946,8 @@ export async function getAllCommissionsNew(
         membershipId: resolvedMembershipId,
         enrollmentId: commission.enrollment_id,
         lineageSnapshotId: commission.lineage_snapshot_id || null,
-        commissionType: commission.commission_type === "override" ? "override" : "direct",
+        commissionType:
+          commission.commission_type === "override" ? "override" : "direct",
         overrideForAgentId: commission.override_for_agent_id || null,
         sourcePaymentId: commission.source_payment_id || null,
         commissionAmount: normalizedCommissionAmount,
@@ -5994,7 +5999,9 @@ export async function getAllCommissionsNew(
       };
     });
 
-    const unresolvedEffectiveDateCount = formatted.filter((row) => row.effectiveDateUnresolved).length;
+    const unresolvedEffectiveDateCount = formatted.filter(
+      (row) => row.effectiveDateUnresolved,
+    ).length;
     if (unresolvedEffectiveDateCount > 0) {
       console.warn(
         `[Storage] getAllCommissionsNew: ${unresolvedEffectiveDateCount} group commission(s) have no resolvable group cycle effective date — flagged via effectiveDateUnresolved, not guessed.`,
@@ -7627,6 +7634,7 @@ export interface BillableSubscription {
   paymentMethodType: string;
   tokenOriginalNetworkTransId: string | null;
   latestPaymentAuthGuid: string | null;
+  processorReferenceConflict: boolean;
   cardLastFour: string | null;
   cardType: string | null;
   memberEmail: string | null;
@@ -7654,9 +7662,19 @@ export function getRecurringBillingReadySubscriptionStatuses(): string[] {
 
 export async function getSubscriptionsDueForBilling(
   now: Date,
-  options?: { includeACH?: boolean },
+  options?: {
+    includeACH?: boolean;
+    controlledRetrySubscriptionIds?: number[];
+  },
 ): Promise<BillableSubscription[]> {
   const includeACH = options?.includeACH === true;
+  const controlledRetrySubscriptionIds = Array.from(
+    new Set(
+      (options?.controlledRetrySubscriptionIds || []).filter(
+        (id) => Number.isInteger(id) && id > 0,
+      ),
+    ),
+  );
   const supportedPaymentMethodTypes = includeACH
     ? ["CreditCard", "ACH"]
     : ["CreditCard"];
@@ -7761,6 +7779,24 @@ export async function getSubscriptionsDueForBilling(
         COALESCE(t_group.payment_method_type, t_member.payment_method_type) AS payment_method_type,
         COALESCE(t_group.original_network_trans_id, t_member.original_network_trans_id) AS original_network_trans_id,
         p_auth.epx_auth_guid AS latest_payment_auth_guid,
+        EXISTS (
+          SELECT 1
+          FROM payment_tokens pt_conflict
+          WHERE pt_conflict.id <> COALESCE(t_group.id, t_member.id)
+            AND pt_conflict.member_id IS DISTINCT FROM s.member_id
+            AND (
+              NULLIF(TRIM(COALESCE(t_group.original_network_trans_id, t_member.original_network_trans_id)), '') IS NOT NULL
+              AND TRIM(pt_conflict.original_network_trans_id) = TRIM(COALESCE(t_group.original_network_trans_id, t_member.original_network_trans_id))
+              OR NULLIF(TRIM(COALESCE(t_group.bric_token, t_member.bric_token)), '') IS NOT NULL
+              AND TRIM(pt_conflict.bric_token) = TRIM(COALESCE(t_group.bric_token, t_member.bric_token))
+            )
+        ) OR EXISTS (
+          SELECT 1
+          FROM payments p_conflict
+          WHERE p_conflict.member_id::text <> s.member_id::text
+            AND NULLIF(TRIM(p_auth.epx_auth_guid), '') IS NOT NULL
+            AND TRIM(p_conflict.epx_auth_guid) = TRIM(p_auth.epx_auth_guid)
+        ) AS processor_reference_conflict,
         COALESCE(t_group.card_last_four, t_member.card_last_four) AS card_last_four,
         COALESCE(t_group.card_type, t_member.card_type) AS card_type,
         COALESCE(t_group.bank_routing_number, t_member.bank_routing_number) AS token_bank_routing_number,
@@ -7861,15 +7897,26 @@ export async function getSubscriptionsDueForBilling(
       ) p_auth ON true
       LEFT JOIN LATERAL (
         SELECT
+          rbl.status,
           COALESCE(rbl.next_retry_date, rbl.created_at + INTERVAL '2 day') AS next_retry_date,
           CASE
             WHEN COALESCE(rbl.epx_response_code, '') = ANY($4::text[]) THEN false
-            WHEN COALESCE(rbl.failure_reason, '') ILIKE ANY($5::text[]) THEN false
+            WHEN COALESCE(rbl.failure_reason, '') ILIKE ANY($5::text[]) THEN (
+              COALESCE(t_group.original_network_trans_id, t_member.original_network_trans_id, '')
+                ~ '^[A-Za-z0-9-]{16,64}$'
+              OR COALESCE(p_auth.epx_auth_guid, '') ~ '^[A-Za-z0-9-]{8,128}$'
+              OR (
+                COALESCE(t_group.bric_token, t_member.bric_token, '')
+                  ~ '^[A-Za-z0-9-]{16,64}$'
+                AND COALESCE(t_group.bric_token, t_member.bric_token, '')
+                  !~ '^[0-9A-Fa-f]+:[0-9A-Fa-f]+$'
+              )
+            )
             ELSE true
           END AS retryable
         FROM recurring_billing_log rbl
         WHERE rbl.subscription_id = s.id
-          AND rbl.status = 'failed'
+          AND rbl.status <> 'dry_run'
         ORDER BY rbl.created_at DESC, rbl.id DESC
         LIMIT 1
       ) retry_gate ON true
@@ -7886,11 +7933,12 @@ export async function getSubscriptionsDueForBilling(
         AND s.next_billing_date <= $1::timestamptz
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND (
-          retry_gate.next_retry_date IS NULL
+          retry_gate.status IS DISTINCT FROM 'failed'
           OR (
             retry_gate.retryable = true
             AND retry_gate.next_retry_date <= $1::timestamptz
           )
+          OR s.id = ANY($6::int[])
         )
       ORDER BY s.next_billing_date ASC, s.id ASC
     `,
@@ -7900,6 +7948,7 @@ export async function getSubscriptionsDueForBilling(
       billingReadyStatuses,
       [...RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES],
       [...RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS],
+      controlledRetrySubscriptionIds,
     ],
   );
 
@@ -7928,6 +7977,7 @@ export async function getSubscriptionsDueForBilling(
       paymentMethodType: row.payment_method_type,
       tokenOriginalNetworkTransId: row.original_network_trans_id ?? null,
       latestPaymentAuthGuid: row.latest_payment_auth_guid ?? null,
+      processorReferenceConflict: row.processor_reference_conflict === true,
       cardLastFour: row.card_last_four,
       cardType: row.card_type,
       memberEmail: row.email ?? null,
@@ -8003,12 +8053,18 @@ export interface UpsertGroupPaymentTokenInput {
 export async function upsertMemberPaymentToken(
   input: UpsertPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const credential = requireCanonicalPaymentCredential(input.token);
-  const originalNetworkTransId = input.originalNetworkTransId?.trim();
-  const distinctOriginalNetworkTransId =
-    originalNetworkTransId && originalNetworkTransId !== credential
-      ? originalNetworkTransId
-      : null;
+  const normalizedToken = normalizeProcessorReference(
+    input.token,
+    "BRIC token",
+    16,
+    64,
+  );
+  const normalizedOriginalNetworkTransId = input.originalNetworkTransId
+    ? normalizeProcessorReference(
+        input.originalNetworkTransId,
+        "Original network transaction ID",
+      )
+    : null;
 
   // Keep one active primary token per member + payment method type.
   await query(
@@ -8071,16 +8127,14 @@ export async function upsertMemberPaymentToken(
     [
       input.memberId,
       input.paymentMethodType,
-      credential,
+      normalizedToken,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      distinctOriginalNetworkTransId,
+      normalizedOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
-      input.bankAccountNumber
-        ? encryptSensitiveData(input.bankAccountNumber)
-        : null,
+      input.bankAccountNumber?.replace(/\D/g, "") || null,
       input.bankAccountLastFour ?? null,
       input.bankAccountHolderName ?? null,
       input.bankAccountType ?? null,
@@ -8094,12 +8148,18 @@ export async function upsertMemberPaymentToken(
 export async function upsertGroupPaymentToken(
   input: UpsertGroupPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const credential = requireCanonicalPaymentCredential(input.token);
-  const originalNetworkTransId = input.originalNetworkTransId?.trim();
-  const distinctOriginalNetworkTransId =
-    originalNetworkTransId && originalNetworkTransId !== credential
-      ? originalNetworkTransId
-      : null;
+  const normalizedToken = normalizeProcessorReference(
+    input.token,
+    "BRIC token",
+    16,
+    64,
+  );
+  const normalizedOriginalNetworkTransId = input.originalNetworkTransId
+    ? normalizeProcessorReference(
+        input.originalNetworkTransId,
+        "Original network transaction ID",
+      )
+    : null;
 
   await query(
     `
@@ -8163,16 +8223,14 @@ export async function upsertGroupPaymentToken(
     [
       input.groupId,
       input.paymentMethodType,
-      credential,
+      normalizedToken,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      distinctOriginalNetworkTransId,
+      normalizedOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
-      input.bankAccountNumber
-        ? encryptSensitiveData(input.bankAccountNumber)
-        : null,
+      input.bankAccountNumber?.replace(/\D/g, "") || null,
       input.bankAccountLastFour ?? null,
       input.bankAccountHolderName ?? null,
       input.bankAccountType ?? null,
@@ -8585,6 +8643,9 @@ export async function createPayment(paymentData: {
   epxAuthGuid?: string | null;
   metadata?: Record<string, any>;
 }): Promise<any> {
+  const normalizedEpxAuthGuid = paymentData.epxAuthGuid
+    ? normalizeProcessorReference(paymentData.epxAuthGuid, "EPX AUTH_GUID")
+    : null;
   console.log(
     "[Storage] Creating payment record at",
     new Date().toISOString(),
@@ -8629,7 +8690,7 @@ export async function createPayment(paymentData: {
       paymentData.status,
       paymentData.currency || "USD",
       paymentData.paymentMethod || "card",
-      paymentData.epxAuthGuid || null,
+      normalizedEpxAuthGuid,
       paymentData.transactionId || null,
       paymentData.subscriptionId || null,
       paymentData.metadata ? JSON.stringify(paymentData.metadata) : null,
@@ -8653,7 +8714,9 @@ export async function createPayment(paymentData: {
     console.error("[Storage] Payment creation exception:", {
       message: error.message,
       stack: error.stack,
-      paymentData,
+      paymentId: null,
+      memberId: paymentData.memberId || null,
+      transactionId: paymentData.transactionId || null,
     });
     throw error;
   }
@@ -8800,6 +8863,9 @@ export async function updatePayment(
 
     const processedValues = fields.map((field) => {
       const value = (updates as any)[field];
+      if (field === "epxAuthGuid" && typeof value === "string") {
+        return normalizeProcessorReference(value, "EPX AUTH_GUID");
+      }
       if (field === "metadata" && typeof value === "object" && value !== null) {
         return JSON.stringify(value);
       }

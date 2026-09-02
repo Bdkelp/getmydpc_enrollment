@@ -180,7 +180,7 @@ export const members = pgTable(
     paymentMethodType: varchar("payment_method_type", { length: 20 }), // CreditCard, ACH, BankAccount
     // Bank account information (for ACH payments - "quiet" backup option)
     bankRoutingNumber: varchar("bank_routing_number", { length: 9 }), // ABA routing number (9 digits)
-    bankAccountNumber: varchar("bank_account_number", { length: 255 }), // Encrypted bank account number
+    bankAccountNumber: varchar("bank_account_number", { length: 255 }), // Readable server-side; mask only in UI/logs
     bankAccountType: varchar("bank_account_type", { length: 20 }), // Checking, Savings
     bankAccountHolderName: varchar("bank_account_holder_name", { length: 255 }), // Name on bank account
     bankAccountLastFour: varchar("bank_account_last_four", { length: 4 }), // Last 4 digits for display
@@ -476,7 +476,7 @@ export const paymentTokens = pgTable(
       "CreditCard",
     ), // CreditCard, ACH, BankAccount
 
-    // EPX BRIC Token (treat like password - secure storage)
+    // EPX processor billing reference; readable server-side, never exposed in normal UI/logs.
     bricToken: varchar("bric_token", { length: 255 }).notNull().unique(),
 
     // Card display information (for member UI - for CreditCard type)
@@ -490,7 +490,7 @@ export const paymentTokens = pgTable(
       length: 255,
     }),
 
-    // Bank account information (for ACH type)
+    // ACH values are server-readable; account numbers are masked in normal UI/logs.
     bankRoutingNumber: varchar("bank_routing_number", { length: 9 }), // ABA routing number
     bankAccountLastFour: varchar("bank_account_last_four", { length: 4 }), // Last 4 for display
     bankAccountType: varchar("bank_account_type", { length: 20 }), // Checking, Savings

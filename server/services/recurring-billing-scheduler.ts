@@ -28,7 +28,6 @@
 import { supabase } from "../lib/supabaseClient";
 import {
   createAdminNotification,
-  decryptSensitiveData,
   getSubscriptionsDueForBilling,
   insertRecurringBillingLog,
   updateRecurringBillingLog,
@@ -690,29 +689,22 @@ function resolveAchRuntimeData(sub: BillableSubscription):
     };
   }
 
-  const encryptedOrRawAccountNumber = (
+  const accountNumberRaw = (
     sub.tokenBankAccountNumber ||
     sub.memberBankAccountNumber ||
     ""
   ).trim();
-  if (!encryptedOrRawAccountNumber) {
+  if (!accountNumberRaw) {
     return { error: "Missing ACH account number on member record" };
   }
-
-  let resolvedAccountNumber = encryptedOrRawAccountNumber;
-  try {
-    resolvedAccountNumber = decryptSensitiveData(
-      encryptedOrRawAccountNumber,
-    ).trim();
-  } catch {
-    // If not encrypted with the app format, continue with the stored value.
-    resolvedAccountNumber = encryptedOrRawAccountNumber;
+  if (looksLikeEncryptedToken(accountNumberRaw)) {
+    return { error: "Legacy ACH account migration required" };
   }
 
-  const accountNumber = resolvedAccountNumber.replace(/\s+/g, "");
+  const accountNumber = accountNumberRaw.replace(/\s+/g, "");
   if (!accountNumber) {
     return {
-      error: "Missing ACH account number after decryption/normalization",
+      error: "Missing ACH account number after normalization",
     };
   }
 
@@ -1195,10 +1187,38 @@ function truncateBillingDate(date: string | Date): string {
 function resolveRecurringCardAuthGuid(
   sub: BillableSubscription,
 ): { authGuid: string } | { error: string } {
-  const resolution = resolveCanonicalPaymentCredential(sub.bricToken);
-  return resolution.error
-    ? { error: resolution.error }
-    : { authGuid: resolution.credential };
+  if (sub.processorReferenceConflict) {
+    return { error: "Processor reference conflicts across member records" };
+  }
+
+  const storedAuthGuid =
+    typeof sub.tokenOriginalNetworkTransId === "string"
+      ? sub.tokenOriginalNetworkTransId.trim()
+      : "";
+  if (isUsableAuthGuid(storedAuthGuid)) {
+    return { authGuid: storedAuthGuid };
+  }
+
+  const latestPaymentAuthGuid =
+    typeof sub.latestPaymentAuthGuid === "string"
+      ? sub.latestPaymentAuthGuid.trim()
+      : "";
+  if (isUsableTrustedAuthGuid(latestPaymentAuthGuid)) {
+    return { authGuid: latestPaymentAuthGuid };
+  }
+
+  const tokenValue = String(sub.bricToken || "").trim();
+  if (!tokenValue) {
+    return { error: "Missing recurring token for card charge" };
+  }
+
+  if (!looksLikeEncryptedToken(tokenValue) && isUsableAuthGuid(tokenValue)) {
+    return { authGuid: tokenValue };
+  }
+
+  return looksLikeEncryptedToken(tokenValue)
+    ? { error: "Legacy encrypted processor reference requires migration" }
+    : { error: "Stored processor reference is invalid" };
 }
 
 async function finalizeScheduledMemberCancellations() {
@@ -1439,6 +1459,7 @@ async function runBillingCycle(options?: {
   source?: SchedulerCycleSource;
   requestedBy?: string;
   subscriptionIds?: number[];
+  controlledRetrySubscriptionIds?: number[];
 }): Promise<RecurringSchedulerRunResult> {
   const cycleStart = Date.now();
   const source: SchedulerCycleSource = options?.source || "automatic";
@@ -1634,6 +1655,7 @@ async function runBillingCycle(options?: {
     const now = new Date();
     const allDueSubscriptions = await getSubscriptionsDueForBilling(now, {
       includeACH: achEnabled,
+      controlledRetrySubscriptionIds: options?.controlledRetrySubscriptionIds,
     });
     const dueSubscriptions = filterRecurringBillingSubscriptions(
       allDueSubscriptions,
@@ -1740,6 +1762,9 @@ async function runBillingCycle(options?: {
           achEnabled,
           achTestMode,
           source,
+          options?.controlledRetrySubscriptionIds?.includes(
+            sub.subscriptionId,
+          ) === true,
         );
         if (processed.outcome === "processed") {
           successCount++;
@@ -1867,6 +1892,7 @@ async function processSubscription(
   achEnabled: boolean,
   achTestMode: boolean,
   source: SchedulerCycleSource,
+  controlledRetry: boolean,
 ): Promise<{ outcome: "processed" | "skipped"; skipReason?: string }> {
   const payerContext = resolvePayerContext(sub);
   const groupPayerRecurringEnabled = isGroupPayerRecurringEnabled();
@@ -2439,14 +2465,20 @@ async function processSubscription(
       const nextRetryDate = computeNextRetryDate(
         resolveRetryDelayDays(result.responseFields?.AUTH_RESP || null),
       );
+      const processorResponseCode = result.responseFields?.AUTH_RESP || null;
+      const failureReason =
+        controlledRetry && !processorResponseCode
+          ? `Controlled retry pending Super Admin review: network/processor no-response: ${failureResponseMessage || "EPX request failed"}`
+          : failureResponseMessage || "EPX declined";
 
       // EPX declined
       await updateRecurringBillingLog(logId, {
         status: "failed",
         epxResponseCode: result.responseFields?.AUTH_RESP || null,
         epxResponseMessage: failureResponseMessage,
-        failureReason: failureResponseMessage || "EPX declined",
-        nextRetryDate,
+        failureReason,
+        nextRetryDate:
+          controlledRetry && !processorResponseCode ? null : nextRetryDate,
         processedAt: new Date().toISOString(),
       });
 
@@ -2455,7 +2487,7 @@ async function processSubscription(
         memberId: sub.memberId,
         paymentMethodType: methodType,
         responseCode: result.responseFields?.AUTH_RESP || null,
-        errorMessage: failureResponseMessage || "EPX declined",
+        errorMessage: failureReason,
         nextRetryDate,
         payerType: payerContext.payerType,
         payerAccountId: payerContext.payerAccountId,
@@ -2466,7 +2498,7 @@ async function processSubscription(
         subscriptionId: sub.subscriptionId,
         memberId: sub.memberId,
         paymentMethodType: methodType,
-        errorMessage: failureResponseMessage || "EPX declined",
+        errorMessage: failureReason,
         responseCode: result.responseFields?.AUTH_RESP || null,
         payerType: payerContext.payerType,
         payerAccountId: payerContext.payerAccountId,
@@ -2491,17 +2523,20 @@ async function processSubscription(
   } catch (epxError: any) {
     // Network / timeout / unexpected error
     const nextRetryDate = computeNextRetryDate(DEFAULT_DECLINE_RETRY_DAYS);
+    const failureReason = controlledRetry
+      ? `Controlled retry pending Super Admin review: network/processor no-response: ${epxError.message || "Unexpected error during EPX call"}`
+      : epxError.message || "Unexpected error during EPX call";
     await updateRecurringBillingLog(logId, {
       status: "failed",
-      failureReason: epxError.message || "Unexpected error during EPX call",
-      nextRetryDate,
+      failureReason,
+      nextRetryDate: controlledRetry ? null : nextRetryDate,
       processedAt: new Date().toISOString(),
     });
     await createRecurringFailureAdminNotification({
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentMethodType: methodType,
-      errorMessage: epxError.message || "Unexpected error during EPX call",
+      errorMessage: failureReason,
       nextRetryDate,
       payerType: payerContext.payerType,
       payerAccountId: payerContext.payerAccountId,
@@ -2512,7 +2547,7 @@ async function processSubscription(
       subscriptionId: sub.subscriptionId,
       memberId: sub.memberId,
       paymentMethodType: methodType,
-      errorMessage: epxError.message || "Unexpected error during EPX call",
+      errorMessage: failureReason,
       responseCode: null,
       payerType: payerContext.payerType,
       payerAccountId: payerContext.payerAccountId,
@@ -2643,8 +2678,23 @@ export async function runRecurringBillingCycleOnce(options?: {
   forceDryRun?: boolean;
   requestedBy?: string;
   subscriptionIds?: number[];
+  controlledRetrySubscriptionIds?: number[];
 }): Promise<RecurringSchedulerRunResult> {
   const forceDryRun = options?.forceDryRun !== false;
+  const targetedSubscriptionIds = new Set(options?.subscriptionIds || []);
+  const controlledRetrySubscriptionIds =
+    options?.controlledRetrySubscriptionIds || [];
+  if (
+    controlledRetrySubscriptionIds.length > 0 &&
+    (targetedSubscriptionIds.size === 0 ||
+      controlledRetrySubscriptionIds.some(
+        (id) => !targetedSubscriptionIds.has(id),
+      ))
+  ) {
+    throw new Error(
+      "Controlled retries must be included in an explicit targeted subscription run",
+    );
+  }
   schedulerStatusState.manualRunsTriggered += 1;
 
   return runBillingCycle({
@@ -2652,5 +2702,6 @@ export async function runRecurringBillingCycleOnce(options?: {
     dryRunOverride: forceDryRun,
     requestedBy: options?.requestedBy,
     subscriptionIds: options?.subscriptionIds,
+    controlledRetrySubscriptionIds,
   });
 }

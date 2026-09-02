@@ -50,11 +50,20 @@ interface SensitiveMemberResponse {
     };
     bankInfo?: {
       routingNumber?: string | null;
-      routingNumberMasked?: string | null;
+      routingNumberReadable?: string | null;
       accountNumber?: string | null;
       accountLastFour?: string | null;
       accountType?: string | null;
       accountHolderName?: string | null;
+    };
+    paymentReferences?: {
+      paymentMethodType?: string | null;
+      bric?: string | null;
+      bricMasked?: string | null;
+      originalAuthGuid?: string | null;
+      originalAuthGuidMasked?: string | null;
+      paymentAuthGuid?: string | null;
+      paymentAuthGuidMasked?: string | null;
     };
   };
 }
@@ -635,7 +644,7 @@ export default function EnrollmentDetails() {
     mutationFn: async () => {
       const memberId = enrollment?.id;
       if (!memberId) throw new Error('Member ID is missing');
-      return apiRequest(`/api/admin/member/${memberId}/sensitive?revealBank=true&reason=${encodeURIComponent('Enrollment details bank info reveal')}`) as Promise<SensitiveMemberResponse>;
+      return apiRequest(`/api/admin/member/${memberId}/sensitive?revealBank=true&revealPayment=true&reason=${encodeURIComponent('Enrollment details payment info reveal')}`) as Promise<SensitiveMemberResponse>;
     },
     onSuccess: (response) => {
       const bankInfo = response?.sensitiveData?.bankInfo || null;
@@ -2066,9 +2075,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                         <div className="text-sm space-y-1">
                           <p>
                             <span className="text-gray-600">Routing:</span>{' '}
-                            {isBankVisible
-                              ? (revealedBankInfo?.routingNumber || revealedBankInfo?.routingNumberMasked || 'Not available')
-                              : (revealedBankInfo?.routingNumberMasked || '••••')}
+                            {revealedBankInfo?.routingNumberReadable || revealedBankInfo?.routingNumber || 'Not available'}
                           </p>
                           <p>
                             <span className="text-gray-600">Account:</span>{' '}
@@ -2083,6 +2090,24 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                           <p>
                             <span className="text-gray-600">Holder:</span>{' '}
                             {revealedBankInfo?.accountHolderName || 'Not provided'}
+                          </p>
+                          <p>
+                            <span className="text-gray-600">BRIC:</span>{' '}
+                            {isBankVisible
+                              ? (revealBankMutation.data?.sensitiveData?.paymentReferences?.bric || 'Not available')
+                              : (revealBankMutation.data?.sensitiveData?.paymentReferences?.bricMasked || '••••')}
+                          </p>
+                          <p>
+                            <span className="text-gray-600">ORIG_AUTH_GUID:</span>{' '}
+                            {isBankVisible
+                              ? (revealBankMutation.data?.sensitiveData?.paymentReferences?.originalAuthGuid || 'Not available')
+                              : (revealBankMutation.data?.sensitiveData?.paymentReferences?.originalAuthGuidMasked || '••••')}
+                          </p>
+                          <p>
+                            <span className="text-gray-600">AUTH_GUID:</span>{' '}
+                            {isBankVisible
+                              ? (revealBankMutation.data?.sensitiveData?.paymentReferences?.paymentAuthGuid || 'Not available')
+                              : (revealBankMutation.data?.sensitiveData?.paymentReferences?.paymentAuthGuidMasked || '••••')}
                           </p>
                         </div>
 

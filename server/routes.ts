@@ -1,6 +1,6 @@
 // @ts-nocheck - Temporarily disable strict type checking for legacy code
 import { Router } from "express";
-import { storage, decryptSensitiveData, encryptSensitiveData } from "./storage";
+import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { hasAtLeastRole, isFullAccessEmail, normalizeRole } from "./auth/roles";
 import { paymentService } from "./services/payment-service";
@@ -775,9 +775,7 @@ const maskLastFour = (value?: string | null): string | null => {
   return "****";
 };
 
-const resolveRawOrDecryptedBankValue = (
-  value?: string | null,
-): string | null => {
+const resolveReadableBankValue = (value?: string | null): string | null => {
   if (!value || typeof value !== "string") {
     return null;
   }
@@ -787,15 +785,16 @@ const resolveRawOrDecryptedBankValue = (
     return null;
   }
 
-  if (!trimmed.includes(":")) {
-    return trimmed;
-  }
+  return trimmed.includes(":") ? null : trimmed;
+};
 
-  try {
-    return decryptSensitiveData(trimmed).trim();
-  } catch {
-    return null;
-  }
+const maskProcessorReference = (value?: string | null): string | null => {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  return trimmed.length > 8
+    ? `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`
+    : "********";
 };
 
 async function canManageMemberForUser(
@@ -2266,7 +2265,9 @@ router.get(
         plan: planInfo,
         isActive: req.user.isActive,
         approvalStatus: req.user.approvalStatus,
-        isImpersonating: Boolean(req.realUser && req.realUser.id !== req.user.id),
+        isImpersonating: Boolean(
+          req.realUser && req.realUser.id !== req.user.id,
+        ),
         originalActorRole: req.realUser?.role || null,
       };
 
@@ -4312,23 +4313,38 @@ router.get(
   authenticateToken,
   async (req: AuthRequest, res) => {
     if (!hasAgentOrAdminAccess(req.user?.role)) {
-      return res.status(403).json({ message: "Agent or admin access required" });
+      return res
+        .status(403)
+        .json({ message: "Agent or admin access required" });
     }
     const memberId = Number(req.params.memberId);
-    if (!Number.isFinite(memberId)) return res.status(400).json({ message: "Invalid member ID" });
+    if (!Number.isFinite(memberId))
+      return res.status(400).json({ message: "Invalid member ID" });
     const member = await storage.getMember(memberId);
-    if (!member || !(await canManageMemberForUser(String(memberId), req.user))) {
+    if (
+      !member ||
+      !(await canManageMemberForUser(String(memberId), req.user))
+    ) {
       return res.status(403).json({ message: "Access denied to this member" });
     }
     const requestedAt = new Date().toISOString();
     const evaluation = evaluateRefundEligibility({
-      reasonCode: typeof req.query.reasonCode === "string" ? req.query.reasonCode : null,
-      membershipStartDate: (member as any).membershipStartDate || (member as any).membership_start_date,
+      reasonCode:
+        typeof req.query.reasonCode === "string" ? req.query.reasonCode : null,
+      membershipStartDate:
+        (member as any).membershipStartDate ||
+        (member as any).membership_start_date,
       cancellationRequestedAt: requestedAt,
-      serviceUsageStatus: typeof req.query.serviceUsageStatus === "string" ? req.query.serviceUsageStatus as any : null,
+      serviceUsageStatus:
+        typeof req.query.serviceUsageStatus === "string"
+          ? (req.query.serviceUsageStatus as any)
+          : null,
     });
     return res.json({
-      membershipStartDate: (member as any).membershipStartDate || (member as any).membership_start_date || null,
+      membershipStartDate:
+        (member as any).membershipStartDate ||
+        (member as any).membership_start_date ||
+        null,
       cancellationRequestedAt: requestedAt,
       ...evaluation,
     });
@@ -4339,26 +4355,49 @@ router.patch(
   "/api/admin/members/:memberId/refund-status",
   authenticateToken,
   async (req: AuthRequest, res) => {
-    if (!isAdmin(req.user?.role)) return res.status(403).json({ message: "Admin access required" });
+    if (!isAdmin(req.user?.role))
+      return res.status(403).json({ message: "Admin access required" });
     const memberId = Number(req.params.memberId);
     const refundStatus = String(req.body?.refundStatus || "");
     const requestedEligibility = req.body?.refundEligibility;
-    if (!Number.isFinite(memberId) || !["refunded", "denied", "cancelled"].includes(refundStatus)) {
-      return res.status(400).json({ message: "Valid member ID and refundStatus (refunded, denied, cancelled) are required" });
+    if (
+      !Number.isFinite(memberId) ||
+      !["refunded", "denied", "cancelled"].includes(refundStatus)
+    ) {
+      return res
+        .status(400)
+        .json({
+          message:
+            "Valid member ID and refundStatus (refunded, denied, cancelled) are required",
+        });
     }
     const now = new Date().toISOString();
     const { data: member, error: memberError } = await supabase
       .from("members")
       .update({
         refund_status: refundStatus,
-        ...(refundStatus !== "refunded" && ["eligible", "review_required"].includes(String(requestedEligibility)) ? { refund_eligibility: requestedEligibility } : {}),
-        ...(refundStatus !== "refunded" && !["eligible", "review_required"].includes(String(requestedEligibility)) ? { refund_eligibility: "not_eligible", refund_eligibility_reason: "refund_cancelled_or_denied" } : {}),
-        ...(refundStatus === "refunded" ? { refund_processed_at: now, refund_processed_by: req.user.id } : {}),
+        ...(refundStatus !== "refunded" &&
+        ["eligible", "review_required"].includes(String(requestedEligibility))
+          ? { refund_eligibility: requestedEligibility }
+          : {}),
+        ...(refundStatus !== "refunded" &&
+        !["eligible", "review_required"].includes(String(requestedEligibility))
+          ? {
+              refund_eligibility: "not_eligible",
+              refund_eligibility_reason: "refund_cancelled_or_denied",
+            }
+          : {}),
+        ...(refundStatus === "refunded"
+          ? { refund_processed_at: now, refund_processed_by: req.user.id }
+          : {}),
       })
       .eq("id", memberId)
-      .select("id, cancellation_date, cancellation_reason, refund_eligibility, refund_status, refund_eligibility_reason")
+      .select(
+        "id, cancellation_date, cancellation_reason, refund_eligibility, refund_status, refund_eligibility_reason",
+      )
       .single();
-    if (memberError || !member) return res.status(404).json({ message: "Member not found" });
+    if (memberError || !member)
+      return res.status(404).json({ message: "Member not found" });
     const result = await applyCancellationToLedger({
       memberId: String(memberId),
       cancellationDate: member.cancellation_date || now,
@@ -4615,7 +4654,7 @@ router.patch(
           .status(400)
           .json({ message: "Account number must be 4-17 digits" });
       }
-      updates.bankAccountNumber = encryptSensitiveData(normalizedAccount);
+      updates.bankAccountNumber = normalizedAccount;
       updates.bankAccountLastFour = normalizedAccount.slice(-4);
     }
 
@@ -4748,7 +4787,15 @@ router.patch(
       return res.status(403).json({ message: "Access denied to this member" });
     }
 
-    const { action = "change", planId, memberType, reason, reasonCode, serviceUsageStatus, internalNotes } = req.body || {};
+    const {
+      action = "change",
+      planId,
+      memberType,
+      reason,
+      reasonCode,
+      serviceUsageStatus,
+      internalNotes,
+    } = req.body || {};
 
     const normalizedAction = String(action || "change").toLowerCase();
     if (!["change", "cancel", "reactivate"].includes(normalizedAction)) {
@@ -4777,15 +4824,27 @@ router.patch(
         await storage.getSubscriptionByMemberId(parsedMemberId);
 
       if (normalizedAction === "cancel") {
-        const normalizedReasonCode = normalizeCancellationReasonCode(reasonCode);
-        if (normalizedReasonCode === "member_requested" && !["yes", "no", "unknown"].includes(String(serviceUsageStatus || ""))) {
-          return res.status(400).json({ message: "Service usage verification is required for member-requested cancellation" });
+        const normalizedReasonCode =
+          normalizeCancellationReasonCode(reasonCode);
+        if (
+          normalizedReasonCode === "member_requested" &&
+          !["yes", "no", "unknown"].includes(String(serviceUsageStatus || ""))
+        ) {
+          return res
+            .status(400)
+            .json({
+              message:
+                "Service usage verification is required for member-requested cancellation",
+            });
         }
         const cancellationRequestedAt = new Date().toISOString();
-        const cancellationReason = getCancellationReasonLabel(normalizedReasonCode);
+        const cancellationReason =
+          getCancellationReasonLabel(normalizedReasonCode);
         const refundEvaluation = evaluateRefundEligibility({
           reasonCode: normalizedReasonCode,
-          membershipStartDate: (existingMember as any).membershipStartDate || (existingMember as any).membership_start_date,
+          membershipStartDate:
+            (existingMember as any).membershipStartDate ||
+            (existingMember as any).membership_start_date,
           cancellationRequestedAt,
           serviceUsageStatus: serviceUsageStatus || null,
         });
@@ -4810,7 +4869,10 @@ router.patch(
             effectiveAt: cancellationRequestedAt,
             actorId: req.user.id,
             actorType: "admin",
-            internalNotes: typeof internalNotes === "string" ? internalNotes.trim() || null : null,
+            internalNotes:
+              typeof internalNotes === "string"
+                ? internalNotes.trim() || null
+                : null,
             serviceUsageStatus: serviceUsageStatus || null,
             serviceUsageSource: "admin_cancellation_workflow",
             refundEligibility: refundEvaluation.eligibility,
@@ -4828,7 +4890,10 @@ router.patch(
                 pendingDetails: JSON.stringify({
                   reason: cancellationReason,
                   reasonCode: normalizedReasonCode,
-                  internalNotes: typeof internalNotes === "string" ? internalNotes.trim() || null : null,
+                  internalNotes:
+                    typeof internalNotes === "string"
+                      ? internalNotes.trim() || null
+                      : null,
                   serviceUsageStatus: serviceUsageStatus || null,
                   refundEligibility: refundEvaluation,
                   immediate: true,
@@ -4910,7 +4975,10 @@ router.patch(
               cancellation_reason_code: normalizedReasonCode,
               cancellation_actor_id: req.user.id,
               cancellation_actor_type: "admin",
-              cancellation_internal_notes: typeof internalNotes === "string" ? internalNotes.trim() || null : null,
+              cancellation_internal_notes:
+                typeof internalNotes === "string"
+                  ? internalNotes.trim() || null
+                  : null,
               service_usage_status: serviceUsageStatus || null,
               service_usage_verification_source: "admin_cancellation_workflow",
               refund_eligibility: refundEvaluation.eligibility,
@@ -7258,23 +7326,28 @@ export async function registerRoutes(app: any) {
       ) {
         return res.status(400).json({
           error: "Invalid plan start date",
-          message: "Choose an available 1st or 15th effective date before enrollment cutoff",
+          message:
+            "Choose an available 1st or 15th effective date before enrollment cutoff",
         });
       }
 
       if (effectiveDateAcknowledged !== true) {
         return res.status(400).json({
           error: "Effective date acknowledgment required",
-          message: "Acknowledge the membership effective date before continuing",
+          message:
+            "Acknowledge the membership effective date before continuing",
         });
       }
 
-      const selectedPlanStartDate = getAvailablePlanStartDates(new Date(), 2)
-        .find((date) => formatPlanStartDateISO(date) === planStartDate);
+      const selectedPlanStartDate = getAvailablePlanStartDates(
+        new Date(),
+        2,
+      ).find((date) => formatPlanStartDateISO(date) === planStartDate);
       if (!selectedPlanStartDate) {
         return res.status(400).json({
           error: "Invalid plan start date",
-          message: "Choose an available 1st or 15th effective date before enrollment cutoff",
+          message:
+            "Choose an available 1st or 15th effective date before enrollment cutoff",
         });
       }
 
@@ -8207,24 +8280,28 @@ export async function registerRoutes(app: any) {
           familyMembers,
         } = req.body;
 
-          if (
-            typeof planStartDate !== "string" ||
-            !isPlanStartDateAllowed(planStartDate, { today: new Date() })
-          ) {
-            return res.status(400).json({
-              error: "Invalid plan start date",
-              message: "Choose an available 1st or 15th effective date before enrollment cutoff",
-            });
-          }
+        if (
+          typeof planStartDate !== "string" ||
+          !isPlanStartDateAllowed(planStartDate, { today: new Date() })
+        ) {
+          return res.status(400).json({
+            error: "Invalid plan start date",
+            message:
+              "Choose an available 1st or 15th effective date before enrollment cutoff",
+          });
+        }
 
-          const selectedPlanStartDate = getAvailablePlanStartDates(new Date(), 2)
-            .find((date) => formatPlanStartDateISO(date) === planStartDate);
-          if (!selectedPlanStartDate) {
-            return res.status(400).json({
-              error: "Invalid plan start date",
-              message: "Choose an available 1st or 15th effective date before enrollment cutoff",
-            });
-          }
+        const selectedPlanStartDate = getAvailablePlanStartDates(
+          new Date(),
+          2,
+        ).find((date) => formatPlanStartDateISO(date) === planStartDate);
+        if (!selectedPlanStartDate) {
+          return res.status(400).json({
+            error: "Invalid plan start date",
+            message:
+              "Choose an available 1st or 15th effective date before enrollment cutoff",
+          });
+        }
 
         const rawSSN = (
           ssn ??
@@ -9399,7 +9476,8 @@ export async function registerRoutes(app: any) {
             cancellationReason: row.cancellation_reason,
             refundEligibility: row.metadata?.refundEligibility || null,
             refundStatus: row.metadata?.refundStatus || null,
-            refundEligibilityReason: row.metadata?.refundEligibilityReason || null,
+            refundEligibilityReason:
+              row.metadata?.refundEligibilityReason || null,
             notes: row.notes,
             createdAt: row.created_at,
           };
@@ -10894,7 +10972,9 @@ export async function registerRoutes(app: any) {
         }
 
         const { batchId } = req.params;
-        const quickBooksReference = String(req.body?.quickBooksReference || "").trim();
+        const quickBooksReference = String(
+          req.body?.quickBooksReference || "",
+        ).trim();
         const paidDate = String(req.body?.paidDate || "").trim();
 
         if (!quickBooksReference) {
@@ -10918,7 +10998,9 @@ export async function registerRoutes(app: any) {
           quickBooksReference,
           confirmedBy: req.user?.email || req.user?.id || null,
         });
-        return res.status(200).json({ message: "Payout batch manually confirmed paid" });
+        return res
+          .status(200)
+          .json({ message: "Payout batch manually confirmed paid" });
       } catch (error: any) {
         console.error("Error marking payout batch paid:", error);
         if (
@@ -11910,6 +11992,7 @@ export async function registerRoutes(app: any) {
         const { reason } = req.query;
         const revealSSN = isTruthyFlag(req.query?.revealSsn);
         const revealBank = isTruthyFlag(req.query?.revealBank);
+        const revealPayment = isTruthyFlag(req.query?.revealPayment);
 
         if (!memberId) {
           return res.status(400).json({
@@ -11966,10 +12049,10 @@ export async function registerRoutes(app: any) {
           }
         }
 
-        const rawRoutingNumber = resolveRawOrDecryptedBankValue(
+        const rawRoutingNumber = resolveReadableBankValue(
           member.bankRoutingNumber,
         );
-        const rawAccountNumber = resolveRawOrDecryptedBankValue(
+        const rawAccountNumber = resolveReadableBankValue(
           member.bankAccountNumber,
         );
         const accountLastFour =
@@ -11977,6 +12060,28 @@ export async function registerRoutes(app: any) {
           (rawAccountNumber
             ? rawAccountNumber.replace(/\D/g, "").slice(-4)
             : null);
+
+        const [{ data: tokenRows }, { data: paymentRows }] = await Promise.all([
+          storage.supabase
+            .from("payment_tokens")
+            .select(
+              "id, payment_method_type, bric_token, original_network_trans_id, is_active, is_primary, created_at",
+            )
+            .eq("member_id", member.id)
+            .order("is_active", { ascending: false })
+            .order("is_primary", { ascending: false })
+            .order("created_at", { ascending: false })
+            .limit(1),
+          storage.supabase
+            .from("payments")
+            .select("id, epx_auth_guid, transaction_id, status, created_at")
+            .eq("member_id", member.id)
+            .not("epx_auth_guid", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(1),
+        ]);
+        const paymentToken = tokenRows?.[0] || null;
+        const paymentReceipt = paymentRows?.[0] || null;
 
         // Log access for audit trail
         const accessLog = {
@@ -12000,6 +12105,7 @@ export async function registerRoutes(app: any) {
             "bank_masked",
             ...(revealSSN ? ["ssn_raw"] : []),
             ...(revealBank ? ["bank_raw"] : []),
+            ...(revealPayment ? ["payment_references_raw"] : []),
           ];
 
           await storage.supabase.from("admin_logs").insert({
@@ -12013,6 +12119,7 @@ export async function registerRoutes(app: any) {
               fields_accessed: fieldsAccessed,
               reveal_ssn: revealSSN,
               reveal_bank: revealBank,
+              reveal_payment: revealPayment,
               customer_number: member.customerNumber,
               member_email: member.email,
             },
@@ -12050,11 +12157,28 @@ export async function registerRoutes(app: any) {
             },
             bankInfo: {
               routingNumber: revealBank ? rawRoutingNumber : null,
-              routingNumberMasked: maskLastFour(rawRoutingNumber),
+              routingNumberReadable: rawRoutingNumber,
               accountNumber: revealBank ? rawAccountNumber : null,
               accountLastFour,
               accountType: member.bankAccountType || null,
               accountHolderName: member.bankAccountHolderName || null,
+            },
+            paymentReferences: {
+              paymentMethodType: paymentToken?.payment_method_type || null,
+              bric: revealPayment ? paymentToken?.bric_token || null : null,
+              bricMasked: maskProcessorReference(paymentToken?.bric_token),
+              originalAuthGuid: revealPayment
+                ? paymentToken?.original_network_trans_id || null
+                : null,
+              originalAuthGuidMasked: maskProcessorReference(
+                paymentToken?.original_network_trans_id,
+              ),
+              paymentAuthGuid: revealPayment
+                ? paymentReceipt?.epx_auth_guid || null
+                : null,
+              paymentAuthGuidMasked: maskProcessorReference(
+                paymentReceipt?.epx_auth_guid,
+              ),
             },
           },
           auditLog: {
