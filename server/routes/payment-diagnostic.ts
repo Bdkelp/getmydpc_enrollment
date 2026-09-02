@@ -18,6 +18,7 @@ import {
   buildDraftPayoutBatches,
   getPayoutDashboardData,
 } from "../services/commission-ledger-service";
+import { getHistoricalCutoverSchemaStatus } from "../services/historical-commission-external-settlement-service";
 import {
   redactResolvedPaymentCredential,
   resolveCanonicalPaymentCredential,
@@ -547,6 +548,17 @@ router.post(
         });
       }
 
+      const commissionSchema = await getHistoricalCutoverSchemaStatus();
+      if (mode === "live" && !commissionSchema.ready) {
+        return res.status(503).json({
+          success: false,
+          code: "COMMISSION_SCHEMA_NOT_READY",
+          error:
+            "Live recurring billing is blocked until the required commission migration is applied.",
+          commissionSchema,
+        });
+      }
+
       const requestedBy = req.user.email || req.user.id || "unknown-admin";
       const run = await runRecurringBillingCycleOnce({
         forceDryRun: mode !== "live",
@@ -597,6 +609,7 @@ router.post(
             totalDue: dueRows.length,
             ...billingOutcome,
           },
+          commissionSchema,
           scheduler,
         });
       }

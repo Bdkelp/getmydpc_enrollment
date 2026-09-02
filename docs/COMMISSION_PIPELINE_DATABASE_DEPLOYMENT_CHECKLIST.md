@@ -10,8 +10,11 @@ This checklist is for a staging or production deployment after an approved chang
 4. **Phase 2B ledger migration**: run `scripts/sql/2026-08-20b_commission_ledger_payout_flow_phase2b.sql`.
 5. **Phase 2C processing-state migration**: run `scripts/sql/2026-08-20c_commission_processing_state.sql`.
 6. **Phase 3A exception migration**: run `scripts/sql/2026-08-20d_financial_exceptions.sql`.
-7. **Verification queries**: rerun the preflight and verify every required column/index exists, duplicate counts are zero, and no unexpected constraint failure occurred.
-8. **Staging tests**: run `npm run validate:commission-pipeline-staging` with an isolated staging database and explicit test-data safeguards.
+7. **Historical settlement cutover migration**: run `scripts/sql/2026-08-20e_historical_commission_external_settlement_cutover.sql` only with approved cutover values and change-window authorization.
+8. **Cancellation refund migration**: run `scripts/sql/2026-08-20f_cancellation_refund_workflow.sql`.
+9. **Commission clawback migration**: run `scripts/sql/2026-08-20g_commission_refund_clawback_alignment.sql`.
+10. **Verification queries**: rerun the preflight and verify every required column/index exists, duplicate counts are zero, and no unexpected constraint failure occurred.
+11. **Staging tests**: run `npm run validate:commission-pipeline-staging` with an isolated staging database and explicit test-data safeguards.
 
 ## Rollback Considerations
 

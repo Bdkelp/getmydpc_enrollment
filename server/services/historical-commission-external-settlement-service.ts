@@ -2,7 +2,10 @@ import { neonPool } from "../lib/neonDb";
 
 export const HISTORICAL_SETTLEMENT_KIND = "HISTORICAL_EXTERNAL_SETTLEMENT";
 export const HISTORICAL_SETTLEMENT_EVENT = "historical_external_settlement";
-export const HISTORICAL_SETTLEMENT_ACTOR = "system:historical-commission-cutover";
+export const HISTORICAL_SETTLEMENT_ACTOR =
+  "system:historical-commission-cutover";
+export const HISTORICAL_CUTOVER_MIGRATION =
+  "scripts/sql/2026-08-20e_historical_commission_external_settlement_cutover.sql";
 
 export type HistoricalCutover = {
   cutoverAt: string;
@@ -21,11 +24,30 @@ type SettlementPlanRow = {
   commission_source_payment_id: number | null;
 };
 
+export async function getHistoricalCutoverSchemaStatus(): Promise<{
+  ready: boolean;
+  missingRelations: string[];
+  requiredMigration: string;
+}> {
+  const result = await neonPool.query<{ relation_name: string | null }>(
+    `SELECT to_regclass('public.commission_financial_cutovers')::text AS relation_name`,
+  );
+  const ready = Boolean(result.rows[0]?.relation_name);
+  return {
+    ready,
+    missingRelations: ready ? [] : ["public.commission_financial_cutovers"],
+    requiredMigration: HISTORICAL_CUTOVER_MIGRATION,
+  };
+}
+
 function referenceForDate(cutoverAt: string): string {
   return `MPP-HISTORICAL-CUTOVER-${new Date(cutoverAt).toISOString().slice(0, 10)}`;
 }
 
-export function isPreCutoverActivity(activityAt: string | Date, cutoverAt: string | Date): boolean {
+export function isPreCutoverActivity(
+  activityAt: string | Date,
+  cutoverAt: string | Date,
+): boolean {
   return new Date(activityAt).getTime() <= new Date(cutoverAt).getTime();
 }
 
@@ -56,7 +78,9 @@ export async function ensureHistoricalCutover(): Promise<HistoricalCutover> {
       WHERE cutover_key = 'commission_financial_cutover'`,
   );
   if (!existing.rows[0]) {
-    throw new Error("Historical commission cutover could not be loaded after insert");
+    throw new Error(
+      "Historical commission cutover could not be loaded after insert",
+    );
   }
   return {
     cutoverAt: existing.rows[0].cutover_at,
@@ -81,7 +105,12 @@ export async function getHistoricalCutover(): Promise<HistoricalCutover | null> 
 export async function loadHistoricalSettlementPlan(
   cutoverAt: string,
   onlyLedgerIds?: string[],
-): Promise<{ rows: SettlementPlanRow[]; statuses: Record<string, number>; heldAmount: number; reversedAmount: number }> {
+): Promise<{
+  rows: SettlementPlanRow[];
+  statuses: Record<string, number>;
+  heldAmount: number;
+  reversedAmount: number;
+}> {
   const params: unknown[] = [cutoverAt];
   let filter = "";
   if (onlyLedgerIds?.length) {
@@ -127,7 +156,9 @@ export async function loadHistoricalSettlementPlan(
   };
 }
 
-export function summarizeHistoricalSettlementPlan(plan: Awaited<ReturnType<typeof loadHistoricalSettlementPlan>>) {
+export function summarizeHistoricalSettlementPlan(
+  plan: Awaited<ReturnType<typeof loadHistoricalSettlementPlan>>,
+) {
   const byType = { writing: 0, override: 0 };
   const agents = new Set<string>();
   for (const row of plan.rows) {
@@ -152,15 +183,24 @@ export async function applyHistoricalExternalSettlement(
   const client = await neonPool.connect();
   try {
     await client.query("BEGIN");
-    const planResult = await loadHistoricalSettlementPlan(cutover.cutoverAt, onlyLedgerIds);
+    const planResult = await loadHistoricalSettlementPlan(
+      cutover.cutoverAt,
+      onlyLedgerIds,
+    );
     const summary = summarizeHistoricalSettlementPlan(planResult);
     const batches: Record<string, string> = {};
 
     for (const compensationType of ["writing", "override"] as const) {
-      const amount = compensationType === "writing" ? summary.writingAmount : summary.overrideAmount;
-      const rows = planResult.rows.filter((row) => row.compensation_type === compensationType);
+      const amount =
+        compensationType === "writing"
+          ? summary.writingAmount
+          : summary.overrideAmount;
+      const rows = planResult.rows.filter(
+        (row) => row.compensation_type === compensationType,
+      );
       if (!rows.length) continue;
-      const compatibleBatchType = compensationType === "writing" ? "1st-cycle" : "15th-cycle";
+      const compatibleBatchType =
+        compensationType === "writing" ? "1st-cycle" : "15th-cycle";
       const batch = await client.query(
         `INSERT INTO commission_payout_batches
           (batch_name, batch_type, cutoff_date, scheduled_pay_date, total_amount,
@@ -191,11 +231,18 @@ export async function applyHistoricalExternalSettlement(
           `SELECT id FROM commission_payout_batches
             WHERE reconciliation_reference = $1 AND compensation_type = $2
               AND settlement_kind = $3`,
-          [cutover.reconciliationReference, compensationType, HISTORICAL_SETTLEMENT_KIND],
+          [
+            cutover.reconciliationReference,
+            compensationType,
+            HISTORICAL_SETTLEMENT_KIND,
+          ],
         );
         batchId = existing.rows[0]?.id;
       }
-      if (!batchId) throw new Error(`Could not resolve historical ${compensationType} settlement batch`);
+      if (!batchId)
+        throw new Error(
+          `Could not resolve historical ${compensationType} settlement batch`,
+        );
       batches[compensationType] = batchId;
 
       const ids = rows.map((row) => row.id);
@@ -239,7 +286,12 @@ export async function applyHistoricalExternalSettlement(
           HISTORICAL_SETTLEMENT_KIND,
           cutover.reconciliationReference,
           cutover.cutoverAt,
-          JSON.stringify({ historicalExternalSettlement: true, settlementReference: cutover.reconciliationReference, actualExternalPaymentAt: null, paymentDateKnown: false }),
+          JSON.stringify({
+            historicalExternalSettlement: true,
+            settlementReference: cutover.reconciliationReference,
+            actualExternalPaymentAt: null,
+            paymentDateKnown: false,
+          }),
           ids,
         ],
       );
