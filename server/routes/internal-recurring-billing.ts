@@ -8,6 +8,7 @@ import {
   runDurableRecurringBilling,
 } from "../services/durable-recurring-billing-service";
 import { sendBillingSchedulerNotRunningAlert } from "../email";
+import { createInternalRecurringBillingRunHandler } from "./internal-recurring-billing-run-handler";
 
 const router = Router();
 const DEFAULT_STALE_MINUTES = 15;
@@ -36,34 +37,10 @@ function requireSchedulerAuth(req: Request, res: Response): boolean {
 
 router.post(
   "/api/internal/recurring-billing/run",
-  async (req: Request, res: Response) => {
-    if (!requireSchedulerAuth(req, res)) return;
-    try {
-      const forceLive = req.body?.mode === "live";
-      const result = await runDurableRecurringBilling({
-        dryRun: !forceLive,
-        triggerSource: "supabase_cron",
-        scheduledAt:
-          typeof req.body?.scheduledAt === "string"
-            ? req.body.scheduledAt
-            : undefined,
-      });
-      res.json({
-        success: true,
-        configuration: getDurableBillingConfiguration(),
-        run: result,
-      });
-    } catch (error: any) {
-      console.error("[Durable Billing] External run failed", {
-        error: error?.message || String(error),
-      });
-      res.status(503).json({
-        success: false,
-        error: error?.message || "External recurring billing run failed",
-        configuration: getDurableBillingConfiguration(),
-      });
-    }
-  },
+  createInternalRecurringBillingRunHandler({
+    runBilling: runDurableRecurringBilling,
+    getConfiguration: getDurableBillingConfiguration,
+  }),
 );
 
 router.post(

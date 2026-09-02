@@ -73,6 +73,9 @@ jobs:
     - name: Durable billing behavior
       run: npm run test:durable-billing
 
+    - name: Internal billing route safety
+      run: npm run test:internal-billing-route
+
     - name: Scheduler policy
       run: npm run test:scheduler
 
