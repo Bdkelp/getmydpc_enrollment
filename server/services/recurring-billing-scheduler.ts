@@ -39,6 +39,7 @@ import {
   upsertPlatformSetting,
   type BillableSubscription,
 } from "../storage";
+import { resolveCanonicalPaymentCredential } from "./payment-credential";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import { persistRecurringPostSuccess } from "./recurring-post-success-persistence";
 import { paymentEnvironment } from "./payment-environment-service";
@@ -1181,29 +1182,6 @@ async function createRecurringFailureAdminNotification(options: {
 
 function truncateBillingDate(date: string | Date): string {
   return new Date(date).toISOString().slice(0, 10) + "T00:00:00.000Z";
-}
-
-function looksLikeEncryptedToken(value: string): boolean {
-  const parts = value.split(":");
-  if (parts.length !== 2) return false;
-  return /^[0-9a-f]+$/i.test(parts[0]) && /^[0-9a-f]+$/i.test(parts[1]);
-}
-
-function isUsableAuthGuid(value: string | null | undefined): value is string {
-  if (typeof value !== "string") return false;
-  const normalized = value.trim();
-  // EPX ORIG_AUTH_GUID/AUTH_GUID samples are token-like and can be ~19 chars.
-  if (normalized.length < 16 || normalized.length > 64) return false;
-  return /^[A-Za-z0-9-]+$/.test(normalized);
-}
-
-function isUsableTrustedAuthGuid(
-  value: string | null | undefined,
-): value is string {
-  if (typeof value !== "string") return false;
-  const normalized = value.trim();
-  if (normalized.length < 8 || normalized.length > 128) return false;
-  return /^[A-Za-z0-9-]+$/.test(normalized);
 }
 
 function resolveRecurringCardAuthGuid(

@@ -18,6 +18,10 @@ import {
   buildDraftPayoutBatches,
   getPayoutDashboardData,
 } from "../services/commission-ledger-service";
+import {
+  redactResolvedPaymentCredential,
+  resolveCanonicalPaymentCredential,
+} from "../services/payment-credential";
 import { calculateNextBillingDate } from "../utils/membership-dates";
 import * as fs from "fs";
 import * as path from "path";
@@ -38,12 +42,6 @@ const maskAuthGuid = (value: string | null | undefined): string | null => {
   return normalized.length > 8
     ? `${normalized.slice(0, 4)}****${normalized.slice(-4)}`
     : "********";
-};
-
-const looksLikeEncryptedToken = (value: string): boolean => {
-  const parts = value.split(":");
-  if (parts.length !== 2) return false;
-  return /^[0-9a-f]+$/i.test(parts[0]) && /^[0-9a-f]+$/i.test(parts[1]);
 };
 
 const isUsableAuthGuid = (
@@ -146,7 +144,8 @@ const resolveAuthGuidForRepairRow = (
 
   const tokenValue =
     typeof row?.bric_token === "string" ? row.bric_token.trim() : "";
-  if (!tokenValue) {
+  const resolution = resolveCanonicalPaymentCredential(tokenValue);
+  if (!resolution.error) {
     return {
       authGuid: null,
       source: null,

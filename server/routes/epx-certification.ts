@@ -1015,7 +1015,6 @@ router.get(
           amount: p.amount,
           planName: p.plan_name,
           createdAt: p.created_at,
-          authGuid: p.epx_auth_guid,
           authGuidMasked: maskAuthGuidValue(p.epx_auth_guid),
           member: p.member_id
             ? {

@@ -21,6 +21,7 @@ import {
   RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS,
   RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES,
 } from "../shared/recurringBillingPolicy";
+import { requireCanonicalPaymentCredential } from "./services/payment-credential";
 
 export function getLastFourSSN(ssn: string): string {
   return ssn.replace(/\D/g, "").slice(-4);

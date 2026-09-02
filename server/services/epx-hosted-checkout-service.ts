@@ -229,7 +229,30 @@ export class EPXHostedCheckoutService {
     authGuid?: string; // AUTH_GUID for ServerPost transactions
     error?: string;
   } {
-    console.log("[EPX Hosted Checkout] Processing callback:", payload);
+    console.log("[EPX Hosted Checkout] Processing callback:", {
+      status: normalizeStatus(
+        payload?.status ||
+          payload?.Status ||
+          payload?.result?.status ||
+          payload?.result?.Status,
+      ),
+      authResp: normalizeStatus(
+        payload?.AUTH_RESP ||
+          payload?.authResp ||
+          payload?.result?.AUTH_RESP ||
+          payload?.result?.authResp,
+      ),
+      hasAuthGuid: Boolean(extractAuthGuid(payload)),
+      hasBricToken: Boolean(
+        payload?.result?.GUID ||
+        payload?.GUID ||
+        payload?.result?.BRIC ||
+        payload?.BRIC,
+      ),
+      hasHostedTransactionId: Boolean(
+        payload?.result?.TransactionId || payload?.TransactionId,
+      ),
+    });
 
     const status = normalizeStatus(
       payload?.status ||
