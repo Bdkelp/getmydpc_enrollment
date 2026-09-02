@@ -51,10 +51,10 @@ const repositoryRoot = path.resolve(
 const readSource = (...segments: string[]) =>
   fs.readFileSync(path.join(repositoryRoot, ...segments), "utf8");
 const storageSource = readSource("server", "storage.ts");
-const schedulerSource = readSource(
+const durableBillingSource = readSource(
   "server",
   "services",
-  "recurring-billing-scheduler.ts",
+  "durable-recurring-billing-service.ts",
 );
 const diagnosticSource = readSource(
   "server",
@@ -88,43 +88,36 @@ assert.doesNotMatch(
   /function encryptPaymentToken|function decryptPaymentToken/,
 );
 
-const resolverStart = schedulerSource.indexOf(
-  "function resolveRecurringCardAuthGuid(",
+const resolverStart = durableBillingSource.indexOf(
+  "function resolveCredential(",
 );
-const resolverEnd = schedulerSource.indexOf(
-  "async function finalizeScheduledMemberCancellations",
+const resolverEnd = durableBillingSource.indexOf(
+  "function mapClaimedCycle",
   resolverStart,
 );
-const schedulerResolver = schedulerSource.slice(resolverStart, resolverEnd);
-assert.match(
-  schedulerResolver,
-  /resolveCanonicalPaymentCredential\(sub\.bricToken\)/,
-);
-assert.doesNotMatch(
-  schedulerResolver,
-  /decrypt|ENCRYPTION_KEY|latestPaymentAuthGuid|tokenOriginalNetworkTransId/,
-);
-
-const credentialFailureStart = schedulerSource.indexOf(
-  'if ("error" in cardAuthGuidResult) {',
-);
-const credentialFailureEnd = schedulerSource.indexOf(
-  "authGuid = cardAuthGuidResult.authGuid;",
-  credentialFailureStart,
-);
-const credentialFailureBranch = schedulerSource.slice(
-  credentialFailureStart,
-  credentialFailureEnd,
-);
-assert.doesNotMatch(
-  credentialFailureBranch,
-  /submitServerPostRecurringPayment/,
-);
+const durableResolver = durableBillingSource.slice(resolverStart, resolverEnd);
+assert.match(durableResolver, /processorReferenceConflict/);
+assert.match(durableResolver, /tokenOriginalNetworkTransId/);
+assert.match(durableResolver, /latestPaymentAuthGuid/);
+assert.match(durableResolver, /bricToken/);
+assert.doesNotMatch(durableResolver, /decrypt|ENCRYPTION_KEY/);
 
 assert.doesNotMatch(diagnosticSource, /decryptPaymentToken/);
-assert.match(
-  diagnosticSource,
-  /candidates: candidates\.map\(redactResolvedPaymentCredential\)/,
+const previewProjectionStart = diagnosticSource.indexOf(
+  "const previewTable = candidates.map",
 );
+const previewProjectionEnd = diagnosticSource.indexOf(
+  'if (mode === "preview")',
+  previewProjectionStart,
+);
+const previewProjection = diagnosticSource.slice(
+  previewProjectionStart,
+  previewProjectionEnd,
+);
+assert(
+  previewProjectionStart >= 0 && previewProjectionEnd > previewProjectionStart,
+);
+assert.doesNotMatch(previewProjection, /resolvedAuthGuid\s*:/);
+assert.match(diagnosticSource, /candidates: previewTable/);
 
 console.log("Payment credential storage tests passed.");

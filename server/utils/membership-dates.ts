@@ -1,10 +1,10 @@
 /**
  * Membership Date Calculation Utilities
- * 
+ *
  * Business Rules:
  * - Enrollment/Billing Date: Variable (any day of month when customer enrolls)
  * - Membership Start Date: Fixed (1st or 15th only)
- * 
+ *
  * Membership effective dates are selected by the shared cutoff-aware utility
  * in shared/planStartDates.ts. This module owns billing-date helpers only.
  */
@@ -27,18 +27,29 @@ function isWeekend(date: Date): boolean {
 }
 
 function isSameLocalDate(first: Date, second: Date): boolean {
-  return first.getFullYear() === second.getFullYear()
-    && first.getMonth() === second.getMonth()
-    && first.getDate() === second.getDate();
+  return (
+    first.getFullYear() === second.getFullYear() &&
+    first.getMonth() === second.getMonth() &&
+    first.getDate() === second.getDate()
+  );
 }
 
-function nthWeekdayOfMonth(year: number, month: number, weekday: number, nth: number): Date {
+function nthWeekdayOfMonth(
+  year: number,
+  month: number,
+  weekday: number,
+  nth: number,
+): Date {
   const first = new Date(year, month, 1);
   const firstWeekdayOffset = (weekday - first.getDay() + 7) % 7;
   return new Date(year, month, 1 + firstWeekdayOffset + (nth - 1) * 7);
 }
 
-function lastWeekdayOfMonth(year: number, month: number, weekday: number): Date {
+function lastWeekdayOfMonth(
+  year: number,
+  month: number,
+  weekday: number,
+): Date {
   const last = new Date(year, month + 1, 0);
   const offset = (last.getDay() - weekday + 7) % 7;
   return new Date(year, month, last.getDate() - offset);
@@ -119,9 +130,17 @@ function getNextBillingAnchorDate(afterDate: Date): Date {
   const baseline = startOfLocalDay(afterDate);
 
   for (let monthOffset = 0; monthOffset < 24; monthOffset += 1) {
-    const monthStart = new Date(baseline.getFullYear(), baseline.getMonth() + monthOffset, 1);
+    const monthStart = new Date(
+      baseline.getFullYear(),
+      baseline.getMonth() + monthOffset,
+      1,
+    );
     for (const anchorDay of BILLING_ANCHOR_DAYS) {
-      const anchor = new Date(monthStart.getFullYear(), monthStart.getMonth(), anchorDay);
+      const anchor = new Date(
+        monthStart.getFullYear(),
+        monthStart.getMonth(),
+        anchorDay,
+      );
       if (anchor <= baseline) {
         continue;
       }
@@ -129,7 +148,11 @@ function getNextBillingAnchorDate(afterDate: Date): Date {
     }
   }
 
-  return new Date(baseline.getFullYear(), baseline.getMonth() + 1, BILLING_ANCHOR_DAYS[0]);
+  return new Date(
+    baseline.getFullYear(),
+    baseline.getMonth() + 1,
+    BILLING_ANCHOR_DAYS[0],
+  );
 }
 
 /**
@@ -140,7 +163,10 @@ function getNextBillingAnchorDate(afterDate: Date): Date {
  *   (e.g. Jan 31 → Feb 28) snap back to the original day in longer months (e.g. Mar 31).
  * @returns The next billing date (anchor day next month, clamped to month length)
  */
-export function calculateNextBillingDate(billingDate: Date, anchorDay?: number): Date {
+export function calculateNextBillingDate(
+  billingDate: Date,
+  anchorDay?: number,
+): Date {
   // Recurring billing must preserve the member's billing day month-over-month.
   // Always use anchorDay (the original enrollment day) when provided so that
   // dates clamped by short months (e.g. Feb 28) revert correctly in longer months.
@@ -153,18 +179,51 @@ export function calculateNextBillingDate(billingDate: Date, anchorDay?: number):
   const targetYear = year + Math.floor(targetMonthIndex / 12);
   const normalizedTargetMonth = targetMonthIndex % 12;
 
-  const lastDayOfTargetMonth = new Date(Date.UTC(targetYear, normalizedTargetMonth + 1, 0)).getUTCDate();
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(targetYear, normalizedTargetMonth + 1, 0),
+  ).getUTCDate();
   const clampedDay = Math.min(day, lastDayOfTargetMonth);
 
-  return new Date(Date.UTC(
-    targetYear,
-    normalizedTargetMonth,
-    clampedDay,
-    billingDate.getUTCHours(),
-    billingDate.getUTCMinutes(),
-    billingDate.getUTCSeconds(),
-    billingDate.getUTCMilliseconds(),
-  ));
+  return new Date(
+    Date.UTC(
+      targetYear,
+      normalizedTargetMonth,
+      clampedDay,
+      billingDate.getUTCHours(),
+      billingDate.getUTCMinutes(),
+      billingDate.getUTCSeconds(),
+      billingDate.getUTCMilliseconds(),
+    ),
+  );
+}
+
+export function calculateNextBillingCycleDate(
+  cycleDate: string,
+  anchorDay: number,
+): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cycleDate);
+  if (!match) throw new Error(`Invalid billing cycle date: ${cycleDate}`);
+  const currentYear = Number(match[1]);
+  const currentMonth = Number(match[2]);
+  const targetMonthIndex = currentMonth;
+  const targetYear = currentYear + Math.floor(targetMonthIndex / 12);
+  const targetMonth = targetMonthIndex % 12;
+  const lastDay = new Date(
+    Date.UTC(targetYear, targetMonth + 1, 0),
+  ).getUTCDate();
+  const targetDay = Math.min(Math.max(1, anchorDay), lastDay);
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+}
+
+export function formatPostgresDateOnly(value: string | Date): string {
+  if (typeof value === "string") {
+    const match = /^(\d{4}-\d{2}-\d{2})/.exec(value);
+    if (match) return match[1];
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  throw new Error(`Invalid PostgreSQL date value: ${String(value)}`);
 }
 
 /**
@@ -174,8 +233,8 @@ export function calculateNextBillingDate(billingDate: Date, anchorDay?: number):
  */
 export function formatDateForEPX(date: Date): string {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -185,8 +244,8 @@ export function formatDateForEPX(date: Date): string {
  * @returns Date string in MMDDYYYY format
  */
 export function formatDateForDB(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
   const year = date.getFullYear();
   return `${month}${day}${year}`;
 }
@@ -198,13 +257,13 @@ export function formatDateForDB(date: Date): string {
  */
 export function parseDateFromDB(dateStr: string): Date {
   if (!dateStr || dateStr.length !== 8) {
-    throw new Error('Invalid date format. Expected MMDDYYYY');
+    throw new Error("Invalid date format. Expected MMDDYYYY");
   }
-  
+
   const month = parseInt(dateStr.substring(0, 2), 10) - 1; // Month is 0-indexed
   const day = parseInt(dateStr.substring(2, 4), 10);
   const year = parseInt(dateStr.substring(4, 8), 10);
-  
+
   return new Date(year, month, day);
 }
 
@@ -214,11 +273,22 @@ export function parseDateFromDB(dateStr: string): Date {
  * @param currentDate - The current date (defaults to now)
  * @returns True if membership should be active
  */
-export function isMembershipActive(membershipStartDate: Date, currentDate: Date = new Date()): boolean {
+export function isMembershipActive(
+  membershipStartDate: Date,
+  currentDate: Date = new Date(),
+): boolean {
   // Remove time component for date-only comparison
-  const startDateOnly = new Date(membershipStartDate.getFullYear(), membershipStartDate.getMonth(), membershipStartDate.getDate());
-  const currentDateOnly = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate());
-  
+  const startDateOnly = new Date(
+    membershipStartDate.getFullYear(),
+    membershipStartDate.getMonth(),
+    membershipStartDate.getDate(),
+  );
+  const currentDateOnly = new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+    currentDate.getDate(),
+  );
+
   return currentDateOnly >= startDateOnly;
 }
 
@@ -228,12 +298,23 @@ export function isMembershipActive(membershipStartDate: Date, currentDate: Date 
  * @param membershipStartDate - The date membership begins
  * @returns Number of days until membership starts
  */
-export function daysUntilMembershipStarts(enrollmentDate: Date, membershipStartDate: Date): number {
-  const enrollDateOnly = new Date(enrollmentDate.getFullYear(), enrollmentDate.getMonth(), enrollmentDate.getDate());
-  const startDateOnly = new Date(membershipStartDate.getFullYear(), membershipStartDate.getMonth(), membershipStartDate.getDate());
-  
+export function daysUntilMembershipStarts(
+  enrollmentDate: Date,
+  membershipStartDate: Date,
+): number {
+  const enrollDateOnly = new Date(
+    enrollmentDate.getFullYear(),
+    enrollmentDate.getMonth(),
+    enrollmentDate.getDate(),
+  );
+  const startDateOnly = new Date(
+    membershipStartDate.getFullYear(),
+    membershipStartDate.getMonth(),
+    membershipStartDate.getDate(),
+  );
+
   const diffTime = startDateOnly.getTime() - enrollDateOnly.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  
+
   return Math.max(0, diffDays);
 }

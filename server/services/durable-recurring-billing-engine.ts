@@ -48,7 +48,9 @@ export interface DurableCycleRepository {
 
 export interface RecurringProcessorAdapter {
   submit(cycle: DurableBillingCycle): Promise<ProcessorResult>;
-  lookup?(processorReference: string): Promise<
+  lookup?(
+    processorReference: string,
+  ): Promise<
     | { outcome: "succeeded"; result: ProcessorResult }
     | { outcome: "declined" | "absent"; result?: ProcessorResult }
     | { outcome: "unknown" }
@@ -64,7 +66,7 @@ export type DurableCycleOutcome =
 function hasVerifiableProcessorResponse(result: ProcessorResult): boolean {
   return Boolean(
     String(result.responseFields.AUTH_RESP || "").trim() ||
-      String(result.responseFields.AUTH_CODE || "").trim(),
+    String(result.responseFields.AUTH_CODE || "").trim(),
   );
 }
 
@@ -101,7 +103,10 @@ export async function processClaimedBillingCycle(options: {
     return "declined";
   }
 
-  const { paymentId } = await repository.finalizeProcessorSuccess(cycle, result);
+  const { paymentId } = await repository.finalizeProcessorSuccess(
+    cycle,
+    result,
+  );
   try {
     await options.synchronizeFinancials(paymentId);
     await repository.completeInternalSync(cycle);
@@ -123,16 +128,22 @@ export async function reconcileUnknownBillingCycle(options: {
 }): Promise<DurableCycleOutcome | "confirmed_absent"> {
   if (!options.processor.lookup) return "unknown";
 
-  const lookup = await options.processor.lookup(options.cycle.processorReference);
+  const lookup = await options.processor.lookup(
+    options.cycle.processorReference,
+  );
   if (lookup.outcome === "unknown") return "unknown";
   if (lookup.outcome === "absent") return "confirmed_absent";
   if (lookup.outcome === "declined") {
     await options.repository.markDeclined(
       options.cycle,
-      lookup.result || { success: false, responseFields: { AUTH_RESP: "DECLINED" } },
+      lookup.result || {
+        success: false,
+        responseFields: { AUTH_RESP: "DECLINED" },
+      },
     );
     return "declined";
   }
+  if (lookup.outcome !== "succeeded") return "unknown";
 
   const { paymentId } = await options.repository.finalizeProcessorSuccess(
     options.cycle,

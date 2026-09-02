@@ -41,6 +41,7 @@ DECLARE
   v_member public.members%ROWTYPE;
   v_subscription public.subscriptions%ROWTYPE;
   v_effective_at timestamptz;
+  v_affected_rows integer;
 BEGIN
   v_effective_at := CASE
     WHEN p_immediate THEN p_effective_at
@@ -104,6 +105,11 @@ BEGIN
   WHERE id = p_subscription_id
   RETURNING * INTO v_subscription;
 
+  GET DIAGNOSTICS v_affected_rows = ROW_COUNT;
+  IF v_affected_rows <> 1 THEN
+    RAISE EXCEPTION 'subscription cancellation update affected % rows', v_affected_rows;
+  END IF;
+
   RETURN jsonb_build_object(
     'member', to_jsonb(v_member),
     'subscription', to_jsonb(v_subscription)
@@ -111,9 +117,82 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION public.finalize_due_scheduled_cancellations(
+  p_now timestamptz DEFAULT NOW()
+)
+RETURNS TABLE(finalized_count integer, deferred_count integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  due_subscription record;
+  affected_rows integer;
+BEGIN
+  finalized_count := 0;
+  deferred_count := 0;
+
+  FOR due_subscription IN
+    SELECT subscription.id, subscription.member_id
+    FROM public.subscriptions subscription
+    WHERE subscription.status = 'active'
+      AND subscription.billing_mode = 'disabled'
+      AND subscription.pending_reason = 'member_cancelled'
+      AND subscription.end_date IS NOT NULL
+      AND subscription.end_date <= p_now
+    ORDER BY subscription.end_date, subscription.id
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM public.recurring_billing_cycles cycle
+      WHERE cycle.subscription_id = due_subscription.id
+        AND cycle.state = 'submitting'
+    ) THEN
+      deferred_count := deferred_count + 1;
+      CONTINUE;
+    END IF;
+
+    UPDATE public.recurring_billing_cycles
+    SET state = 'cancelled', failure_classification = 'membership_cancelled',
+        lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+        updated_at = p_now
+    WHERE subscription_id = due_subscription.id
+      AND state IN ('ready', 'claimed', 'declined');
+
+    UPDATE public.subscriptions
+    SET status = 'cancelled', pending_reason = NULL, pending_details = NULL,
+        updated_at = p_now
+    WHERE id = due_subscription.id
+      AND status = 'active'
+      AND pending_reason = 'member_cancelled';
+    GET DIAGNOSTICS affected_rows = ROW_COUNT;
+    IF affected_rows <> 1 THEN
+      RAISE EXCEPTION 'scheduled subscription finalization affected % rows', affected_rows;
+    END IF;
+
+    UPDATE public.members
+    SET status = 'cancelled', is_active = false,
+        cancellation_date = COALESCE(cancellation_date, p_now), updated_at = p_now
+    WHERE id = due_subscription.member_id;
+    GET DIAGNOSTICS affected_rows = ROW_COUNT;
+    IF affected_rows <> 1 THEN
+      RAISE EXCEPTION 'scheduled member finalization affected % rows', affected_rows;
+    END IF;
+
+    finalized_count := finalized_count + 1;
+  END LOOP;
+
+  RETURN NEXT;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.cancel_member_subscription_atomic(integer, integer, boolean, timestamptz, timestamptz, text, text, uuid, text, text, text, text, text, text, timestamptz, text, jsonb)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.cancel_member_subscription_atomic(integer, integer, boolean, timestamptz, timestamptz, text, text, uuid, text, text, text, text, text, text, timestamptz, text, jsonb)
+  TO service_role;
+REVOKE ALL ON FUNCTION public.finalize_due_scheduled_cancellations(timestamptz)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_due_scheduled_cancellations(timestamptz)
   TO service_role;
 
 COMMENT ON COLUMN public.subscriptions.billing_mode IS

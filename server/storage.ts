@@ -7714,6 +7714,7 @@ export async function getSubscriptionsDueForBilling(
   options?: {
     includeACH?: boolean;
     controlledRetrySubscriptionIds?: number[];
+    subscriptionIds?: number[];
   },
 ): Promise<BillableSubscription[]> {
   const includeACH = options?.includeACH === true;
@@ -7728,6 +7729,13 @@ export async function getSubscriptionsDueForBilling(
     ? ["CreditCard", "ACH"]
     : ["CreditCard"];
   const billingReadyStatuses = getRecurringBillingReadySubscriptionStatuses();
+  const subscriptionIds = Array.from(
+    new Set(
+      (options?.subscriptionIds || []).filter(
+        (id) => Number.isInteger(id) && id > 0,
+      ),
+    ),
+  );
 
   const paymentTokenColumnNames = [
     "group_id",
@@ -7983,6 +7991,7 @@ export async function getSubscriptionsDueForBilling(
         AND s.next_billing_date <= $1::timestamptz
         AND (s.end_date IS NULL OR s.end_date > $1::timestamptz)
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
+        AND ($7::int[] IS NULL OR s.id = ANY($7::int[]))
         AND (
           retry_gate.status IS DISTINCT FROM 'failed'
           OR (
@@ -8000,6 +8009,7 @@ export async function getSubscriptionsDueForBilling(
       [...RECURRING_BILLING_NON_RETRYABLE_RESPONSE_CODES],
       [...RECURRING_BILLING_NON_RETRYABLE_FAILURE_PATTERNS],
       controlledRetrySubscriptionIds,
+      subscriptionIds.length > 0 ? subscriptionIds : null,
     ],
   );
 
@@ -8104,18 +8114,12 @@ export interface UpsertGroupPaymentTokenInput {
 export async function upsertMemberPaymentToken(
   input: UpsertPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const normalizedToken = normalizeProcessorReference(
-    input.token,
-    "BRIC token",
-    16,
-    64,
-  );
-  const normalizedOriginalNetworkTransId = input.originalNetworkTransId
-    ? normalizeProcessorReference(
-        input.originalNetworkTransId,
-        "Original network transaction ID",
-      )
+  const credential = requireCanonicalPaymentCredential(input.token);
+  const originalNetworkTransId = input.originalNetworkTransId
+    ? requireCanonicalPaymentCredential(input.originalNetworkTransId)
     : null;
+  const distinctOriginalNetworkTransId =
+    originalNetworkTransId !== credential ? originalNetworkTransId : null;
 
   // Keep one active primary token per member + payment method type.
   await query(
@@ -8178,12 +8182,12 @@ export async function upsertMemberPaymentToken(
     [
       input.memberId,
       input.paymentMethodType,
-      normalizedToken,
+      credential,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      normalizedOriginalNetworkTransId,
+      distinctOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
       input.bankAccountNumber?.replace(/\D/g, "") || null,
       input.bankAccountLastFour ?? null,
@@ -8199,18 +8203,12 @@ export async function upsertMemberPaymentToken(
 export async function upsertGroupPaymentToken(
   input: UpsertGroupPaymentTokenInput,
 ): Promise<{ id: number }> {
-  const normalizedToken = normalizeProcessorReference(
-    input.token,
-    "BRIC token",
-    16,
-    64,
-  );
-  const normalizedOriginalNetworkTransId = input.originalNetworkTransId
-    ? normalizeProcessorReference(
-        input.originalNetworkTransId,
-        "Original network transaction ID",
-      )
+  const credential = requireCanonicalPaymentCredential(input.token);
+  const originalNetworkTransId = input.originalNetworkTransId
+    ? requireCanonicalPaymentCredential(input.originalNetworkTransId)
     : null;
+  const distinctOriginalNetworkTransId =
+    originalNetworkTransId !== credential ? originalNetworkTransId : null;
 
   await query(
     `
@@ -8274,12 +8272,12 @@ export async function upsertGroupPaymentToken(
     [
       input.groupId,
       input.paymentMethodType,
-      normalizedToken,
+      credential,
       input.cardLastFour ?? null,
       input.cardType ?? null,
       input.expiryMonth ?? null,
       input.expiryYear ?? null,
-      normalizedOriginalNetworkTransId,
+      distinctOriginalNetworkTransId,
       input.bankRoutingNumber ?? null,
       input.bankAccountNumber?.replace(/\D/g, "") || null,
       input.bankAccountLastFour ?? null,

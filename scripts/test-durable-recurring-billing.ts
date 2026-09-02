@@ -9,19 +9,32 @@ import {
   type ProcessorResult,
   type RecurringProcessorAdapter,
 } from "../server/services/durable-recurring-billing-engine";
-import { calculateNextBillingDate } from "../server/utils/membership-dates";
+import {
+  calculateNextBillingCycleDate,
+  calculateNextBillingDate,
+  formatPostgresDateOnly,
+} from "../server/utils/membership-dates";
 
 const root = process.cwd();
 const migration = fs.readFileSync(
-  path.join(root, "scripts/sql/2026-09-02_recurring_billing_durable_cycles.sql"),
+  path.join(
+    root,
+    "scripts/sql/2026-09-02_recurring_billing_durable_cycles.sql",
+  ),
   "utf8",
 );
 const scheduleMigration = fs.readFileSync(
-  path.join(root, "scripts/sql/2026-09-02b_recurring_billing_external_schedule.sql"),
+  path.join(
+    root,
+    "scripts/sql/2026-09-02b_recurring_billing_external_schedule.sql",
+  ),
   "utf8",
 );
 const lifecycleMigration = fs.readFileSync(
-  path.join(root, "scripts/sql/2026-09-02c_subscription_billing_mode_lifecycle.sql"),
+  path.join(
+    root,
+    "scripts/sql/2026-09-02c_subscription_billing_mode_lifecycle.sql",
+  ),
   "utf8",
 );
 const service = fs.readFileSync(
@@ -34,6 +47,7 @@ const reconciliationRoutes = fs.readFileSync(
   path.join(root, "server/routes/payment-reconciliation.ts"),
   "utf8",
 );
+const mainRoutes = fs.readFileSync(path.join(root, "server/routes.ts"), "utf8");
 const gitignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
 
 assert.match(migration, /UNIQUE \(subscription_id, cycle_date\)/);
@@ -53,8 +67,28 @@ assert.doesNotMatch(
 );
 assert.match(
   migration,
-  /ON CONFLICT \(transaction_id\)[\s\S]*WHERE transaction_id IS NOT NULL[\s\S]*status IN \('success', 'succeeded', 'completed'\)[\s\S]*DO UPDATE/,
+  /ON CONFLICT \(transaction_id\)[\s\S]*WHERE transaction_id IS NOT NULL[\s\S]*status IN \('success', 'succeeded', 'completed'\)[\s\S]*DO NOTHING/,
 );
+assert.match(
+  migration,
+  /successful transaction id conflicts with another payment identity/,
+);
+assert.match(
+  migration,
+  /p_transaction_id IS DISTINCT FROM cycle\.processor_reference/,
+);
+assert.match(
+  migration,
+  /p_subscription_ids IS NULL OR cycle\.subscription_id = ANY\(p_subscription_ids\)/,
+);
+assert.match(migration, /claim_recurring_internal_sync_cycles/);
+assert.match(migration, /AT TIME ZONE 'America\/Chicago'/);
+assert.match(migration, /ENABLE ROW LEVEL SECURITY/);
+assert.match(
+  migration,
+  /GRANT SELECT, INSERT, UPDATE, DELETE[\s\S]*TO service_role/,
+);
+assert.match(service, /updated_at = NOW\(\),[\s\S]*next_attempt_at = NULL/);
 assert.match(storage, /s\.billing_mode = 'automatic'/);
 assert.match(storage, /s\.end_date IS NULL OR s\.end_date > \$1::timestamptz/);
 const dryRunBranch = service.slice(
@@ -63,19 +97,59 @@ const dryRunBranch = service.slice(
 );
 assert.match(dryRunBranch, /INSERT INTO public\.recurring_billing_runs/);
 assert.match(dryRunBranch, /'dry_run', 'completed'/);
-assert.doesNotMatch(dryRunBranch, /recurring_billing_cycles|processor\.submit|claim_recurring/);
+assert.doesNotMatch(
+  dryRunBranch,
+  /recurring_billing_cycles|processor\.submit|claim_recurring/,
+);
 assert.doesNotMatch(serverIndex, /startRecurringBillingScheduler\s*\(/);
 assert.doesNotMatch(reconciliationRoutes, /storage\.createPayment\s*\(/);
 assert.match(reconciliationRoutes, /status\(410\)/);
 assert.match(scheduleMigration, /VALUES \(true, false, 'dry_run', true\)/);
+assert.match(
+  scheduleMigration,
+  /ALTER TABLE public\.recurring_billing_configuration ENABLE ROW LEVEL SECURITY/,
+);
+assert.match(
+  scheduleMigration,
+  /REVOKE ALL ON TABLE public\.recurring_billing_configuration FROM PUBLIC, anon, authenticated/,
+);
 const healthFunction = scheduleMigration.slice(
   scheduleMigration.indexOf("check_external_recurring_billing_health"),
 );
-assert.match(healthFunction, /IF NOT config\.enabled OR config\.kill_switch THEN RETURN NULL/);
+assert.match(
+  healthFunction,
+  /IF NOT config\.enabled OR config\.kill_switch THEN RETURN NULL/,
+);
 assert.match(lifecycleMigration, /'automatic', 'manual_external', 'disabled'/);
 assert.match(lifecycleMigration, /state = 'submitting'/);
 assert.match(lifecycleMigration, /state IN \('ready', 'claimed', 'declined'\)/);
 assert.match(lifecycleMigration, /AT TIME ZONE 'America\/Chicago'/);
+assert.match(lifecycleMigration, /finalize_due_scheduled_cancellations/);
+assert.match(lifecycleMigration, /GET DIAGNOSTICS [a-z_]+ = ROW_COUNT/);
+assert.match(service, /finalize_due_scheduled_cancellations/);
+assert.match(service, /claim_recurring_internal_sync_cycles/);
+assert.match(service, /assertSingleCycleUpdate/);
+assert.match(reconciliationRoutes, /missing_all_processor_references/);
+assert.match(reconciliationRoutes, /group_payment_managed_separately/);
+assert.match(reconciliationRoutes, /exceptions/);
+const sensitiveRoute = mainRoutes.slice(
+  mainRoutes.indexOf('"/api/admin/member/:memberId/sensitive"'),
+  mainRoutes.indexOf(
+    "auditLog:",
+    mainRoutes.indexOf('"/api/admin/member/:memberId/sensitive"'),
+  ),
+);
+assert.match(sensitiveRoute, /revealPayment \? paymentToken\?\.bric_token/);
+assert.match(
+  sensitiveRoute,
+  /revealPayment[\s\S]*paymentReceipt\?\.epx_auth_guid/,
+);
+assert.match(sensitiveRoute, /routingNumber: revealBank \? rawRoutingNumber/);
+assert.match(
+  sensitiveRoute,
+  /tokenRoutingNumber: revealBank \? rawTokenRoutingNumber/,
+);
+assert.doesNotMatch(sensitiveRoute, /routingNumberReadable/);
 assert.match(gitignore, /^\.env$/m);
 assert.match(gitignore, /^\.env\.\*$/m);
 
@@ -101,11 +175,17 @@ class FakeRepository implements DurableCycleRepository {
     this.state = "submitting";
     this.events.push("submitting");
   }
-  async markUnknown(_cycle: DurableBillingCycle, reason: string): Promise<void> {
+  async markUnknown(
+    _cycle: DurableBillingCycle,
+    reason: string,
+  ): Promise<void> {
     this.state = "unknown";
     this.events.push(`unknown:${reason}`);
   }
-  async markDeclined(_cycle: DurableBillingCycle, _result: ProcessorResult): Promise<void> {
+  async markDeclined(
+    _cycle: DurableBillingCycle,
+    _result: ProcessorResult,
+  ): Promise<void> {
     this.state = "declined";
     this.events.push("declined");
   }
@@ -168,7 +248,10 @@ async function run() {
   ]);
   assert.equal(competingClaims.filter(Boolean).length, 1);
   const restartedLease = leaseStore.claim("worker-restart", 11);
-  assert.ok(restartedLease, "an expired pre-submit lease must survive worker restart");
+  assert.ok(
+    restartedLease,
+    "an expired pre-submit lease must survive worker restart",
+  );
   leaseStore.markSubmitting(restartedLease);
   assert.equal(
     leaseStore.claim("worker-after-submit", 30),
@@ -186,6 +269,11 @@ async function run() {
   assert.equal(february.toISOString().slice(0, 10), "2027-02-28");
   const march = calculateNextBillingDate(february, 31);
   assert.equal(march.toISOString().slice(0, 10), "2027-03-31");
+  assert.equal(calculateNextBillingCycleDate("2026-03-08", 8), "2026-04-08");
+  assert.equal(calculateNextBillingCycleDate("2026-10-31", 31), "2026-11-30");
+  assert.equal(calculateNextBillingCycleDate("2026-12-31", 31), "2027-01-31");
+  assert.equal(formatPostgresDateOnly("2026-09-02T00:00:00Z"), "2026-09-02");
+  assert.equal(formatPostgresDateOnly(new Date(2026, 8, 2)), "2026-09-02");
 
   let submissions = 0;
   const timeoutAfterAcceptance: RecurringProcessorAdapter = {
@@ -246,7 +334,10 @@ async function run() {
     "internal_sync_pending",
   );
   assert.equal(syncRepository.state, "internal_sync_pending");
-  assert.deepEqual(syncRepository.events.slice(0, 2), ["submitting", "finalized"]);
+  assert.deepEqual(syncRepository.events.slice(0, 2), [
+    "submitting",
+    "finalized",
+  ]);
 
   console.log("Durable recurring billing behavioral tests passed.");
 }

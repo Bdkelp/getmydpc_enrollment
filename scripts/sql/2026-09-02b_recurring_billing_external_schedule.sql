@@ -23,6 +23,14 @@ INSERT INTO public.recurring_billing_configuration
 VALUES (true, false, 'dry_run', true)
 ON CONFLICT (singleton) DO NOTHING;
 
+ALTER TABLE public.recurring_billing_configuration ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.recurring_billing_configuration FROM PUBLIC, anon, authenticated;
+DROP POLICY IF EXISTS recurring_billing_configuration_service_role_all
+  ON public.recurring_billing_configuration;
+CREATE POLICY recurring_billing_configuration_service_role_all
+  ON public.recurring_billing_configuration FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
 CREATE OR REPLACE FUNCTION public.invoke_external_recurring_billing()
 RETURNS bigint
 LANGUAGE plpgsql
@@ -98,7 +106,6 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON TABLE public.recurring_billing_configuration FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.invoke_external_recurring_billing() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.check_external_recurring_billing_health() FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.recurring_billing_configuration TO service_role;

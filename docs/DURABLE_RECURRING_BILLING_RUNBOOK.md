@@ -31,6 +31,28 @@ HAVING COUNT(*) > 1;
 
 The schedule migration starts with `enabled=false`, `mode='dry_run'`, and `kill_switch=true`.
 
+The migration enables RLS on durable billing runs and cycles, revokes access from `anon` and `authenticated`, and grants table/function access only to `service_role`. Verify those grants in staging before enabling the scheduler.
+
+## Pre-deployment validation
+
+CI and local validation require Node 22.21.1 and npm 11.8.0. Run:
+
+```bash
+npm run check
+npm run test:durable-billing
+npm run test:scheduler
+npm run test:payment-credential
+npm run build
+```
+
+The real PostgreSQL suite requires an isolated local test database whose URL contains `localhost`, `127.0.0.1`, or `test`:
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/durable_billing_test npm run test:durable-billing:postgres
+```
+
+It applies the durable migrations inside the disposable database and verifies concurrent claims, expired leases, subscription-targeted claims, Chicago billing-date advancement, repeated finalization, transaction identity conflicts, internal-sync claims, and RLS denial. Never point it at production.
+
 ## Dry-run rollout
 
 1. Keep `EXTERNAL_BILLING_DRY_RUN=true` and `RECURRING_BILLING_KILL_SWITCH=true` in DigitalOcean.
@@ -38,6 +60,8 @@ The schedule migration starts with `enabled=false`, `mode='dry_run'`, and `kill_
 3. Remove only the database kill switch to begin scheduled dry runs. The application dry-run gate still prevents charges.
 4. Observe multiple scheduled runs in `recurring_billing_runs` and compare candidates with `npm run audit:billing-lifecycle`.
 5. Confirm `/api/internal/recurring-billing/health-check` reports no failed/stuck runs and no `unknown`, `submitting`, or `internal_sync_pending` cycles.
+
+For a canary run, pass explicit subscription IDs through the Super Admin trigger. The same IDs constrain candidate selection and SQL cycle claiming; unrelated subscriptions cannot be claimed into that run. An empty target list is rejected rather than treated as an unscoped run.
 
 ## Live approval
 
@@ -69,7 +93,7 @@ Treat both as possible captures. Do not retry. Search the EPX merchant portal us
 
 ### Internal sync pending
 
-The processor success and payment row already exist. Do not submit EPX again. Re-run only `PaymentConfirmedService` for the stored `payment_id`, then mark the cycle complete after commission/ledger verification.
+The processor success and payment row already exist. Do not submit EPX again. The internal-sync claim path leases only `internal_sync_pending` cycles with an existing `payment_id`, re-runs only `PaymentConfirmedService`, and then marks the cycle complete after commission/ledger verification. It never calls the processor.
 
 ### Confirmed decline
 
@@ -78,6 +102,10 @@ Only cycles with `failure_classification='confirmed_decline'` and a non-null due
 ### Manual external payments
 
 The Super Admin external-settlement workflow requires method and external reference evidence. It sets the linked subscription to `manual_external`, excluding it from unattended billing until recurring credentials are explicitly reviewed and the mode is deliberately restored to `automatic`.
+
+### Scheduled cancellations
+
+Each worker run first invokes `finalize_due_scheduled_cancellations` using the current Chicago business date. Repeated invocation is idempotent: only subscriptions still in `scheduled_cancellation` with an effective date due on or before that business date transition to `cancelled`.
 
 ## Secret rotation handoff
 

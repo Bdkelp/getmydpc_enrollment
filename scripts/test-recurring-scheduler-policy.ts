@@ -104,7 +104,7 @@ assert.match(
 );
 assert.match(
   storageSource,
-  /normalizeProcessorReference\(\s*input\.token,\s*"BRIC token",\s*16,\s*64/,
+  /requireCanonicalPaymentCredential\(input\.token\)/,
   "new BRIC references must be stored as normalized raw values",
 );
 assert.match(

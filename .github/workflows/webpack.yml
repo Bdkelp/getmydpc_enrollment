@@ -1,4 +1,4 @@
-name: NodeJS with Webpack
+name: Node 22 validation
 
 on:
   push:
@@ -9,20 +9,60 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x]
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: durable_billing_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d durable_billing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DURABLE_BILLING_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/durable_billing_test
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Use Node.js ${{ matrix.node-version }}
+    - name: Use Node.js 22.21.1
       uses: actions/setup-node@v4
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version-file: .nvmrc
+        cache: npm
+
+    - name: Use npm 11.8.0
+      run: npm install --global npm@11.8.0
+
+    - name: Verify runtime
+      run: |
+        node --version
+        npm --version
+        test "$(node --version)" = "v22.21.1"
+        test "$(npm --version)" = "11.8.0"
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Typecheck
+      run: npm run check
+
+    - name: Durable billing behavior
+      run: npm run test:durable-billing
+
+    - name: Durable billing PostgreSQL integration
+      run: npm run test:durable-billing:postgres
+
+    - name: Scheduler policy
+      run: npm run test:scheduler
+
+    - name: Payment credential policy
+      run: npm run test:payment-credential
 
     - name: Build
-      run: |
-        npm install
-        npx webpack
+      run: npm run build

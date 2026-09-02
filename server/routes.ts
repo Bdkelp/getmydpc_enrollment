@@ -4364,12 +4364,10 @@ router.patch(
       !Number.isFinite(memberId) ||
       !["refunded", "denied", "cancelled"].includes(refundStatus)
     ) {
-      return res
-        .status(400)
-        .json({
-          message:
-            "Valid member ID and refundStatus (refunded, denied, cancelled) are required",
-        });
+      return res.status(400).json({
+        message:
+          "Valid member ID and refundStatus (refunded, denied, cancelled) are required",
+      });
     }
     const now = new Date().toISOString();
     const { data: member, error: memberError } = await supabase
@@ -4830,12 +4828,10 @@ router.patch(
           normalizedReasonCode === "member_requested" &&
           !["yes", "no", "unknown"].includes(String(serviceUsageStatus || ""))
         ) {
-          return res
-            .status(400)
-            .json({
-              message:
-                "Service usage verification is required for member-requested cancellation",
-            });
+          return res.status(400).json({
+            message:
+              "Service usage verification is required for member-requested cancellation",
+          });
         }
         const cancellationRequestedAt = new Date().toISOString();
         const cancellationReason =
@@ -4948,7 +4944,9 @@ router.patch(
               subscriptionId: existingSubscription.id,
               immediate: false,
               requestedAt: cancellationRequestedAt,
-              effectiveAt: new Date(`${paidThroughDate}T00:00:00.000Z`).toISOString(),
+              effectiveAt: new Date(
+                `${paidThroughDate}T00:00:00.000Z`,
+              ).toISOString(),
               reason: cancellationReason,
               reasonCode: normalizedReasonCode,
               actorId: req.user.id,
@@ -12041,11 +12039,11 @@ export async function registerRoutes(app: any) {
             ? rawAccountNumber.replace(/\D/g, "").slice(-4)
             : null);
 
-        const [{ data: tokenRows }, { data: paymentRows }] = await Promise.all([
+        const [tokenResult, paymentResult] = await Promise.all([
           storage.supabase
             .from("payment_tokens")
             .select(
-              "id, payment_method_type, bric_token, original_network_trans_id, is_active, is_primary, created_at",
+              "id, payment_method_type, bric_token, original_network_trans_id, bank_routing_number, is_active, is_primary, created_at",
             )
             .eq("member_id", member.id)
             .order("is_active", { ascending: false })
@@ -12060,8 +12058,15 @@ export async function registerRoutes(app: any) {
             .order("created_at", { ascending: false })
             .limit(1),
         ]);
+        if (tokenResult.error) throw tokenResult.error;
+        if (paymentResult.error) throw paymentResult.error;
+        const tokenRows = tokenResult.data;
+        const paymentRows = paymentResult.data;
         const paymentToken = tokenRows?.[0] || null;
         const paymentReceipt = paymentRows?.[0] || null;
+        const rawTokenRoutingNumber = resolveReadableBankValue(
+          paymentToken?.bank_routing_number,
+        );
 
         // Log access for audit trail
         const accessLog = {
@@ -12137,7 +12142,9 @@ export async function registerRoutes(app: any) {
             },
             bankInfo: {
               routingNumber: revealBank ? rawRoutingNumber : null,
-              routingNumberReadable: rawRoutingNumber,
+              routingNumberMasked: maskLastFour(rawRoutingNumber),
+              tokenRoutingNumber: revealBank ? rawTokenRoutingNumber : null,
+              tokenRoutingNumberMasked: maskLastFour(rawTokenRoutingNumber),
               accountNumber: revealBank ? rawAccountNumber : null,
               accountLastFour,
               accountType: member.bankAccountType || null,

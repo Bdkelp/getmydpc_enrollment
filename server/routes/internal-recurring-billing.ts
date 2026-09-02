@@ -28,7 +28,9 @@ function schedulerAuthorized(req: Request): boolean {
 
 function requireSchedulerAuth(req: Request, res: Response): boolean {
   if (schedulerAuthorized(req)) return true;
-  res.status(401).json({ success: false, error: "Scheduler authentication required" });
+  res
+    .status(401)
+    .json({ success: false, error: "Scheduler authentication required" });
   return false;
 }
 
@@ -42,9 +44,15 @@ router.post(
         dryRun: !forceLive,
         triggerSource: "supabase_cron",
         scheduledAt:
-          typeof req.body?.scheduledAt === "string" ? req.body.scheduledAt : undefined,
+          typeof req.body?.scheduledAt === "string"
+            ? req.body.scheduledAt
+            : undefined,
       });
-      res.json({ success: true, configuration: getDurableBillingConfiguration(), run: result });
+      res.json({
+        success: true,
+        configuration: getDurableBillingConfiguration(),
+        run: result,
+      });
     } catch (error: any) {
       console.error("[Durable Billing] External run failed", {
         error: error?.message || String(error),
@@ -63,7 +71,8 @@ router.post(
   async (req: Request, res: Response) => {
     if (!requireSchedulerAuth(req, res)) return;
     const parsedThreshold = Number.parseInt(
-      process.env.RECURRING_BILLING_STALE_ALERT_MINUTES || String(DEFAULT_STALE_MINUTES),
+      process.env.RECURRING_BILLING_STALE_ALERT_MINUTES ||
+        String(DEFAULT_STALE_MINUTES),
       10,
     );
     const staleThresholdMinutes = Number.isFinite(parsedThreshold)
@@ -93,7 +102,8 @@ router.post(
     const elapsedMinutes = completedAt
       ? Math.max(0, Math.floor((Date.now() - completedAt.getTime()) / 60_000))
       : null;
-    const stale = elapsedMinutes === null || elapsedMinutes >= staleThresholdMinutes;
+    const stale =
+      elapsedMinutes === null || elapsedMinutes >= staleThresholdMinutes;
     const latestFailed = latest.rows[0]?.status === "failed";
     const stuckRunCount = Number(stuckRuns.rows[0]?.count || 0);
     const cycleCounts = Object.fromEntries(
@@ -109,7 +119,8 @@ router.post(
     if (unhealthy) {
       await sendBillingSchedulerNotRunningAlert({
         recipients: String(
-          process.env.RECURRING_BILLING_REPORT_RECIPIENTS || "info@mypremierplans.com",
+          process.env.RECURRING_BILLING_REPORT_RECIPIENTS ||
+            "info@mypremierplans.com",
         )
           .split(",")
           .map((value) => value.trim())

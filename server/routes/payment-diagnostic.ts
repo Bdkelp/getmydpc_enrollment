@@ -9,9 +9,7 @@ import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { hasAtLeastRole, isAtLeastAdmin } from "../auth/roles";
 import { query } from "../lib/neonDb";
 import { getRecentEPXLogs } from "../services/epx-payment-logger";
-import {
-  getRecurringBillingSchedulerStatus,
-} from "../services/recurring-billing-scheduler";
+import { getRecurringBillingSchedulerStatus } from "../services/recurring-billing-scheduler";
 import {
   getDurableBillingConfiguration,
   runDurableRecurringBilling,
@@ -22,10 +20,7 @@ import {
   getPayoutDashboardData,
 } from "../services/commission-ledger-service";
 import { getHistoricalCutoverSchemaStatus } from "../services/historical-commission-external-settlement-service";
-import {
-  redactResolvedPaymentCredential,
-  resolveCanonicalPaymentCredential,
-} from "../services/payment-credential";
+import { resolveCanonicalPaymentCredential } from "../services/payment-credential";
 import { calculateNextBillingDate } from "../utils/membership-dates";
 import * as fs from "fs";
 import * as path from "path";
@@ -38,6 +33,15 @@ const RECURRING_SCHEDULER_HEARTBEAT_SETTING_KEY =
 const DEFAULT_RECURRING_SCHEDULER_STALE_ALERT_MINUTES = 180;
 
 type OperatorMode = "preview" | "live";
+
+const parseSubscriptionIds = (value: unknown): number[] =>
+  Array.from(
+    new Set<number>(
+      (Array.isArray(value) ? value : [])
+        .map((item: unknown) => Number(item))
+        .filter((item: number) => Number.isInteger(item) && item > 0),
+    ),
+  );
 
 const maskAuthGuid = (value: string | null | undefined): string | null => {
   if (!value) return null;
@@ -455,16 +459,7 @@ router.post(
       const forceDryRun =
         typeof requestedDryRun === "boolean" ? requestedDryRun : true;
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
-      const subscriptionIds = Array.from(
-        new Set(
-          (Array.isArray(req.body?.subscriptionIds)
-            ? req.body.subscriptionIds
-            : []
-          )
-            .map((value: unknown) => Number(value))
-            .filter((value: number) => Number.isInteger(value) && value > 0),
-        ),
-      );
+      const subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
       if (forceDryRun === false && !isSuperAdmin) {
         return res.status(403).json({
           success: false,
@@ -512,6 +507,7 @@ router.post(
       const modeRaw = String(req.body?.mode || "preview").toLowerCase();
       const mode: OperatorMode = modeRaw === "live" ? "live" : "preview";
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
+      const subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
 
       if (mode === "live" && !isSuperAdmin) {
         return res.status(403).json({
@@ -534,6 +530,8 @@ router.post(
       const run = await runDurableRecurringBilling({
         dryRun: mode !== "live",
         triggerSource: "manual",
+        subscriptionIds:
+          subscriptionIds.length > 0 ? subscriptionIds : undefined,
       });
       const scheduler = getDurableBillingConfiguration();
 

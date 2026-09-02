@@ -2,6 +2,7 @@
 -- This migration does not schedule a live trigger and does not charge EPX.
 BEGIN;
 
+CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 ALTER TABLE public.subscriptions
@@ -81,11 +82,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_successful_recurring_transaction
   ON public.payments (transaction_id)
   WHERE transaction_id IS NOT NULL AND status IN ('success', 'succeeded', 'completed');
 
+ALTER TABLE public.recurring_billing_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recurring_billing_cycles ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.recurring_billing_runs FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.recurring_billing_cycles FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.recurring_billing_runs_id_seq FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.recurring_billing_cycles_id_seq FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.recurring_billing_runs TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.recurring_billing_cycles TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.recurring_billing_runs_id_seq TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.recurring_billing_cycles_id_seq TO service_role;
+
+DROP POLICY IF EXISTS recurring_billing_runs_service_role_all ON public.recurring_billing_runs;
+CREATE POLICY recurring_billing_runs_service_role_all
+  ON public.recurring_billing_runs FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS recurring_billing_cycles_service_role_all ON public.recurring_billing_cycles;
+CREATE POLICY recurring_billing_cycles_service_role_all
+  ON public.recurring_billing_cycles FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+DROP FUNCTION IF EXISTS public.claim_recurring_billing_cycles(text, bigint, integer, integer);
+
 CREATE OR REPLACE FUNCTION public.claim_recurring_billing_cycles(
   p_worker_id text,
   p_run_id bigint,
   p_limit integer DEFAULT 25,
-  p_lease_seconds integer DEFAULT 120
+  p_lease_seconds integer DEFAULT 120,
+  p_subscription_ids integer[] DEFAULT NULL
 )
 RETURNS SETOF public.recurring_billing_cycles
 LANGUAGE plpgsql
@@ -122,6 +146,7 @@ BEGIN
       AND member.status = 'active'
       AND COALESCE(member.is_active, true) = true
       AND (cycle.next_attempt_at IS NULL OR cycle.next_attempt_at <= NOW())
+      AND (p_subscription_ids IS NULL OR cycle.subscription_id = ANY(p_subscription_ids))
     ORDER BY cycle.cycle_date, cycle.id
     FOR UPDATE SKIP LOCKED
     LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 25), 100))
@@ -129,6 +154,48 @@ BEGIN
   UPDATE public.recurring_billing_cycles cycle
   SET state = 'claimed',
       lease_owner = p_worker_id,
+      lease_token = extensions.gen_random_uuid(),
+      lease_expires_at = NOW() + make_interval(secs => GREATEST(30, p_lease_seconds)),
+      run_id = p_run_id,
+      updated_at = NOW()
+  FROM candidates
+  WHERE cycle.id = candidates.id
+  RETURNING cycle.*;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.claim_recurring_internal_sync_cycles(
+  p_worker_id text,
+  p_run_id bigint,
+  p_limit integer DEFAULT 25,
+  p_lease_seconds integer DEFAULT 120,
+  p_subscription_ids integer[] DEFAULT NULL
+)
+RETURNS SETOF public.recurring_billing_cycles
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF COALESCE(BTRIM(p_worker_id), '') = '' THEN
+    RAISE EXCEPTION 'worker id is required';
+  END IF;
+
+  RETURN QUERY
+  WITH candidates AS (
+    SELECT cycle.id
+    FROM public.recurring_billing_cycles cycle
+    WHERE cycle.state = 'internal_sync_pending'
+      AND cycle.payment_id IS NOT NULL
+      AND (cycle.next_attempt_at IS NULL OR cycle.next_attempt_at <= NOW())
+      AND (cycle.lease_expires_at IS NULL OR cycle.lease_expires_at < NOW())
+      AND (p_subscription_ids IS NULL OR cycle.subscription_id = ANY(p_subscription_ids))
+    ORDER BY cycle.updated_at, cycle.id
+    FOR UPDATE SKIP LOCKED
+    LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 25), 100))
+  )
+  UPDATE public.recurring_billing_cycles cycle
+  SET lease_owner = p_worker_id,
       lease_token = extensions.gen_random_uuid(),
       lease_expires_at = NOW() + make_interval(secs => GREATEST(30, p_lease_seconds)),
       run_id = p_run_id,
@@ -172,6 +239,7 @@ BEGIN
   SET state = 'submitting',
       attempt_count = attempt_count + 1,
       processor_submitted_at = NOW(),
+      lease_expires_at = NULL,
       updated_at = NOW()
   WHERE id = p_cycle_id
     AND state = 'claimed'
@@ -186,6 +254,10 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS public.finalize_recurring_cycle_success(
+  bigint, text, text, text, text, text, timestamptz, timestamptz
+);
+
 CREATE OR REPLACE FUNCTION public.finalize_recurring_cycle_success(
   p_cycle_id bigint,
   p_transaction_id text,
@@ -194,7 +266,7 @@ CREATE OR REPLACE FUNCTION public.finalize_recurring_cycle_success(
   p_epx_response_code text,
   p_epx_response_message text,
   p_captured_at timestamptz,
-  p_next_billing_date timestamptz
+  p_next_billing_date date
 )
 RETURNS TABLE(payment_id integer, next_billing_date timestamptz, already_completed boolean)
 LANGUAGE plpgsql
@@ -203,8 +275,11 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
   cycle public.recurring_billing_cycles;
+  existing_payment public.payments%ROWTYPE;
   persisted_payment_id integer;
   current_due timestamptz;
+  normalized_next_billing_date timestamptz;
+  affected_rows integer;
 BEGIN
   SELECT * INTO cycle
   FROM public.recurring_billing_cycles
@@ -212,13 +287,26 @@ BEGIN
   FOR UPDATE;
 
   IF cycle.id IS NULL THEN RAISE EXCEPTION 'billing cycle not found'; END IF;
+  IF p_transaction_id IS DISTINCT FROM cycle.processor_reference THEN
+    RAISE EXCEPTION 'finalization transaction id does not match cycle processor reference';
+  END IF;
   IF cycle.state = 'completed' THEN
+    SELECT * INTO existing_payment FROM public.payments WHERE id = cycle.payment_id;
+    IF existing_payment.id IS NULL
+      OR existing_payment.transaction_id IS DISTINCT FROM p_transaction_id
+      OR existing_payment.member_id IS DISTINCT FROM cycle.member_id
+      OR existing_payment.subscription_id IS DISTINCT FROM cycle.subscription_id
+      OR existing_payment.amount::numeric IS DISTINCT FROM cycle.amount::numeric THEN
+      RAISE EXCEPTION 'completed billing cycle payment identity does not match finalization request';
+    END IF;
     RETURN QUERY SELECT cycle.payment_id, cycle.next_billing_date, true;
     RETURN;
   END IF;
   IF cycle.state NOT IN ('submitting', 'processor_succeeded', 'internal_sync_pending', 'unknown') THEN
     RAISE EXCEPTION 'billing cycle state % cannot be finalized', cycle.state;
   END IF;
+
+  normalized_next_billing_date := p_next_billing_date::timestamp AT TIME ZONE 'America/Chicago';
 
   INSERT INTO public.payments (
     member_id, subscription_id, amount, currency, status, payment_method,
@@ -240,19 +328,37 @@ BEGIN
   ON CONFLICT (transaction_id)
     WHERE transaction_id IS NOT NULL
       AND status IN ('success', 'succeeded', 'completed')
-  DO UPDATE SET transaction_id = EXCLUDED.transaction_id
+  DO NOTHING
   RETURNING id INTO persisted_payment_id;
+
+  IF persisted_payment_id IS NULL THEN
+    SELECT * INTO existing_payment
+    FROM public.payments payment
+    WHERE payment.transaction_id = p_transaction_id
+      AND payment.status IN ('success', 'succeeded', 'completed')
+    FOR UPDATE;
+
+    IF existing_payment.id IS NULL
+      OR existing_payment.member_id IS DISTINCT FROM cycle.member_id
+      OR existing_payment.subscription_id IS DISTINCT FROM cycle.subscription_id
+      OR existing_payment.amount::numeric IS DISTINCT FROM cycle.amount::numeric THEN
+      RAISE EXCEPTION 'successful transaction id conflicts with another payment identity';
+    END IF;
+    persisted_payment_id := existing_payment.id;
+  END IF;
 
   SELECT subscription.next_billing_date INTO current_due
   FROM public.subscriptions subscription
   WHERE subscription.id = cycle.subscription_id
   FOR UPDATE;
 
-  IF current_due::date = cycle.cycle_date THEN
+  IF (current_due AT TIME ZONE 'America/Chicago')::date = cycle.cycle_date THEN
     UPDATE public.subscriptions
-    SET next_billing_date = p_next_billing_date, updated_at = NOW()
+    SET next_billing_date = normalized_next_billing_date, updated_at = NOW()
     WHERE id = cycle.subscription_id;
-  ELSIF current_due::date < cycle.cycle_date THEN
+    GET DIAGNOSTICS affected_rows = ROW_COUNT;
+    IF affected_rows <> 1 THEN RAISE EXCEPTION 'subscription billing date update affected % rows', affected_rows; END IF;
+  ELSIF (current_due AT TIME ZONE 'America/Chicago')::date < cycle.cycle_date THEN
     RAISE EXCEPTION 'subscription billing date is behind claimed cycle';
   END IF;
 
@@ -261,21 +367,25 @@ BEGIN
       processor_auth_guid = p_epx_auth_guid, processor_auth_code = p_epx_auth_code,
       processor_response_code = p_epx_response_code,
       processor_response_message = p_epx_response_message,
-      processor_responded_at = NOW(), next_billing_date = p_next_billing_date,
+      processor_responded_at = NOW(), next_billing_date = normalized_next_billing_date,
       completed_at = NOW(), lease_owner = NULL, lease_token = NULL,
       lease_expires_at = NULL, failure_classification = NULL, updated_at = NOW()
   WHERE id = cycle.id;
+  GET DIAGNOSTICS affected_rows = ROW_COUNT;
+  IF affected_rows <> 1 THEN RAISE EXCEPTION 'billing cycle finalization affected % rows', affected_rows; END IF;
 
-  RETURN QUERY SELECT persisted_payment_id, p_next_billing_date, false;
+  RETURN QUERY SELECT persisted_payment_id, normalized_next_billing_date, false;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.claim_recurring_billing_cycles(text, bigint, integer, integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.claim_recurring_billing_cycles(text, bigint, integer, integer, integer[]) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.claim_recurring_internal_sync_cycles(text, bigint, integer, integer, integer[]) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mark_recurring_cycle_submitting(bigint, uuid) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.finalize_recurring_cycle_success(bigint, text, text, text, text, text, timestamptz, timestamptz) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.claim_recurring_billing_cycles(text, bigint, integer, integer) TO service_role;
+REVOKE ALL ON FUNCTION public.finalize_recurring_cycle_success(bigint, text, text, text, text, text, timestamptz, date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_recurring_billing_cycles(text, bigint, integer, integer, integer[]) TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_recurring_internal_sync_cycles(text, bigint, integer, integer, integer[]) TO service_role;
 GRANT EXECUTE ON FUNCTION public.mark_recurring_cycle_submitting(bigint, uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.finalize_recurring_cycle_success(bigint, text, text, text, text, text, timestamptz, timestamptz) TO service_role;
+GRANT EXECUTE ON FUNCTION public.finalize_recurring_cycle_success(bigint, text, text, text, text, text, timestamptz, date) TO service_role;
 
 COMMENT ON TABLE public.recurring_billing_cycles IS
   'Authoritative recurring billing cycle state. One immutable processor reference per subscription and billing date.';

@@ -3,7 +3,9 @@ import pg from "pg";
 
 const APPLY_CONFIRMATION = "DISABLE_UNSAFE_AUTOMATIC_BILLING";
 const apply = process.argv.includes("--apply");
-const confirmation = process.argv.find((value) => value.startsWith("--confirm="))?.slice(10);
+const confirmation = process.argv
+  .find((value) => value.startsWith("--confirm="))
+  ?.slice(10);
 
 if (apply && confirmation !== APPLY_CONFIRMATION) {
   throw new Error(`Apply requires --confirm=${APPLY_CONFIRMATION}`);
