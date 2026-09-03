@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
+import { CreditCard, Landmark, Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 import EPXHostedPayment from "@/components/EPXHostedPayment";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,8 @@ interface PaymentMethod {
   card_last_four?: string | null;
   expiry_month?: string | null;
   expiry_year?: string | null;
+  bank_account_last_four?: string | null;
+  bank_account_type?: string | null;
   is_active: boolean;
   is_primary: boolean;
   created_at: string;
@@ -63,6 +65,7 @@ export function PaymentMethodsPanel({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [checkoutAction, setCheckoutAction] = useState<PaymentMethodAction | null>(null);
+  const [checkoutMethodType, setCheckoutMethodType] = useState<"CreditCard" | "ACH" | null>(null);
   const [replaceTokenId, setReplaceTokenId] = useState<number | null>(null);
   const [removeMethod, setRemoveMethod] = useState<PaymentMethod | null>(null);
   const queryKey = ["member-payment-methods", memberId];
@@ -121,6 +124,7 @@ export function PaymentMethodsPanel({
 
   const openCheckout = (action: PaymentMethodAction, tokenId?: number) => {
     setReplaceTokenId(tokenId || null);
+    setCheckoutMethodType(null);
     setCheckoutAction(action);
   };
 
@@ -135,6 +139,7 @@ export function PaymentMethodsPanel({
 
   const closeCheckout = async () => {
     setCheckoutAction(null);
+    setCheckoutMethodType(null);
     setReplaceTokenId(null);
     await refresh();
   };
@@ -170,12 +175,14 @@ export function PaymentMethodsPanel({
             <div key={method.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center border bg-gray-50">
-                  <CreditCard className="h-4 w-4 text-gray-700" />
+                  {method.payment_method_type === "ACH" ? <Landmark className="h-4 w-4 text-gray-700" /> : <CreditCard className="h-4 w-4 text-gray-700" />}
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-gray-950">
-                      {method.card_type || method.payment_method_type} ending {method.card_last_four || "unknown"}
+                      {method.payment_method_type === "ACH"
+                        ? `${method.bank_account_type || "Bank account"} ending ${method.bank_account_last_four || "unknown"}`
+                        : `${method.card_type || method.payment_method_type} ending ${method.card_last_four || "unknown"}`}
                     </span>
                     {method.is_primary && <Badge variant="secondary">Default</Badge>}
                   </div>
@@ -213,20 +220,53 @@ export function PaymentMethodsPanel({
         </div>
       )}
 
-      <Dialog open={checkoutAction !== null} onOpenChange={(open) => !open && setCheckoutAction(null)}>
+      <Dialog open={checkoutAction !== null} onOpenChange={(open) => {
+        if (!open) {
+          setCheckoutAction(null);
+          setCheckoutMethodType(null);
+        }
+      }}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {checkoutAction === "pay_now" ? "Pay Now & Use for Recurring Billing" : checkoutAction === "replace" ? "Replace Payment Method" : "Add Payment Method"}
             </DialogTitle>
           </DialogHeader>
-          {checkoutAction && (
+          {checkoutAction && !checkoutMethodType && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">Choose the payment method to use.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Button type="button" variant="outline" className="h-20 flex-col gap-2" onClick={() => setCheckoutMethodType("CreditCard")}>
+                  <CreditCard className="h-5 w-5" /> Card
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-20 flex-col gap-2"
+                  onClick={() => setCheckoutMethodType("ACH")}
+                  disabled={checkoutAction !== "pay_now"}
+                >
+                  <Landmark className="h-5 w-5" /> Bank Account
+                </Button>
+              </div>
+              {checkoutAction !== "pay_now" && (
+                <Alert>
+                  <AlertDescription>
+                    Zero-dollar ACH Add/Replace is not yet verified for this EPX profile. Use Pay Now &amp; Use for Recurring to authorize and save a bank account with a real payment. Your existing payment method and billing mode will remain unchanged.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          )}
+          {checkoutAction && checkoutMethodType && (
             <EPXHostedPayment
+              key={`${checkoutAction}-${checkoutMethodType}-${replaceTokenId || "new"}`}
               amount={checkoutAction === "pay_now" ? effectiveMonthlyAmount : 0}
               customerId={String(memberId)}
               customerEmail={effectiveMemberEmail}
               customerName={effectiveMemberName}
               description={`Payment method ${checkoutAction}`}
+              paymentMethodType={checkoutMethodType}
               billingAddress={effectiveBillingAddress}
               paymentMethodAction={checkoutAction}
               replaceTokenId={replaceTokenId}

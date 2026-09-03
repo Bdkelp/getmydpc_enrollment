@@ -99,6 +99,7 @@ export default function EPXHostedPayment({
 }: EPXHostedPaymentProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [initializationFailed, setInitializationFailed] = useState(false);
   const [sessionData, setSessionData] = useState<any>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const [sameAsHome, setSameAsHome] = useState(true);
@@ -152,8 +153,9 @@ export default function EPXHostedPayment({
   useEffect(() => {
     setSessionData(null);
     setError(null);
+    setInitializationFailed(false);
     setIsLoading(true);
-  }, [amount, overrideAmountValue]);
+  }, [amount, overrideAmountValue, paymentMethodType, paymentMethodAction, replaceTokenId]);
 
   useEffect(() => {
     const normalizedAccountType = String(initialAchDetails?.accountType || '').toLowerCase() === 'savings'
@@ -335,6 +337,7 @@ export default function EPXHostedPayment({
             ? await apiClient.post(`/api/members/${customerId}/payment-methods/checkout`, {
                 action: paymentMethodAction,
                 replaceTokenId: replaceTokenId || null,
+              paymentMethodType,
                 billingAddress: populatedBillingAddress,
                 captchaToken,
               })
@@ -388,7 +391,8 @@ export default function EPXHostedPayment({
           };
           script.onerror = () => {
             console.error('[EPX Hosted] Failed to load EPX script');
-            setError('Failed to load payment processor');
+            setError('The secure payment form could not be loaded. Close this window and try again.');
+            setInitializationFailed(true);
             setIsLoading(false);
           };
           document.head.appendChild(script);
@@ -397,7 +401,13 @@ export default function EPXHostedPayment({
         }
       } catch (err: any) {
         console.error('[EPX Hosted] Initialization error:', err);
-        setError(err.message || 'Failed to initialize payment');
+        const apiError = parseApiErrorPayload(err);
+        setError(
+          apiError?.code === 'PAYMENT_ALREADY_COMPLETED' && paymentMethodAction
+            ? 'The payment method form could not be opened because the server treated this maintenance request as a completed payment. No charge was attempted. Close this window and try again after the server is updated.'
+            : apiError?.message || err.message || 'The secure payment form could not be initialized. No charge was attempted.',
+        );
+        setInitializationFailed(true);
         setIsLoading(false);
       } finally {
         sessionInitInFlightRef.current = false;
@@ -763,6 +773,24 @@ export default function EPXHostedPayment({
         <CardContent className="flex items-center justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin mr-2" />
           <span>Initializing secure payment...</span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (initializationFailed || !sessionData) {
+    return (
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle>Payment form unavailable</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {error || 'The secure payment form could not be initialized. No charge was attempted.'}
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
     );

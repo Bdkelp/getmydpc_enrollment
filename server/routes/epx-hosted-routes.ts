@@ -3282,7 +3282,9 @@ const createHostedPaymentSessionHandler = async (
     }
 
     // Guardrails to avoid duplicate charges from repeated checkout launches.
-    if (memberId) {
+    // Credential-only maintenance creates no charge and must remain available
+    // after the enrollment payment has completed.
+    if (memberId && !isCredentialOnlyPaymentMethodSession) {
       const latestEnrollmentPayment =
         await storage.getLatestEnrollmentPayment(memberId);
 
@@ -3898,12 +3900,27 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const memberId = Number(req.params.memberId);
     const action = String(req.body?.action || "") as PaymentMethodAction;
+    const requestedPaymentMethodType =
+      String(req.body?.paymentMethodType || "")
+        .trim()
+        .toUpperCase() === "ACH"
+        ? "ACH"
+        : "CreditCard";
     if (
       !Number.isInteger(memberId) ||
       !["add", "replace", "pay_now"].includes(action) ||
       !(await canManageMemberPaymentMethods(memberId, req.user))
     ) {
       return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    if (requestedPaymentMethodType === "ACH" && action !== "pay_now") {
+      return res.status(422).json({
+        success: false,
+        code: "ACH_ZERO_DOLLAR_SETUP_UNVERIFIED",
+        error:
+          "Zero-dollar ACH setup is not supported by the verified EPX workflow. Use Pay Now & Use for Recurring to authorize and save the bank account with a real payment.",
+      });
     }
 
     const member = await storage.getMember(memberId);
@@ -3931,7 +3948,7 @@ router.post(
       description: `Payment method ${action} for member #${memberId}`,
       billingAddress: req.body?.billingAddress || null,
       captchaToken: req.body?.captchaToken,
-      paymentMethodType: "CreditCard",
+      paymentMethodType: requestedPaymentMethodType,
       paymentMethodManagement: {
         memberId,
         action,
@@ -5377,6 +5394,29 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
 
       if (paymentMethodManagementContext && paymentRecordForLogging) {
         const maskedCard = extractMaskedCardProfileFromCallback(req.body || {});
+        const isManagedACH = callbackPaymentMethodType === "ACH";
+        const callbackAccountDigits = String(
+          req.body?.ACCOUNT_NBR ||
+            req.body?.AccountNumber ||
+            req.body?.accountNumber ||
+            req.body?.BANK_ACCOUNT_LAST4 ||
+            "",
+        ).replace(/\D/g, "");
+        const bankAccountLastFour =
+          callbackAccountDigits.length >= 4
+            ? callbackAccountDigits.slice(-4)
+            : null;
+        const callbackAccountType = String(
+          req.body?.ACCOUNT_TYPE || req.body?.AccountType || "",
+        )
+          .trim()
+          .toLowerCase();
+        const bankAccountType =
+          callbackAccountType === "s" ||
+          callbackAccountType === "savings" ||
+          callbackResolvedTranType === "CKS2"
+            ? "Savings"
+            : "Checking";
         const expiryDigits = String(maskedCard?.expiry || "").replace(
           /\D/g,
           "",
@@ -5385,9 +5425,13 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
           ReturnType<typeof activateHostedPaymentMethod>
         > | null = null;
         try {
-          if (!result.bricToken || !authGuid || !maskedCard?.last4) {
+          if (
+            !result.bricToken ||
+            !authGuid ||
+            (isManagedACH ? !bankAccountLastFour : !maskedCard?.last4)
+          ) {
             throw new Error(
-              "Verified callback did not include the recurring credential and masked card details",
+              `Verified callback did not include the recurring credential and ${isManagedACH ? "bank account" : "masked card"} details`,
             );
           }
           managedActivationResult = await activateHostedPaymentMethod({
@@ -5403,16 +5447,19 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
               Number(paymentMethodManagementContext.replaceTokenId) || null,
             bricToken: result.bricToken,
             authGuid,
+            paymentMethodType: callbackPaymentMethodType,
             cardType:
               req.body?.CardType ||
               req.body?.CARD_TYPE ||
               req.body?.cardType ||
               null,
-            cardLastFour: maskedCard.last4,
+            cardLastFour: maskedCard?.last4 || null,
             expiryMonth:
               expiryDigits.length >= 4 ? expiryDigits.slice(0, 2) : null,
             expiryYear:
               expiryDigits.length >= 4 ? expiryDigits.slice(-2) : null,
+            bankAccountLastFour,
+            bankAccountType,
             authCode: result.authCode || null,
             responseCode: req.body?.AUTH_RESP || req.body?.authResp || "00",
             responseMessage:
@@ -5447,8 +5494,7 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
             activated: true,
             paymentMethodManagement: true,
             paymentId: paymentRecordForLogging.id,
-            paymentTokenId:
-              managedActivationResult?.paymentTokenId || null,
+            paymentTokenId: managedActivationResult?.paymentTokenId || null,
             noOp: managedActivationResult?.alreadyCompleted || false,
             transactionId: result.transactionId,
           });

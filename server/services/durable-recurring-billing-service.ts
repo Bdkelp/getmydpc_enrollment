@@ -93,15 +93,16 @@ function resolveCredential(subscription: BillableSubscription): {
   source: string | null;
   error: string | null;
 } {
-  if (subscription.paymentMethodType !== "CreditCard") {
+  if (
+    subscription.paymentMethodType !== "CreditCard" &&
+    subscription.paymentMethodType !== "ACH"
+  ) {
     return {
       credential: null,
       source: null,
       error: !subscription.tokenId
         ? "missing_payment_credentials"
-        : subscription.paymentMethodType === "ACH"
-          ? "unsupported_ach"
-          : "unsupported_payment_method",
+        : "unsupported_payment_method",
     };
   }
   if (subscription.processorReferenceConflict) {
@@ -302,7 +303,7 @@ const processor: RecurringProcessorAdapter = {
       amount: Number(cycle.amount),
       authGuid: cycle.authGuid,
       transactionId: cycle.processorReference,
-      tranType: "CCE1",
+      tranType: cycle.paymentMethodType === "ACH" ? "CKC2" : "CCE1",
       description: `Recurring billing cycle ${cycle.cycleDate} subscription ${cycle.subscriptionId}`,
       metadata: { durableBillingCycleId: cycle.id },
     });
@@ -377,7 +378,7 @@ export async function runDurableRecurringBilling(options: {
     ]);
   }
   const due = await getSubscriptionsDueForBilling(now, {
-    includeACH: false,
+    includeACH: true,
     controlledRetrySubscriptionIds,
     subscriptionIds,
   });
