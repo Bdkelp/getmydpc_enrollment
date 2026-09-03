@@ -42,6 +42,7 @@ import { useAgentDashboardMutations } from "@/hooks/useAgentDashboardMutations";
 import { useAgentDashboardUiState } from "@/hooks/useAgentDashboardUiState";
 import { getCancellationDateLabel, getSafeCancellationReason } from "@/lib/cancellationDisplay";
 import { apiRequest } from "@/lib/queryClient";
+import { PaymentMethodsPanel } from "@/components/PaymentMethodsPanel";
 
 interface AgentStats {
   totalEnrollments: number;
@@ -1232,7 +1233,7 @@ export default function AgentDashboard() {
       </Dialog>
 
       <Dialog open={showMembershipDialog} onOpenChange={setShowMembershipDialog}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Change Membership</DialogTitle>
             <DialogDescription>
@@ -1247,6 +1248,12 @@ export default function AgentDashboard() {
                 <div className="text-gray-600">Current plan: {membershipTarget.planName}</div>
                 <div className="text-gray-600">Current type: {membershipTarget.memberType}</div>
               </div>
+
+              <PaymentMethodsPanel
+                memberId={Number(membershipTarget.id)}
+                monthlyAmount={Number(membershipTarget.totalMonthlyPrice || 0)}
+                compact
+              />
 
               <div>
                 <Label>Plan</Label>

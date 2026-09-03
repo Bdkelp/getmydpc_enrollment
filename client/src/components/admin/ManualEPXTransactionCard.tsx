@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PaymentMethodsPanel } from "@/components/PaymentMethodsPanel";
 
 const MANUAL_TRANSACTION_TYPES = [
   { value: "CCE1", label: "Initial Capture (CCE1)", description: "Purchase auth & capture" },
@@ -83,6 +84,9 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
   handleHostedCheckoutRequest,
   handleAdHocHostedCheckoutRequest,
 }) => {
+  const [paymentMethodMemberId, setPaymentMethodMemberId] = useState("");
+  const parsedPaymentMethodMemberId = Number(paymentMethodMemberId);
+
   return (
     <Card className="mb-8 border border-navy-200 bg-white shadow-soft">
       <CardContent className="p-6 space-y-6">
@@ -162,6 +166,28 @@ export const ManualEPXTransactionCard: React.FC<ManualEPXTransactionCardProps> =
             </div>
           </Alert>
         )}
+
+        <div className="space-y-4 border-y py-5">
+          <div>
+            <h3 className="font-semibold text-gray-950">Member Payment Methods</h3>
+            <p className="text-sm text-gray-600">
+              Manage recurring credentials through the same authorized workflow used on the member profile.
+            </p>
+          </div>
+          <div className="max-w-xs">
+            <Label htmlFor="payment-method-member-id">Member ID</Label>
+            <Input
+              id="payment-method-member-id"
+              inputMode="numeric"
+              placeholder="1234"
+              value={paymentMethodMemberId}
+              onChange={(event) => setPaymentMethodMemberId(event.target.value.replace(/\D/g, ""))}
+            />
+          </div>
+          {Number.isInteger(parsedPaymentMethodMemberId) && parsedPaymentMethodMemberId > 0 && (
+            <PaymentMethodsPanel memberId={parsedPaymentMethodMemberId} compact />
+          )}
+        </div>
 
         <form onSubmit={handleManualTransactionSubmit}>
           <fieldset disabled={superAdminRestricted} className="space-y-4">

@@ -7920,6 +7920,7 @@ export async function getSubscriptionsDueForBilling(
         WHERE pt.member_id = s.member_id
           ${memberTokenGroupFilter}
           AND pt.is_active = true
+          AND pt.is_primary = true
         ORDER BY
           CASE WHEN pt.payment_method_type = ANY($2::text[]) THEN 0 ELSE 1 END,
           pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC
@@ -7940,6 +7941,7 @@ export async function getSubscriptionsDueForBilling(
           pt.bank_account_last_four
         FROM payment_tokens pt
         ${groupTokenWhereClause}
+          AND pt.is_primary = true
         ORDER BY
           CASE WHEN pt.payment_method_type = ANY($2::text[]) THEN 0 ELSE 1 END,
           pt.is_primary DESC, COALESCE(pt.last_used_at, pt.created_at) DESC, pt.id DESC

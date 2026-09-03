@@ -38,6 +38,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatPhoneNumber, cleanPhoneNumber, formatZipCode } from "@/lib/formatters";
 import { displaySSN } from "@shared/display-ssn";
+import { PaymentMethodsPanel } from "@/components/PaymentMethodsPanel";
 
 interface SensitiveMemberResponse {
   success: boolean;
@@ -2035,6 +2036,18 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
           
           {/* Payment Info Tab */}
           <TabsContent value="payment" className="space-y-6">
+            <PaymentMethodsPanel
+              memberId={Number(enrollment.id)}
+              memberName={`${enrollment.firstName || ""} ${enrollment.lastName || ""}`.trim()}
+              memberEmail={enrollment.email}
+              monthlyAmount={Number(enrollment.totalMonthlyPrice || 0)}
+              billingAddress={{
+                streetAddress: enrollment.address,
+                city: enrollment.city,
+                state: enrollment.state,
+                postalCode: enrollment.zipCode,
+              }}
+            />
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
