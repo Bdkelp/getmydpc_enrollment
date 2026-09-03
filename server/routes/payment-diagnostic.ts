@@ -461,6 +461,9 @@ router.post(
         typeof requestedDryRun === "boolean" ? requestedDryRun : true;
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
       const subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
+      const controlledRetrySubscriptionIds = parseSubscriptionIds(
+        req.body?.controlledRetrySubscriptionIds,
+      );
       if (forceDryRun === false && !isSuperAdmin) {
         return res.status(403).json({
           success: false,
@@ -472,6 +475,10 @@ router.post(
         triggerSource: "manual",
         subscriptionIds:
           subscriptionIds.length > 0 ? subscriptionIds : undefined,
+        controlledRetrySubscriptionIds:
+          controlledRetrySubscriptionIds.length > 0
+            ? controlledRetrySubscriptionIds
+            : undefined,
       });
 
       res.json({
@@ -509,6 +516,9 @@ router.post(
       const mode: OperatorMode = modeRaw === "live" ? "live" : "preview";
       const isSuperAdmin = hasAtLeastRole(req.user.role, "super_admin");
       const subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
+      const controlledRetrySubscriptionIds = parseSubscriptionIds(
+        req.body?.controlledRetrySubscriptionIds,
+      );
 
       if (mode === "live" && !isSuperAdmin) {
         return res.status(403).json({
@@ -533,6 +543,10 @@ router.post(
         triggerSource: "manual",
         subscriptionIds:
           subscriptionIds.length > 0 ? subscriptionIds : undefined,
+        controlledRetrySubscriptionIds:
+          controlledRetrySubscriptionIds.length > 0
+            ? controlledRetrySubscriptionIds
+            : undefined,
       });
       const scheduler = getDurableBillingConfiguration();
 

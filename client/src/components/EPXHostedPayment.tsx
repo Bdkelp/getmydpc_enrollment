@@ -35,6 +35,8 @@ interface EPXHostedPaymentProps {
   selectedGroupMemberIds?: number[];
   paymentScope?: "member" | "group_invoice";
   paymentMethodType?: "CreditCard" | "ACH";
+  paymentMethodAction?: "add" | "replace" | "pay_now";
+  replaceTokenId?: number | null;
   initialAchDetails?: {
     routingNumber?: string;
     accountNumber?: string;
@@ -85,6 +87,8 @@ export default function EPXHostedPayment({
   selectedGroupMemberIds,
   paymentScope,
   paymentMethodType = "CreditCard",
+  paymentMethodAction,
+  replaceTokenId,
   initialAchDetails,
   storedCardProfile,
   billingAddress = {},
@@ -327,7 +331,14 @@ export default function EPXHostedPayment({
         let response: any;
 
         try {
-          response = await apiClient.post('/api/epx/hosted/create-payment', payload);
+          response = paymentMethodAction
+            ? await apiClient.post(`/api/members/${customerId}/payment-methods/checkout`, {
+                action: paymentMethodAction,
+                replaceTokenId: replaceTokenId || null,
+                billingAddress: populatedBillingAddress,
+                captchaToken,
+              })
+            : await apiClient.post('/api/epx/hosted/create-payment', payload);
         } catch (postError: any) {
           const apiError = parseApiErrorPayload(postError);
           const existingPaymentId = apiError?.existingPaymentId;
@@ -394,7 +405,7 @@ export default function EPXHostedPayment({
     };
 
     initSession();
-  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId, selectedGroupMemberIds, paymentScope, paymentMethodType]);
+  }, [amount, customerId, customerEmail, populatedBillingAddress, captchaToken, sessionData, overrideAmountValue, overrideReasonValue, groupId, groupMemberId, selectedGroupMemberIds, paymentScope, paymentMethodType, paymentMethodAction, replaceTokenId]);
 
   // Load and execute Google reCAPTCHA v3 to get token
   useEffect(() => {
@@ -1029,7 +1040,7 @@ export default function EPXHostedPayment({
           </div>
 
           {/* Hidden fields - Required by EPX Hosted Checkout */}
-          <input type="hidden" name="Amount" value={amount.toFixed(2)} />
+          <input type="hidden" name="Amount" value={sessionData?.formData?.amount || amount.toFixed(2)} />
           <input type="hidden" name="OrderNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="InvoiceNumber" value={sessionData?.transactionId || ''} />
           <input type="hidden" name="PublicKey" value={sessionData?.publicKey || ''} />
@@ -1041,6 +1052,12 @@ export default function EPXHostedPayment({
           <input type="hidden" name="PaymentMethod" value={epxPaymentMethod} />
           <input type="hidden" name="PAYMENT_METHOD" value={epxPaymentMethod} />
           <input type="hidden" name="paymentMethod" value={epxPaymentMethod} />
+          {!isAchPayment && sessionData?.tranType && (
+            <>
+              <input type="hidden" name="TRAN_TYPE" value={sessionData.tranType} />
+              <input type="hidden" name="TranType" value={sessionData.tranType} />
+            </>
+          )}
           {isAchPayment && (
             <>
               <input type="hidden" name="TRAN_TYPE" value={achTranType} />

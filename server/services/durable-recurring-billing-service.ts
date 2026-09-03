@@ -348,6 +348,7 @@ export async function runDurableRecurringBilling(options: {
   triggerSource: "supabase_cron" | "manual";
   scheduledAt?: string;
   subscriptionIds?: number[];
+  controlledRetrySubscriptionIds?: number[];
 }): Promise<DurableBillingRunSummary> {
   const dryRun = options.dryRun !== false;
   if (!dryRun) assertLiveExecutionEnabled();
@@ -356,6 +357,20 @@ export async function runDurableRecurringBilling(options: {
   const businessDate = getBillingBusinessDate(now);
   const workerId = `${process.env.HOSTNAME || "worker"}:${randomUUID()}`;
   const subscriptionIds = Array.from(new Set(options.subscriptionIds || []));
+  const controlledRetrySubscriptionIds = Array.from(
+    new Set(options.controlledRetrySubscriptionIds || []),
+  );
+  if (
+    controlledRetrySubscriptionIds.length > 0 &&
+    (subscriptionIds.length === 0 ||
+      controlledRetrySubscriptionIds.some(
+        (subscriptionId) => !subscriptionIds.includes(subscriptionId),
+      ))
+  ) {
+    throw new Error(
+      "Controlled retries must be included in an explicit targeted subscription run",
+    );
+  }
   if (!dryRun && subscriptionIds.length === 0) {
     await query("SELECT public.finalize_due_scheduled_cancellations($1)", [
       now.toISOString(),
@@ -363,6 +378,7 @@ export async function runDurableRecurringBilling(options: {
   }
   const due = await getSubscriptionsDueForBilling(now, {
     includeACH: false,
+    controlledRetrySubscriptionIds,
     subscriptionIds,
   });
   const candidates = due.map((subscription) => {

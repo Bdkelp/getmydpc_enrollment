@@ -44,6 +44,14 @@ import {
 } from "../services/commission-generation-service";
 import { processConfirmedPayment } from "../services/payment-confirmed-service";
 import { isSuccessfulPaymentStatus } from "../utils/payment-status";
+import {
+  activateHostedPaymentMethod,
+  canManageMemberPaymentMethods,
+  listMemberPaymentMethods,
+  makeDefaultPaymentMethod,
+  removePaymentMethod,
+  type PaymentMethodAction,
+} from "../services/member-payment-method-service";
 
 const router = Router();
 const certificationLoggingEnabled =
@@ -2843,6 +2851,7 @@ const createHostedPaymentSessionHandler = async (
       paymentScope,
       paymentMethodType,
       deliveryMode,
+      paymentMethodManagement,
     } = req.body;
 
     const normalizedRequestedPaymentMethodType =
@@ -2945,6 +2954,43 @@ const createHostedPaymentSessionHandler = async (
     let retrySourceMetadata: Record<string, any> | null = null;
     let memberId: number | null = null;
     let userId: string | null = null;
+    let paymentMethodManagementContext: Record<string, any> | null = null;
+
+    if (
+      paymentMethodManagement &&
+      typeof paymentMethodManagement === "object"
+    ) {
+      const requestedMemberId = Number(paymentMethodManagement.memberId);
+      const requestedAction = String(paymentMethodManagement.action || "");
+      if (
+        !authenticatedUser ||
+        !Number.isInteger(requestedMemberId) ||
+        !["add", "replace", "pay_now"].includes(requestedAction) ||
+        !(await canManageMemberPaymentMethods(
+          requestedMemberId,
+          authenticatedUser,
+        ))
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: "Payment method management access denied",
+        });
+      }
+      paymentMethodManagementContext = {
+        memberId: requestedMemberId,
+        action: requestedAction,
+        replaceTokenId: Number(paymentMethodManagement.replaceTokenId) || null,
+        initiatedByUserId: authenticatedUser.id,
+        initiatedByEmail: authenticatedUser.email || null,
+        initiatedByRole: authenticatedUser.role || null,
+        initiatedAt: new Date().toISOString(),
+        status: "pending",
+      };
+    }
+    const isCredentialOnlyPaymentMethodSession = Boolean(
+      paymentMethodManagementContext &&
+      paymentMethodManagementContext.action !== "pay_now",
+    );
 
     if (hasAmountOverride) {
       overrideApprovedBy = authenticatedUser;
@@ -3192,7 +3238,10 @@ const createHostedPaymentSessionHandler = async (
 
     if (
       !isRetryRequest &&
-      (!Number.isFinite(effectiveAmount) || effectiveAmount <= 0)
+      (!Number.isFinite(effectiveAmount) ||
+        (isCredentialOnlyPaymentMethodSession
+          ? effectiveAmount !== 0
+          : effectiveAmount <= 0))
     ) {
       return res
         .status(400)
@@ -3433,6 +3482,11 @@ const createHostedPaymentSessionHandler = async (
         paymentMetadata.retrySourceMetadata = retrySourceMetadata;
       }
 
+      if (paymentMethodManagementContext) {
+        paymentMetadata.paymentMethodManagement =
+          paymentMethodManagementContext;
+      }
+
       const resolvedSubscriptionId =
         parseSubscriptionId(subscriptionId) ||
         (memberId
@@ -3514,6 +3568,13 @@ const createHostedPaymentSessionHandler = async (
           transactionId: orderNumber,
         },
       });
+      if (paymentMethodManagementContext) {
+        return res.status(500).json({
+          success: false,
+          error:
+            "Unable to safely record the payment method session before checkout",
+        });
+      }
       // Continue even if storage fails - payment can still process
     }
 
@@ -3558,6 +3619,7 @@ const createHostedPaymentSessionHandler = async (
       overrideAmount: number | undefined;
       requestedAmount: number | undefined;
       testPayment: boolean | undefined;
+      tranType: "CCE0" | "CCE1";
       hostedPaymentLink?: string;
       formData: {
         amount: string;
@@ -3583,6 +3645,7 @@ const createHostedPaymentSessionHandler = async (
         ? numericAmount
         : undefined,
       testPayment: hasAmountOverride || undefined,
+      tranType: isCredentialOnlyPaymentMethodSession ? "CCE0" : "CCE1",
       formData: {
         amount: effectiveAmount.toFixed(2),
         orderNumber,
@@ -3787,6 +3850,143 @@ router.post(
         error: error?.message || "Failed to initiate hosted retry payment",
       });
     }
+  },
+);
+
+router.get(
+  "/api/members/:memberId/payment-methods",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    const memberId = Number(req.params.memberId);
+    if (
+      !Number.isInteger(memberId) ||
+      !(await canManageMemberPaymentMethods(memberId, req.user))
+    ) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+    const member = await storage.getMember(memberId);
+    const subscriptionResult = await query(
+      `SELECT amount FROM subscriptions
+       WHERE member_id = $1 AND status = 'active'
+       ORDER BY id DESC LIMIT 1`,
+      [memberId],
+    );
+    return res.json({
+      success: true,
+      paymentMethods: await listMemberPaymentMethods(memberId),
+      member: member
+        ? {
+            id: memberId,
+            name: `${member.firstName || ""} ${member.lastName || ""}`.trim(),
+            email: member.email || "",
+            monthlyAmount: Number(subscriptionResult.rows[0]?.amount || 0),
+            billingAddress: {
+              streetAddress: member.address || "",
+              city: member.city || "",
+              state: member.state || "",
+              postalCode: member.zipCode || "",
+            },
+          }
+        : null,
+    });
+  },
+);
+
+router.post(
+  "/api/members/:memberId/payment-methods/checkout",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    const memberId = Number(req.params.memberId);
+    const action = String(req.body?.action || "") as PaymentMethodAction;
+    if (
+      !Number.isInteger(memberId) ||
+      !["add", "replace", "pay_now"].includes(action) ||
+      !(await canManageMemberPaymentMethods(memberId, req.user))
+    ) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+
+    const member = await storage.getMember(memberId);
+    const subscriptionResult = await query(
+      `SELECT id, amount FROM subscriptions
+       WHERE member_id = $1 AND status = 'active'
+       ORDER BY id DESC LIMIT 1`,
+      [memberId],
+    );
+    const subscription = subscriptionResult.rows[0];
+    if (!member || !subscription) {
+      return res.status(404).json({
+        success: false,
+        error: "Active member subscription not found",
+      });
+    }
+
+    req.body = {
+      amount: action === "pay_now" ? Number(subscription.amount) : 0,
+      customerId: String(memberId),
+      customerEmail: member.email,
+      customerName: `${member.firstName || ""} ${member.lastName || ""}`.trim(),
+      subscriptionId: String(subscription.id),
+      planId: member.planId ? String(member.planId) : undefined,
+      description: `Payment method ${action} for member #${memberId}`,
+      billingAddress: req.body?.billingAddress || null,
+      captchaToken: req.body?.captchaToken,
+      paymentMethodType: "CreditCard",
+      paymentMethodManagement: {
+        memberId,
+        action,
+        replaceTokenId: Number(req.body?.replaceTokenId) || null,
+      },
+    };
+    return createHostedPaymentSessionHandler(req as Request, res);
+  },
+);
+
+router.patch(
+  "/api/members/:memberId/payment-methods/:paymentTokenId/default",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    const memberId = Number(req.params.memberId);
+    const paymentTokenId = Number(req.params.paymentTokenId);
+    if (
+      !Number.isInteger(memberId) ||
+      !Number.isInteger(paymentTokenId) ||
+      !req.user ||
+      !(await canManageMemberPaymentMethods(memberId, req.user))
+    ) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+    const result = await makeDefaultPaymentMethod({
+      memberId,
+      paymentTokenId,
+      actor: req.user,
+    });
+    return res.json({ success: true, ...result });
+  },
+);
+
+router.delete(
+  "/api/members/:memberId/payment-methods/:paymentTokenId",
+  authenticateToken,
+  async (req: AuthRequest, res: Response) => {
+    const memberId = Number(req.params.memberId);
+    const paymentTokenId = Number(req.params.paymentTokenId);
+    if (
+      !Number.isInteger(memberId) ||
+      !Number.isInteger(paymentTokenId) ||
+      !req.user ||
+      !(await canManageMemberPaymentMethods(memberId, req.user))
+    ) {
+      return res.status(403).json({ success: false, error: "Access denied" });
+    }
+    const result = await removePaymentMethod({
+      memberId,
+      paymentTokenId,
+      replacementTokenId: Number(req.body?.replacementTokenId) || null,
+      switchToManualBilling: req.body?.switchToManualBilling === true,
+      actor: req.user,
+    });
+    return res.json({ success: true, ...result });
   },
 );
 
@@ -4214,6 +4414,19 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
       tranType: resolvedCompleteTranType,
       paymentMethodType: normalizedCompletePaymentMethodType,
     });
+
+    const completionMetadata = parsePaymentMetadata(
+      persistResult.paymentRecord?.metadata,
+    );
+    if (completionMetadata.paymentMethodManagement) {
+      return res.json({
+        success: true,
+        member: null,
+        paymentId: persistResult.paymentRecord?.id || null,
+        paymentMethodManagement: true,
+        awaitingVerifiedCallback: true,
+      });
+    }
 
     let updatedMember: any = null;
 
@@ -4661,11 +4874,17 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
           await storage.getPaymentByTransactionId(fallbackOrderNumber);
       }
 
-      const existingHostedCallbackMetadata = existingPaymentRecord
-        ? parsePaymentMetadata(existingPaymentRecord.metadata)?.hostedCallback
+      const existingPaymentMetadata = existingPaymentRecord
+        ? parsePaymentMetadata(existingPaymentRecord.metadata)
         : null;
+      const existingHostedCallbackMetadata =
+        existingPaymentMetadata?.hostedCallback;
+      const isManagedPaymentMethodSession = Boolean(
+        existingPaymentMetadata?.paymentMethodManagement,
+      );
       const callbackAlreadyProcessed = Boolean(
         existingPaymentRecord &&
+        !isManagedPaymentMethodSession &&
         String(existingPaymentRecord.status || "").toLowerCase() ===
           "succeeded" &&
         existingHostedCallbackMetadata?.updatedAt,
@@ -4721,6 +4940,11 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         : {};
       const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
       const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
+      const paymentMethodManagementContext =
+        paymentMetadata.paymentMethodManagement &&
+        typeof paymentMetadata.paymentMethodManagement === "object"
+          ? paymentMetadata.paymentMethodManagement
+          : null;
 
       if (!groupPaymentContext) {
         const validationErrors: string[] = [];
@@ -5151,6 +5375,86 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         }
       }
 
+      if (paymentMethodManagementContext && paymentRecordForLogging) {
+        const maskedCard = extractMaskedCardProfileFromCallback(req.body || {});
+        const expiryDigits = String(maskedCard?.expiry || "").replace(
+          /\D/g,
+          "",
+        );
+        let managedActivationResult: Awaited<
+          ReturnType<typeof activateHostedPaymentMethod>
+        > | null = null;
+        try {
+          if (!result.bricToken || !authGuid || !maskedCard?.last4) {
+            throw new Error(
+              "Verified callback did not include the recurring credential and masked card details",
+            );
+          }
+          managedActivationResult = await activateHostedPaymentMethod({
+            paymentId: Number(paymentRecordForLogging.id),
+            memberId: Number(paymentMethodManagementContext.memberId),
+            actor: {
+              id: String(paymentMethodManagementContext.initiatedByUserId),
+              email: paymentMethodManagementContext.initiatedByEmail || null,
+              role: paymentMethodManagementContext.initiatedByRole || null,
+            },
+            action: paymentMethodManagementContext.action,
+            replaceTokenId:
+              Number(paymentMethodManagementContext.replaceTokenId) || null,
+            bricToken: result.bricToken,
+            authGuid,
+            cardType:
+              req.body?.CardType ||
+              req.body?.CARD_TYPE ||
+              req.body?.cardType ||
+              null,
+            cardLastFour: maskedCard.last4,
+            expiryMonth:
+              expiryDigits.length >= 4 ? expiryDigits.slice(0, 2) : null,
+            expiryYear:
+              expiryDigits.length >= 4 ? expiryDigits.slice(-2) : null,
+            authCode: result.authCode || null,
+            responseCode: req.body?.AUTH_RESP || req.body?.authResp || "00",
+            responseMessage:
+              req.body?.message || req.body?.StatusMessage || "APPROVED",
+          });
+        } catch (activationError: any) {
+          logEPX({
+            level: "error",
+            phase: "callback",
+            message: "Managed payment method activation requires review",
+            data: {
+              error: activationError?.message,
+              paymentId: paymentRecordForLogging.id,
+              memberId: paymentMethodManagementContext.memberId,
+            },
+          });
+          return res.json({
+            success: true,
+            approved: true,
+            activated: false,
+            requiresReview: true,
+            message:
+              "Payment approved but payment method activation requires review",
+            transactionId: result.transactionId,
+          });
+        }
+
+        if (paymentMethodManagementContext.action !== "pay_now") {
+          return res.json({
+            success: true,
+            approved: true,
+            activated: true,
+            paymentMethodManagement: true,
+            paymentId: paymentRecordForLogging.id,
+            paymentTokenId:
+              managedActivationResult?.paymentTokenId || null,
+            noOp: managedActivationResult?.alreadyCompleted || false,
+            transactionId: result.transactionId,
+          });
+        }
+      }
+
       if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
         try {
           const memberId = Number(paymentRecordForLogging.member_id);
@@ -5211,6 +5515,8 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
       if (
         paymentRecordForLogging?.member_id &&
         !groupPaymentContext &&
+        (!paymentMethodManagementContext ||
+          paymentMethodManagementContext.action === "pay_now") &&
         isSuccessfulPaymentStatus(paymentRecordForLogging.status)
       ) {
         try {
@@ -5236,7 +5542,8 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
       if (
         result.bricToken &&
         paymentRecordForLogging?.member_id &&
-        !groupPaymentContext
+        !groupPaymentContext &&
+        !paymentMethodManagementContext
       ) {
         try {
           await storage.updateMember(
@@ -5271,7 +5578,11 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         }
       }
 
-      if (paymentRecordForLogging?.member_id && !groupPaymentContext) {
+      if (
+        paymentRecordForLogging?.member_id &&
+        !groupPaymentContext &&
+        !paymentMethodManagementContext
+      ) {
         const reconciledSubscriptionId =
           await reconcileSubscriptionAfterSuccessfulPayment({
             memberId: Number(paymentRecordForLogging.member_id),

@@ -55,6 +55,10 @@ const reconciliationRoutes = fs.readFileSync(
   path.join(root, "server/routes/payment-reconciliation.ts"),
   "utf8",
 );
+const paymentDiagnosticRoutes = fs.readFileSync(
+  path.join(root, "server/routes/payment-diagnostic.ts"),
+  "utf8",
+);
 const mainRoutes = fs.readFileSync(path.join(root, "server/routes.ts"), "utf8");
 const gitignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
 
@@ -173,8 +177,14 @@ assert.match(lifecycleMigration, /state IN \('ready', 'claimed', 'declined'\)/);
 assert.match(lifecycleMigration, /AT TIME ZONE 'America\/Chicago'/);
 assert.match(lifecycleMigration, /finalize_due_scheduled_cancellations/);
 assert.match(lifecycleMigration, /GET DIAGNOSTICS [a-z_]+ = ROW_COUNT/);
-assert.match(periodTerminationMigration, /ADD COLUMN IF NOT EXISTS termination_effective_at timestamptz/);
-assert.match(periodTerminationMigration, /subscription_legacy_period_date_candidates/);
+assert.match(
+  periodTerminationMigration,
+  /ADD COLUMN IF NOT EXISTS termination_effective_at timestamptz/,
+);
+assert.match(
+  periodTerminationMigration,
+  /subscription_legacy_period_date_candidates/,
+);
 assert.match(
   periodTerminationMigration,
   /SET current_period_start = cycle\.cycle_date::timestamp,[\s\S]*current_period_end = normalized_next_billing_date,[\s\S]*next_billing_date = normalized_next_billing_date/,
@@ -194,6 +204,24 @@ assert.doesNotMatch(
 assert.match(service, /finalize_due_scheduled_cancellations/);
 assert.match(service, /claim_recurring_internal_sync_cycles/);
 assert.match(service, /assertSingleCycleUpdate/);
+assert.match(
+  service,
+  /Controlled retries must be included in an explicit targeted subscription run/,
+);
+assert.match(
+  service,
+  /getSubscriptionsDueForBilling\(now, \{[\s\S]*controlledRetrySubscriptionIds,[\s\S]*subscriptionIds,/,
+);
+assert.match(
+  paymentDiagnosticRoutes,
+  /controlledRetrySubscriptionIds:parseSubscriptionIds|controlledRetrySubscriptionIds = parseSubscriptionIds/,
+);
+const operatorWorkflowRoute = paymentDiagnosticRoutes.slice(
+  paymentDiagnosticRoutes.indexOf(
+    '"/api/admin/diagnostic/recurring-billing/operator-workflow"',
+  ),
+);
+assert.match(operatorWorkflowRoute, /controlledRetrySubscriptionIds/);
 assert.match(reconciliationRoutes, /missing_all_processor_references/);
 assert.match(reconciliationRoutes, /group_payment_managed_separately/);
 assert.match(reconciliationRoutes, /exceptions/);

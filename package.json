@@ -27,6 +27,7 @@
     "test:staging-billing-safety": "tsx scripts/test-staging-billing-safety.ts",
     "test:hosted-semantics": "tsx scripts/test-hosted-checkout-semantics.ts",
     "test:payment-credential": "tsx scripts/test-payment-credential.ts",
+    "test:member-payment-methods": "tsx scripts/test-member-payment-methods.ts",
     "test:plan-start-dates": "tsx scripts/test-plan-start-dates.ts",
     "test:lifecycle-summary-api": "node scripts/test-lifecycle-summary-api-contract.mjs",
     "test:group-assignment-hardening": "tsx scripts/test-group-assignment-hardening.ts",
