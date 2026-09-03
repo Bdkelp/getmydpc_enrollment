@@ -20,10 +20,13 @@ interface ActivateHostedPaymentMethodInput {
   replaceTokenId?: number | null;
   bricToken: string;
   authGuid: string;
+  paymentMethodType: "CreditCard" | "ACH";
   cardType?: string | null;
-  cardLastFour: string;
+  cardLastFour?: string | null;
   expiryMonth?: string | null;
   expiryYear?: string | null;
+  bankAccountLastFour?: string | null;
+  bankAccountType?: "Checking" | "Savings" | null;
   authCode?: string | null;
   responseCode?: string | null;
   responseMessage?: string | null;
@@ -60,14 +63,10 @@ export async function canManageMemberPaymentMethods(
 export async function listMemberPaymentMethods(memberId: number) {
   const result = await query(
     `SELECT id, payment_method_type,
-            CASE
-              WHEN LENGTH(COALESCE(bric_token, '')) > 8
-                THEN LEFT(bric_token, 4) || '****' || RIGHT(bric_token, 4)
-              WHEN bric_token IS NOT NULL THEN '********'
-              ELSE NULL
-            END AS bric_reference,
+            bric_token AS bric_reference,
             original_network_trans_id AS auth_guid,
             card_type, card_last_four, expiry_month, expiry_year,
+            bank_account_last_four, bank_account_type,
             is_active, is_primary, created_at, last_used_at
      FROM payment_tokens
      WHERE member_id = $1
@@ -244,9 +243,14 @@ export async function activateHostedPaymentMethod(
 ): Promise<ActivatedPaymentMethodResult> {
   const bricToken = requireCanonicalPaymentCredential(input.bricToken);
   const authGuid = requireCanonicalPaymentCredential(input.authGuid);
-  const lastFour = String(input.cardLastFour || "").replace(/\D/g, "");
+  const isACH = input.paymentMethodType === "ACH";
+  const lastFour = String(
+    isACH ? input.bankAccountLastFour : input.cardLastFour,
+  ).replace(/\D/g, "");
   if (lastFour.length !== 4) {
-    throw new Error("Verified callback did not include card last four");
+    throw new Error(
+      `Verified callback did not include ${isACH ? "bank account" : "card"} last four`,
+    );
   }
 
   let output: ActivatedPaymentMethodResult | null = null;
@@ -389,25 +393,32 @@ export async function activateHostedPaymentMethod(
       `INSERT INTO payment_tokens (
          member_id, payment_method_type, bric_token, card_type, card_last_four,
          expiry_month, expiry_year, original_network_trans_id,
+         bank_account_last_four, bank_account_type,
          is_active, is_primary, created_at, last_used_at
-      ) VALUES ($1, 'CreditCard', $2, $3, $4, $5, $6, $7, true, $8, NOW(),
-           CASE WHEN $9::boolean THEN NOW() ELSE NULL END)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, $11, NOW(),
+           CASE WHEN $12::boolean THEN NOW() ELSE NULL END)
        ON CONFLICT (bric_token) DO UPDATE SET
-         member_id = EXCLUDED.member_id, payment_method_type = 'CreditCard',
+         member_id = EXCLUDED.member_id,
+         payment_method_type = EXCLUDED.payment_method_type,
          card_type = EXCLUDED.card_type, card_last_four = EXCLUDED.card_last_four,
          expiry_month = EXCLUDED.expiry_month, expiry_year = EXCLUDED.expiry_year,
+         bank_account_last_four = EXCLUDED.bank_account_last_four,
+         bank_account_type = EXCLUDED.bank_account_type,
          original_network_trans_id = EXCLUDED.original_network_trans_id,
          is_active = true, is_primary = EXCLUDED.is_primary,
-         last_used_at = CASE WHEN $9::boolean THEN NOW() ELSE payment_tokens.last_used_at END
+         last_used_at = CASE WHEN $12::boolean THEN NOW() ELSE payment_tokens.last_used_at END
        RETURNING id`,
       [
         input.memberId,
+        input.paymentMethodType,
         bricToken,
-        input.cardType || null,
-        lastFour,
-        input.expiryMonth || null,
-        input.expiryYear || null,
+        isACH ? null : input.cardType || null,
+        isACH ? null : lastFour,
+        isACH ? null : input.expiryMonth || null,
+        isACH ? null : input.expiryYear || null,
         authGuid,
+        isACH ? lastFour : null,
+        isACH ? input.bankAccountType || "Checking" : null,
         makePrimary,
         input.action === "pay_now",
       ],
@@ -424,8 +435,8 @@ export async function activateHostedPaymentMethod(
       );
       await client.query(
         `UPDATE members SET payment_token = $2,
-           payment_method_type = 'CreditCard', updated_at = NOW() WHERE id = $1`,
-        [input.memberId, authGuid],
+          payment_method_type = $3, updated_at = NOW() WHERE id = $1`,
+        [input.memberId, authGuid, input.paymentMethodType],
       );
     }
 
@@ -478,10 +489,13 @@ export async function activateHostedPaymentMethod(
         action: input.action,
         replacedTokenId,
         paymentTokenId,
+        paymentMethodType: input.paymentMethodType,
         cardType: input.cardType || null,
-        cardLastFour: lastFour,
+        cardLastFour: isACH ? null : lastFour,
         expiryMonth: input.expiryMonth || null,
         expiryYear: input.expiryYear || null,
+        bankAccountLastFour: isACH ? lastFour : null,
+        bankAccountType: isACH ? input.bankAccountType || "Checking" : null,
         result: activated,
       },
     });

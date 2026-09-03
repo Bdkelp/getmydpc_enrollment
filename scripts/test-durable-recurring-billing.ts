@@ -133,7 +133,9 @@ assert.match(
 assert.match(storage, /metadata->>'cycleDate' = \$2[\s\S]*error_message = \$3/);
 assert.match(migration, /uq_recurring_billing_exception_unresolved/);
 assert.match(service, /missing_payment_credentials/);
-assert.match(service, /unsupported_ach/);
+assert.match(service, /includeACH: true/);
+assert.match(service, /cycle\.paymentMethodType === "ACH" \? "CKC2" : "CCE1"/);
+assert.doesNotMatch(service, /unsupported_ach/);
 assert.doesNotMatch(
   storage,
   /AND pt\.payment_method_type = ANY\(\$2::text\[\]\)/,
