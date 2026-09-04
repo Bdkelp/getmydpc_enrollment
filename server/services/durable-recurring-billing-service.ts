@@ -25,6 +25,7 @@ import {
 const BILLING_TIMEZONE = "America/Chicago";
 const MAX_CYCLES_PER_RUN = 25;
 const LEASE_SECONDS = 120;
+const MAX_PROCESSOR_ATTEMPTS_PER_CYCLE = 2;
 
 export type DurableBillingRunSummary = {
   runId: number | null;
@@ -171,10 +172,19 @@ class PostgresCycleRepository implements DurableCycleRepository {
       `UPDATE public.recurring_billing_cycles
        SET state = 'declined', processor_response_code = $3,
            processor_response_message = $4, processor_auth_code = $5,
-           processor_responded_at = NOW(), failure_classification = 'confirmed_decline',
+           processor_responded_at = NOW(),
+           failure_classification = CASE
+             WHEN attempt_count >= $6 THEN 'decline_requires_attention'
+             ELSE 'confirmed_decline'
+           END,
            next_attempt_at = CASE WHEN attempt_count < $6 THEN NOW() + make_interval(days => $7) ELSE NULL END,
+           skip_reason = CASE
+             WHEN attempt_count >= $6 THEN 'two_attempt_decline_limit_reached'
+             ELSE NULL
+           END,
            lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = NOW()
-       WHERE id = $1 AND lease_token = $2::uuid`,
+       WHERE id = $1 AND lease_token = $2::uuid
+       RETURNING attempt_count, next_attempt_at, failure_classification`,
       [
         cycle.id,
         cycle.leaseToken,
@@ -183,11 +193,38 @@ class PostgresCycleRepository implements DurableCycleRepository {
           result.error ||
           "Processor declined",
         result.responseFields.AUTH_CODE || null,
-        getMaxAttempts(),
+        MAX_PROCESSOR_ATTEMPTS_PER_CYCLE,
         retryDays,
       ],
     );
     assertSingleCycleUpdate(updated.rowCount, cycle.id, "mark declined");
+    const declinedCycle = updated.rows[0];
+    if (declinedCycle?.failure_classification === "decline_requires_attention") {
+      try {
+        await upsertRecurringBillingExceptionNotification({
+          memberId: cycle.memberId,
+          subscriptionId: cycle.subscriptionId,
+          cycleDate: cycle.cycleDate,
+          reason: "two_attempt_decline_limit_reached",
+          metadata: {
+            requiresAttention: true,
+            attemptCount: Number(declinedCycle.attempt_count),
+            responseCode,
+            responseMessage:
+              result.responseFields.AUTH_RESP_TEXT ||
+              result.error ||
+              "Processor declined",
+            processorReference: cycle.processorReference,
+          },
+        });
+      } catch (alertError: any) {
+        console.error("[DurableBilling][ALERT] Failed to persist terminal decline alert", {
+          cycleId: cycle.id,
+          subscriptionId: cycle.subscriptionId,
+          alertError: alertError?.message || String(alertError),
+        });
+      }
+    }
   }
 
   async finalizeProcessorSuccess(
@@ -309,14 +346,6 @@ const processor: RecurringProcessorAdapter = {
     });
   },
 };
-
-function getMaxAttempts(): number {
-  const parsed = Number.parseInt(
-    process.env.RECURRING_BILLING_MAX_ATTEMPTS_PER_CYCLE || "3",
-    10,
-  );
-  return Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 10)) : 3;
-}
 
 function assertLiveExecutionEnabled(): void {
   if (!envTrue("EXTERNAL_BILLING_ENABLED")) {
