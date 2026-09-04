@@ -106,6 +106,16 @@ assert.match(
   /GRANT SELECT, INSERT, UPDATE, DELETE[\s\S]*TO service_role/,
 );
 assert.match(service, /updated_at = NOW\(\),[\s\S]*next_attempt_at = NULL/);
+assert.match(service, /MAX_PROCESSOR_ATTEMPTS_PER_CYCLE = 2/);
+assert.match(
+  service,
+  /WHEN attempt_count >= \$6 THEN 'decline_requires_attention'[\s\S]*WHEN attempt_count < \$6 THEN NOW\(\) \+ make_interval\(days => \$7\) ELSE NULL END/,
+  "only the first decline may schedule a retry",
+);
+assert.match(service, /two_attempt_decline_limit_reached/);
+assert.match(service, /requiresAttention: true/);
+assert.match(service, /processorReference: cycle\.processorReference/);
+assert.doesNotMatch(service, /RECURRING_BILLING_MAX_ATTEMPTS_PER_CYCLE/);
 assert.match(storage, /s\.billing_mode = 'automatic'/);
 assert.match(storage, /paymentTokenId: number \| null/);
 assert.match(storage, /payment_token_id: entry\.paymentTokenId/);
@@ -419,6 +429,7 @@ async function run() {
   assert.equal(unknownRepository.state, "unknown");
 
   const declineRepository = new FakeRepository();
+  let declineFinancialSyncInvoked = false;
   assert.equal(
     await processClaimedBillingCycle({
       cycle,
@@ -431,11 +442,19 @@ async function run() {
           };
         },
       },
-      async synchronizeFinancials() {},
+      async synchronizeFinancials() {
+        declineFinancialSyncInvoked = true;
+      },
     }),
     "declined",
   );
   assert.equal(declineRepository.state, "declined");
+  assert.deepEqual(declineRepository.events, ["submitting", "declined"]);
+  assert.equal(
+    declineFinancialSyncInvoked,
+    false,
+    "declines must not create successful payment side effects",
+  );
 
   const syncRepository = new FakeRepository();
   assert.equal(
