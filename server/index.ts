@@ -23,6 +23,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import cors from "cors";
 import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
+import memberPaymentMethodCheckoutRoutes from "./routes/member-payment-method-checkout";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import debugPaymentsRoutes from "./routes/debug-payments";
@@ -180,6 +181,11 @@ app.use((req, res, next) => {
       error?.message || error,
     );
   }
+
+  // Payment-method maintenance is isolated from enrollment payment creation.
+  // Mount this first so explicit Add/Replace/Pay Now actions never fall through
+  // to the normal enrollment duplicate-payment guards.
+  app.use("/", memberPaymentMethodCheckoutRoutes);
 
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use("/", epxHostedRoutes);
