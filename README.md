@@ -1103,7 +1103,6 @@ getmydpc_enrollment/
 │
 ├── package.json                    # Root dependencies (backend + scripts)
 ├── tsconfig.json                   # Root TypeScript config
-├── client.tsconfig.json            # Client-specific TS config
 ├── .env                            # Environment variables (gitignored)
 ├── .gitignore                      # Git ignore rules
 └── README.md                       # 📖 This file
