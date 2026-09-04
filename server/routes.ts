@@ -3,7 +3,6 @@ import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
 import { hasAtLeastRole, isFullAccessEmail, normalizeRole } from "./auth/roles";
-import { paymentService } from "./services/payment-service";
 import {
   calculateCommission,
   getPlanTierFromName,
@@ -60,7 +59,6 @@ import {
   getAvailablePlanStartDates,
   isPlanStartDateAllowed,
 } from "@shared/planStartDates";
-// import epxRoutes from "./routes/epx-routes"; // Browser Post (commented out)
 // import epxHostedRoutes from "./routes/epx-hosted-routes"; // Moved to server/index.ts to avoid duplicate registration
 
 const router = Router();
