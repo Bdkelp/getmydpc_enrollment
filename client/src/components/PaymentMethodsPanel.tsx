@@ -220,6 +220,12 @@ export function PaymentMethodsPanel({
         </div>
       )}
 
+      <Alert>
+        <AlertDescription>
+          Card Add/Replace submits a $1.00 verification charge. After approval, reverse that charge in the North portal. Bank account credentials can only be updated through Pay Now &amp; Use for Recurring.
+        </AlertDescription>
+      </Alert>
+
       <Dialog open={checkoutAction !== null} onOpenChange={(open) => {
         if (!open) {
           setCheckoutAction(null);
@@ -249,19 +255,12 @@ export function PaymentMethodsPanel({
                   <Landmark className="h-5 w-5" /> Bank Account
                 </Button>
               </div>
-              {checkoutAction !== "pay_now" && (
-                <Alert>
-                  <AlertDescription>
-                    Zero-dollar ACH Add/Replace is not yet verified for this EPX profile. Use Pay Now &amp; Use for Recurring to authorize and save a bank account with a real payment. Your existing payment method and billing mode will remain unchanged.
-                  </AlertDescription>
-                </Alert>
-              )}
             </div>
           )}
           {checkoutAction && checkoutMethodType && (
             <EPXHostedPayment
               key={`${checkoutAction}-${checkoutMethodType}-${replaceTokenId || "new"}`}
-              amount={checkoutAction === "pay_now" ? effectiveMonthlyAmount : 0}
+              amount={checkoutAction === "pay_now" ? effectiveMonthlyAmount : 1}
               customerId={String(memberId)}
               customerEmail={effectiveMemberEmail}
               customerName={effectiveMemberName}
