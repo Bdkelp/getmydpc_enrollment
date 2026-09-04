@@ -363,9 +363,12 @@ async function persistHostedPaymentUpdate(options: HostedPaymentUpdateOptions) {
   const normalizedPaymentStatus = String(paymentStatus || "")
     .trim()
     .toLowerCase();
-  const isSuccessfulUpdate = ["succeeded", "success", "completed"].includes(
-    normalizedPaymentStatus,
-  );
+  const isSuccessfulUpdate = [
+    "succeeded",
+    "success",
+    "completed",
+    "verification_succeeded",
+  ].includes(normalizedPaymentStatus);
   const existingHostedMeta: HostedCallbackMetadata =
     typeof metadataBase.hostedCallback === "object" &&
     metadataBase.hostedCallback
@@ -3487,6 +3490,11 @@ const createHostedPaymentSessionHandler = async (
       if (paymentMethodManagementContext) {
         paymentMetadata.paymentMethodManagement =
           paymentMethodManagementContext;
+        if (isCredentialOnlyPaymentMethodSession) {
+          paymentMetadata.transactionPurpose = "payment_method_verification";
+          paymentMetadata.excludeFromMembershipPayment = true;
+          paymentMetadata.manualReversalRequired = true;
+        }
       }
 
       const resolvedSubscriptionId =
@@ -3621,7 +3629,7 @@ const createHostedPaymentSessionHandler = async (
       overrideAmount: number | undefined;
       requestedAmount: number | undefined;
       testPayment: boolean | undefined;
-      tranType: "CCE0" | "CCE1";
+      tranType: "CCE1";
       hostedPaymentLink?: string;
       formData: {
         amount: string;
@@ -3647,7 +3655,7 @@ const createHostedPaymentSessionHandler = async (
         ? numericAmount
         : undefined,
       testPayment: hasAmountOverride || undefined,
-      tranType: isCredentialOnlyPaymentMethodSession ? "CCE0" : "CCE1",
+      tranType: "CCE1",
       formData: {
         amount: effectiveAmount.toFixed(2),
         orderNumber,
@@ -3917,9 +3925,9 @@ router.post(
     if (requestedPaymentMethodType === "ACH" && action !== "pay_now") {
       return res.status(422).json({
         success: false,
-        code: "ACH_ZERO_DOLLAR_SETUP_UNVERIFIED",
+        code: "ACH_CREDENTIAL_VERIFICATION_UNVERIFIED",
         error:
-          "Zero-dollar ACH setup is not supported by the verified EPX workflow. Use Pay Now & Use for Recurring to authorize and save the bank account with a real payment.",
+          "ACH credential verification is not supported by the verified EPX workflow. Use Pay Now & Use for Recurring to authorize and save the bank account with a real payment.",
       });
     }
 
@@ -3939,7 +3947,7 @@ router.post(
     }
 
     req.body = {
-      amount: action === "pay_now" ? Number(subscription.amount) : 0,
+      amount: action === "pay_now" ? Number(subscription.amount) : 1,
       customerId: String(memberId),
       customerEmail: member.email,
       customerName: `${member.firstName || ""} ${member.lastName || ""}`.trim(),
@@ -4165,6 +4173,10 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
     );
     const groupPaymentContext = extractGroupPaymentContext(paymentMetadata);
     const groupInvoiceContext = extractGroupInvoiceContext(paymentMetadata);
+    const isCredentialVerificationCompletion = Boolean(
+      paymentMetadata.paymentMethodManagement &&
+      paymentMetadata.paymentMethodManagement.action !== "pay_now",
+    );
 
     if (!numericMemberId) {
       const isAdHocAdminCompletion =
@@ -4427,7 +4439,9 @@ router.post("/api/epx/hosted/complete", async (req: Request, res: Response) => {
       amount,
       memberId: numericMemberId,
       bricTokenPresent: true,
-      paymentStatus: "succeeded",
+      paymentStatus: isCredentialVerificationCompletion
+        ? "verification_succeeded"
+        : "succeeded",
       tranType: resolvedCompleteTranType,
       paymentMethodType: normalizedCompletePaymentMethodType,
     });
@@ -4899,6 +4913,10 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
       const isManagedPaymentMethodSession = Boolean(
         existingPaymentMetadata?.paymentMethodManagement,
       );
+      const isCredentialVerificationSession = Boolean(
+        isManagedPaymentMethodSession &&
+        existingPaymentMetadata?.paymentMethodManagement?.action !== "pay_now",
+      );
       const callbackAlreadyProcessed = Boolean(
         existingPaymentRecord &&
         !isManagedPaymentMethodSession &&
@@ -4944,7 +4962,9 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         callbackStatus: req.body?.status || null,
         callbackMessage: req.body?.message || null,
         bricTokenPresent: Boolean(result.bricToken),
-        paymentStatus: "succeeded",
+        paymentStatus: isCredentialVerificationSession
+          ? "verification_succeeded"
+          : "succeeded",
         tranType: callbackResolvedTranType,
         paymentMethodType: callbackPaymentMethodType,
       });
@@ -5488,6 +5508,30 @@ router.post("/api/epx/hosted/callback", async (req: Request, res: Response) => {
         }
 
         if (paymentMethodManagementContext.action !== "pay_now") {
+          try {
+            await storage.createAdminNotification({
+              type: "payment_method_verification_reversal_required",
+              title: "Reverse Card Verification Charge",
+              message: `Reverse the $1.00 card verification for member #${paymentMethodManagementContext.memberId} in the North portal.`,
+              memberId: Number(paymentMethodManagementContext.memberId),
+              metadata: {
+                paymentId: paymentRecordForLogging.id,
+                transactionId: result.transactionId,
+                amount: 1,
+                reversalStatus: "pending_manual_reversal",
+              },
+            });
+          } catch (notificationError: any) {
+            logEPX({
+              level: "warn",
+              phase: "callback",
+              message: "Unable to create card verification reversal reminder",
+              data: {
+                error: notificationError?.message,
+                paymentId: paymentRecordForLogging.id,
+              },
+            });
+          }
           return res.json({
             success: true,
             approved: true,

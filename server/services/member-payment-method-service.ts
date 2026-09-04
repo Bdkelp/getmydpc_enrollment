@@ -43,7 +43,12 @@ export interface ActivatedPaymentMethodResult {
   alreadyCompleted: boolean;
 }
 
-const successfulStatuses = new Set(["success", "succeeded", "completed"]);
+const successfulStatuses = new Set([
+  "success",
+  "succeeded",
+  "completed",
+  "verification_succeeded",
+]);
 
 export async function canManageMemberPaymentMethods(
   memberId: number,

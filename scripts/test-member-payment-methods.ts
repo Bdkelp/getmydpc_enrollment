@@ -23,34 +23,48 @@ const migration = read(
 assert.match(routes, /paymentMetadata\.paymentMethodManagement/);
 assert.match(routes, /awaitingVerifiedCallback:\s*true/);
 assert.match(routes, /activateHostedPaymentMethod\(\{/);
-assert.match(routes, /isCredentialOnlyPaymentMethodSession \? "CCE0" : "CCE1"/);
-assert.match(
+assert.doesNotMatch(routes, /CCE0/);
+assert.doesNotMatch(
   routes,
   /action === "pay_now" \? Number\(subscription\.amount\) : 0/,
 );
 assert.match(routes, /memberId && !isCredentialOnlyPaymentMethodSession/);
 assert.match(routes, /paymentMethodType: requestedPaymentMethodType/);
+assert.match(routes, /transactionPurpose = "payment_method_verification"/);
+assert.match(routes, /excludeFromMembershipPayment = true/);
+assert.match(routes, /manualReversalRequired = true/);
+assert.match(routes, /"verification_succeeded"/);
+assert.match(
+  routes,
+  /const isCredentialVerificationCompletion = Boolean\([\s\S]*paymentStatus: isCredentialVerificationCompletion[\s\S]*\? "verification_succeeded"[\s\S]*: "succeeded"/,
+  "browser completion must never classify a credential verification as membership revenue",
+);
 const managedCheckoutRoute = routes.slice(
   routes.indexOf('"/api/members/:memberId/payment-methods/checkout"'),
   routes.indexOf(
     '"/api/members/:memberId/payment-methods/:paymentTokenId/default"',
   ),
 );
-assert.match(managedCheckoutRoute, /ACH_ZERO_DOLLAR_SETUP_UNVERIFIED/);
+assert.match(managedCheckoutRoute, /ACH_CREDENTIAL_VERIFICATION_UNVERIFIED/);
 assert.match(
   managedCheckoutRoute,
   /requestedPaymentMethodType === "ACH" && action !== "pay_now"/,
 );
 assert.ok(
-  managedCheckoutRoute.indexOf("ACH_ZERO_DOLLAR_SETUP_UNVERIFIED") <
+  managedCheckoutRoute.indexOf("ACH_CREDENTIAL_VERIFICATION_UNVERIFIED") <
     managedCheckoutRoute.indexOf("storage.getMember"),
-  "unsupported zero-dollar ACH must return before member, payment, or hosted-session work",
+  "unsupported ACH credential setup must return before member, payment, or hosted-session work",
 );
 assert.ok(
-  managedCheckoutRoute.indexOf("ACH_ZERO_DOLLAR_SETUP_UNVERIFIED") <
+  managedCheckoutRoute.indexOf("ACH_CREDENTIAL_VERIFICATION_UNVERIFIED") <
     managedCheckoutRoute.indexOf("createHostedPaymentSessionHandler"),
-  "unsupported zero-dollar ACH must not create a payment or checkout session",
+  "unsupported ACH credential setup must not create a payment or checkout session",
 );
+assert.match(
+  managedCheckoutRoute,
+  /amount: action === "pay_now" \? Number\(subscription\.amount\) : 1/,
+);
+assert.doesNotMatch(managedCheckoutRoute, /amount:[^\n]*:\s*0/);
 assert.match(
   routes,
   /existingPaymentMetadata\?\.paymentMethodManagement[\s\S]*!isManagedPaymentMethodSession/,
@@ -77,6 +91,7 @@ assert.match(
 );
 assert.match(service, /token\.is_primary && input\.switchToManualBilling/);
 assert.match(service, /input\.action === "pay_now"/);
+assert.match(service, /"verification_succeeded"/);
 assert.match(service, /state IN \('declined', 'unknown'\)/);
 assert.match(service, /cycle_date = \$4::date/);
 assert.match(service, /next_billing_date = \$3::date/);
@@ -113,10 +128,11 @@ assert.match(panel, /Last used:/);
 assert.match(panel, /paymentMethodType=\{checkoutMethodType\}/);
 assert.match(panel, /Bank Account/);
 assert.match(panel, /disabled=\{checkoutAction !== "pay_now"\}/);
-assert.match(panel, /Zero-dollar ACH Add\/Replace is not yet verified/);
+assert.match(panel, /Card Add\/Replace submits a \$1\.00 verification charge/);
+assert.match(panel, /reverse that charge in the North portal/);
 assert.match(
   panel,
-  /existing payment method and billing mode will remain unchanged/,
+  /amount=\{checkoutAction === "pay_now" \? effectiveMonthlyAmount : 1\}/,
 );
 assert.match(hostedPayment, /paymentMethodType,/);
 assert.match(hostedPayment, /Payment form unavailable/);
