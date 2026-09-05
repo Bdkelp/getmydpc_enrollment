@@ -56,8 +56,6 @@ const buildKeyRing = (): Buffer[] => {
 const SSN_KEY_RING = buildKeyRing();
 const PRIMARY_SSN_KEY = SSN_KEY_RING[0] || null;
 
-const PSEUDO_SSN_SECRET = process.env.PSEUDO_SSN_SECRET || process.env.ENCRYPTION_KEY || 'development-only-pseudo-secret';
-
 /**
  * Encrypt SSN for secure storage
  * Returns format: iv:authTag:encrypted
@@ -126,33 +124,6 @@ export function decryptSSN(encryptedSSN: string): string {
 
   console.error('[Encryption] Failed to decrypt SSN with all configured keys');
   return ''; // Return empty on decrypt failure
-}
-
-/**
- * Get last 4 digits of SSN
- */
-export function getSSNLast4(ssn: string): string {
-  if (!ssn) return '';
-  const cleanSSN = ssn.replace(/\D/g, '');
-  return cleanSSN.slice(-4);
-}
-
-/**
- * Generate deterministic pseudo-SSN for banking requirements
- * Uses HMAC to ensure same member always gets same pseudo-SSN
- */
-export function generatePseudoSSN(memberId: number): string {
-  const hash = crypto
-    .createHmac('sha256', PSEUDO_SSN_SECRET)
-    .update(`member_${memberId}`)
-    .digest('hex');
-  
-  // Convert hex to numeric and take first 9 digits
-  const numeric = parseInt(hash.slice(0, 16), 16) % 1000000000;
-  const formatted = String(numeric).padStart(9, '0');
-  
-  // Format as XXX-XX-XXXX
-  return `${formatted.slice(0, 3)}-${formatted.slice(3, 5)}-${formatted.slice(5)}`;
 }
 
 /**

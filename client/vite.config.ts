@@ -30,10 +30,4 @@ export default defineConfig({
       },
     },
   },
-  optimizeDeps: {
-    include: ["react-icons/fa", "react-icons/fa6"],
-  },
-  ssr: {
-    noExternal: ["react-icons"],
-  },
 });

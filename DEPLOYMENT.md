@@ -27,11 +27,11 @@ PORT=8080  # Auto-set by DigitalOcean
 - **Health check**: `GET /api/health`
 - **Static IP**: Reserved IP for EPX whitelisting
 
-## Vercel (Frontend)
+## DigitalOcean App Platform (Frontend)
 
 ### Initial Setup
-1. Import `client` directory as root
-2. Framework preset: Vite
+1. Add a static site component from the same GitHub repository
+2. Set the source directory to `client`
 3. Build command: `npm run build`
 4. Output directory: `dist`
 
@@ -43,7 +43,6 @@ VITE_SUPABASE_ANON_KEY=...
 
 ### Deployment
 - **Auto-deploy**: Push to `main` branch
-- **Deploy time**: ~2 minutes
 - **Custom domain**: enrollment.getmydpc.com
 
 ## Supabase
@@ -56,7 +55,7 @@ VITE_SUPABASE_ANON_KEY=...
 ### Auth Configuration
 1. Enable Email auth provider
 2. Configure email templates
-3. Set site URL to Vercel domain
+3. Set site URL to the DigitalOcean frontend domain
 
 ## CORS Configuration
 
@@ -98,19 +97,18 @@ Test enrollment with EPX sandbox test card: 4111 1111 1111 1111
 2. Click on previous successful deployment
 3. Select "Redeploy"
 
-### Vercel
+### DigitalOcean Frontend
 1. Go to Deployments
-2. Click "..." on previous deployment
-3. Select "Promote to Production"
+2. Select the previous successful deployment
+3. Click "Redeploy"
 
 ## Monitoring
 
 - **DigitalOcean Logs**: Real-time backend logs and metrics
-- **Vercel Analytics**: Frontend performance
+- **DigitalOcean Insights**: Frontend and backend performance
 - **Supabase Dashboard**: Database queries and auth
 
 ## Emergency Contacts
 
 - **DigitalOcean Support**: https://www.digitalocean.com/support
-- **Vercel Support**: https://vercel.com/support
 - **EPX Support**: Contact your EPX account manager

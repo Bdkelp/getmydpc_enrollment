@@ -8489,7 +8489,6 @@ export async function registerRoutes(app: any) {
       console.log("[Family Enrollment] Request received:", {
         memberCount: members?.length,
         providedPrimaryMemberId: primaryMemberId,
-        hasSessionStorage: !!req.session,
       });
 
       if (!members || !Array.isArray(members) || members.length === 0) {
@@ -8499,13 +8498,7 @@ export async function registerRoutes(app: any) {
         });
       }
 
-      // Try to get primary member ID from request body first, then from session
       let resolvedPrimaryMemberId = primaryMemberId;
-
-      // If not in body, try to get from most recently created member in session
-      if (!resolvedPrimaryMemberId && req.session?.memberId) {
-        resolvedPrimaryMemberId = req.session.memberId;
-      }
 
       // Last resort: query for most recent member by email if available
       if (!resolvedPrimaryMemberId && members[0]?.email) {
