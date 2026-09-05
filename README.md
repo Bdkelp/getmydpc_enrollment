@@ -1070,8 +1070,7 @@ getmydpc_enrollment/
 │   │   ├── commission-service.ts          # Commission calculation engine
 │   │   └── email.ts              # SendGrid email notifications
 │   ├── auth/                      # Authentication & authorization
-│   │   ├── supabaseAuth.ts       # JWT verification middleware (authenticateToken)
-│   │   └── authService.ts        # Auth helper functions
+│   │   └── supabaseAuth.ts       # JWT verification middleware (authenticateToken)
 │   ├── lib/                       # Database connections
 │   │   ├── supabaseClient.ts     # Supabase client initialization
 │   │   └── neonDb.ts             # PostgreSQL connection (connects to Supabase)

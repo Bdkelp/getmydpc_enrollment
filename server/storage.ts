@@ -1846,102 +1846,6 @@ export async function updateUserProfile(
   return updateUser(id, profileData, options);
 }
 
-export async function getUserByUsername(
-  username: string,
-): Promise<User | null> {
-  try {
-    const result = await query("SELECT * FROM users WHERE username = $1", [
-      username,
-    ]);
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
-  } catch (error: any) {
-    console.error("Error fetching user by username:", error);
-    return null;
-  }
-}
-
-export async function getUserByGoogleId(
-  googleId: string,
-): Promise<User | null> {
-  try {
-    const result = await query("SELECT * FROM users WHERE google_id = $1", [
-      googleId,
-    ]);
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
-  } catch (error: any) {
-    console.error("Error fetching user by Google ID:", error);
-    return null;
-  }
-}
-
-export async function getUserByFacebookId(
-  facebookId: string,
-): Promise<User | null> {
-  try {
-    const result = await query("SELECT * FROM users WHERE facebook_id = $1", [
-      facebookId,
-    ]);
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
-  } catch (error: any) {
-    console.error("Error fetching user by Facebook ID:", error);
-    return null;
-  }
-}
-
-export async function getUserByTwitterId(
-  twitterId: string,
-): Promise<User | null> {
-  try {
-    const result = await query("SELECT * FROM users WHERE twitter_id = $1", [
-      twitterId,
-    ]);
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
-  } catch (error: any) {
-    console.error("Error fetching user by Twitter ID:", error);
-    return null;
-  }
-}
-
-export async function getUserByVerificationToken(
-  token: string,
-): Promise<User | null> {
-  try {
-    const result = await query(
-      "SELECT * FROM users WHERE email_verification_token = $1",
-      [token],
-    );
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
-  } catch (error: any) {
-    console.error("Error fetching user by verification token:", error);
-    return null;
-  }
-}
-
-export async function getUserByResetToken(token: string): Promise<User | null> {
-  try {
-    const result = await query(
-      "SELECT * FROM users WHERE reset_password_token = $1",
-      [token],
-    );
-
-    if (result.rows.length === 0) return null;
-    return mapUserFromDB(result.rows[0]);
-  } catch (error: any) {
-    console.error("Error fetching user by reset token:", error);
-    return null;
-  }
-}
-
 export async function getUserByAgentNumber(
   agentNumber: string,
 ): Promise<User | null> {
@@ -10183,12 +10087,6 @@ export const storage = {
   updateAgentHierarchy,
   updateUser,
   getUserByEmail,
-  getUserByUsername,
-  getUserByGoogleId,
-  getUserByFacebookId,
-  getUserByTwitterId,
-  getUserByVerificationToken,
-  getUserByResetToken,
   getUserByAgentNumber,
   isAgentNumberUsedByActiveAgent,
   upsertUser,
