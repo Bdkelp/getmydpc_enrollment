@@ -84,6 +84,9 @@ jobs:
     - name: Payment credential policy
       run: npm run test:payment-credential
 
+    - name: Billing operations view safety
+      run: npx tsx scripts/test-billing-operations-view.ts
+
     - name: Staging billing safety
       run: npm run test:staging-billing-safety
       env:
