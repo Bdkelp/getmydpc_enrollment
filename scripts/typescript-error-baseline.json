@@ -22,7 +22,6 @@
     "client/src/pages/payment.tsx": 4,
     "client/src/pages/profile.tsx": 2,
     "client/src/pages/register.tsx": 1,
-    "server/auth/authService.ts": 5,
     "server/middleware/permissions.ts": 1,
     "server/routes/admin-logs.ts": 2,
     "server/routes/dev-utilities.ts": 2,
