@@ -1056,7 +1056,6 @@ getmydpc_enrollment/
 │   │   │                         # POST /api/epx/hosted/create-payment
 │   │   │                         # POST /api/epx/hosted/callback
 │   │   │                         # GET  /api/epx/logs/recent
-│   │   ├── admin-database.ts     # 👨‍💼 Admin data management endpoints
 │   │   ├── admin-logs.ts         # 📊 Admin logging and audit trails
 │   │   ├── supabase-auth.ts      # 🔐 Authentication routes
 │   │   │                         # POST /api/auth/login
@@ -1066,9 +1065,7 @@ getmydpc_enrollment/
 │   │   └── dev-utilities.ts      # 🛠️ Development helper endpoints
 │   ├── services/                  # Business logic layer
 │   │   ├── epx-hosted-checkout-service.ts  # EPX payment integration
-│   │   ├── epx-payment-logger.ts          # 📝 Structured JSONL logging
-│   │   ├── commission-service.ts          # Commission calculation engine
-│   │   └── email.ts              # SendGrid email notifications
+│   │   └── epx-payment-logger.ts          # 📝 Structured JSONL logging
 │   ├── auth/                      # Authentication & authorization
 │   │   └── supabaseAuth.ts       # JWT verification middleware (authenticateToken)
 │   ├── lib/                       # Database connections
@@ -1082,9 +1079,8 @@ getmydpc_enrollment/
 │   ├── routes.ts                  # 🛣️ Main API route aggregator
 │   ├── storage.ts                 # 🗄️ Database query functions (USE THIS, NOT Drizzle!)
 │   ├── commissionCalculator.ts   # 💰 Commission rates and calculations
-│   ├── db.ts                      # Drizzle ORM connection (schema only)
-│   ├── vite.ts                    # Vite dev server integration
-│   └── package.json              # Backend dependencies
+│   ├── email.ts                   # SendGrid email notifications
+│   └── vite.ts                    # Vite dev server integration
 │
 ├── shared/                         # Shared TypeScript types (used by both client/server)
 │   ├── schema.ts                  # Drizzle ORM schema definitions
@@ -1093,9 +1089,6 @@ getmydpc_enrollment/
 ├── logs/                           # Application logs (gitignored)
 │   └── epx/                       # EPX payment logs (JSONL format)
 │       └── epx-2025-11-25.jsonl  # Daily rotating log files
-│
-├── migrations/                     # Drizzle database migrations (SQL)
-│   └── 0000_initial_schema.sql
 │
 ├── .github/                        # GitHub configuration
 │   └── copilot-instructions.md   # AI coding agent instructions
@@ -1173,9 +1166,7 @@ getmydpc_enrollment/
 1. **Calculator**: `server/commissionCalculator.ts`
    - `calculateCommission(planName, memberType, isFamily)`
    - Returns commission amount based on plan type
-2. **Service**: `server/services/commission-service.ts`
-   - Commission payout processing
-   - 14-day grace period logic
+2. **Storage**: `server/storage.ts` handles commission persistence and reporting queries.
 3. **Database**: `agent_commissions` table
    - Fields: agent_id, member_id, amount, status, payout_date
 4. **Tracking**: `server/storage.ts`
