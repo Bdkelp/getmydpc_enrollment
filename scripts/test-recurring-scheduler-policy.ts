@@ -75,6 +75,15 @@ const paymentDiagnosticSource = fs.readFileSync(
   path.join(repositoryRoot, "server", "routes", "payment-diagnostic.ts"),
   "utf8",
 );
+const durableBillingSource = fs.readFileSync(
+  path.join(
+    repositoryRoot,
+    "server",
+    "services",
+    "durable-recurring-billing-service.ts",
+  ),
+  "utf8",
+);
 const legacyConverterSource = fs.readFileSync(
   path.join(repositoryRoot, "scripts", "convert-legacy-payment-tokens.ts"),
   "utf8",
@@ -150,8 +159,18 @@ assert.match(
 );
 assert.doesNotMatch(
   paymentDiagnosticSource,
-  /controlledRetrySubscriptionIds|confirmedNoExternalCapture/,
-  "ambiguous processor outcomes must not have a legacy resubmission bypass",
+  /confirmedNoExternalCapture/,
+  "ambiguous processor outcomes must not have the legacy confirmed-absent resubmission bypass",
+);
+assert.match(
+  paymentDiagnosticSource,
+  /controlledRetrySubscriptionIds = parseSubscriptionIds\([\s\S]*runDurableRecurringBilling/,
+  "controlled retries may only enter billing through the durable targeted-run path",
+);
+assert.match(
+  durableBillingSource,
+  /Controlled retries must be included in an explicit targeted subscription run/,
+  "durable billing must reject controlled retries that are not contained in an explicit target set",
 );
 assert.match(
   schedulerSource,
