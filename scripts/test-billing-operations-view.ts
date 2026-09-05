@@ -34,8 +34,12 @@ assert.match(page, /Billing command center/);
 assert.match(page, /\/api\/admin\/billing-operations/);
 assert.match(page, /Due subscription snapshot/);
 assert.match(page, /Billing cycles requiring attention/);
+assert.match(page, /Open billing notifications/);
 assert.match(page, /Recent scheduled runs/);
+assert.match(page, /These counts are not expected to match/);
 assert.match(page, /does not submit or retry processor charges/);
+assert.doesNotMatch(page, /\/api\/admin\/financial-exceptions/);
+assert.doesNotMatch(page, /Financial exceptions/);
 assert.doesNotMatch(page, /operator-workflow/);
 assert.doesNotMatch(page, /run-once/);
 
