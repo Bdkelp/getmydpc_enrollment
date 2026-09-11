@@ -120,15 +120,20 @@ BEGIN
   IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
   SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'recurring-billing-health-every-ten-minutes';
   IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
+  SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'recurring-billing-daily';
+  IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
+  SELECT jobid INTO existing_job FROM cron.job WHERE jobname = 'recurring-billing-health-daily';
+  IF existing_job IS NOT NULL THEN PERFORM cron.unschedule(existing_job); END IF;
 
+  -- pg_cron schedules are UTC. 07:00 UTC is 02:00 Central during daylight time.
   PERFORM cron.schedule(
-    'recurring-billing-every-five-minutes',
-    '*/5 * * * *',
+    'recurring-billing-daily',
+    '0 7 * * *',
     'SELECT public.invoke_external_recurring_billing()'
   );
   PERFORM cron.schedule(
-    'recurring-billing-health-every-ten-minutes',
-    '*/10 * * * *',
+    'recurring-billing-health-daily',
+    '15 7 * * *',
     'SELECT public.check_external_recurring_billing_health()'
   );
 END;
