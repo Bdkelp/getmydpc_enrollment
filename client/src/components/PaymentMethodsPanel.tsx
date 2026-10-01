@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Landmark, Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
+import { CreditCard, KeyRound, Landmark, Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 import EPXHostedPayment from "@/components/EPXHostedPayment";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +40,23 @@ interface PaymentMethod {
   is_primary: boolean;
   created_at: string;
   last_used_at?: string | null;
+  credential_usable?: boolean;
+}
+
+// apiRequest errors look like "HTTP 409: <statusText or response body>".
+function describeRestoreError(message: string): string {
+  const body = message.replace(/^HTTP \d+:\s*/, "");
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.error) return String(parsed.error);
+  } catch {
+    // Not a JSON body.
+  }
+  if (message.startsWith("HTTP 409")) {
+    return "Restore refused: the member is cancelled or already has an active payment method, the credential is already usable, billing has a different reference, or this North Tran ID / BRIC is recorded elsewhere.";
+  }
+  if (message.startsWith("HTTP 400")) return "Check the North Tran ID / BRIC and payment method type.";
+  return message;
 }
 
 interface PaymentMethodsPanelProps {
@@ -68,11 +87,16 @@ export function PaymentMethodsPanel({
   const [checkoutMethodType, setCheckoutMethodType] = useState<"CreditCard" | "ACH" | null>(null);
   const [replaceTokenId, setReplaceTokenId] = useState<number | null>(null);
   const [removeMethod, setRemoveMethod] = useState<PaymentMethod | null>(null);
+  // An existing default method to restore, or "new" to create one for a member with none.
+  const [restoreTarget, setRestoreTarget] = useState<PaymentMethod | "new" | null>(null);
+  const [createMethodType, setCreateMethodType] = useState<"CreditCard" | "ACH" | null>(null);
+  const [northTranId, setNorthTranId] = useState("");
   const queryKey = ["member-payment-methods", memberId];
 
   const { data, isLoading, error } = useQuery<{
     success: boolean;
     paymentMethods: PaymentMethod[];
+    canRestoreCredential?: boolean;
     member?: {
       name: string;
       email: string;
@@ -120,6 +144,32 @@ export function PaymentMethodsPanel({
     },
     onError: (mutationError: Error) =>
       toast({ title: "Unable to remove payment method", description: mutationError.message, variant: "destructive" }),
+  });
+
+  const closeRestore = () => {
+    setRestoreTarget(null);
+    setCreateMethodType(null);
+    setNorthTranId("");
+  };
+
+  const restoreCredential = useMutation({
+    mutationFn: (target: PaymentMethod | "new") =>
+      target === "new"
+        ? apiRequest(`/api/admin/members/${memberId}/payment-methods/restore-credential`, {
+            method: "POST",
+            body: JSON.stringify({ northTranId: northTranId.trim(), paymentMethodType: createMethodType }),
+          })
+        : apiRequest(`/api/admin/members/${memberId}/payment-methods/${target.id}/restore-credential`, {
+            method: "POST",
+            body: JSON.stringify({ northTranId: northTranId.trim() }),
+          }),
+    onSuccess: async () => {
+      closeRestore();
+      await refresh();
+      toast({ title: "North Tran ID / BRIC restored", description: "No charge was submitted." });
+    },
+    onError: (mutationError: Error) =>
+      toast({ title: "Unable to restore North Tran ID / BRIC", description: describeRestoreError(mutationError.message), variant: "destructive" }),
   });
 
   const openCheckout = (action: PaymentMethodAction, tokenId?: number) => {
@@ -204,6 +254,11 @@ export function PaymentMethodsPanel({
                     <Star className="mr-2 h-4 w-4" /> Make Default
                   </Button>
                 )}
+                {data?.canRestoreCredential && method.is_active && method.is_primary && method.credential_usable === false && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setRestoreTarget(method)}>
+                    <KeyRound className="mr-2 h-4 w-4" /> Restore North Tran ID / BRIC
+                  </Button>
+                )}
                 {method.is_active && (
                   <>
                     <Button type="button" variant="outline" size="sm" onClick={() => openCheckout("replace", method.id)}>
@@ -217,6 +272,14 @@ export function PaymentMethodsPanel({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {data?.canRestoreCredential && !isLoading && !error && !methods.some((method) => method.is_active) && (
+        <div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setRestoreTarget("new")}>
+            <KeyRound className="mr-2 h-4 w-4" /> Add from North Tran ID / BRIC
+          </Button>
         </div>
       )}
 
@@ -275,6 +338,75 @@ export function PaymentMethodsPanel({
               onError={(message) => toast({ title: "EPX checkout error", description: message, variant: "destructive" })}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={restoreTarget !== null} onOpenChange={(open) => !open && closeRestore()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {restoreTarget === "new" ? "Add from North Tran ID / BRIC" : "Restore North Tran ID / BRIC"}
+            </DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!restoreTarget || !northTranId.trim()) return;
+              if (restoreTarget === "new" && !createMethodType) return;
+              restoreCredential.mutate(restoreTarget);
+            }}
+          >
+            <p className="text-sm text-gray-600">
+              {restoreTarget === "new"
+                ? "Creates the member's default payment method from the North Tran ID / BRIC in the North portal. No charge is submitted."
+                : "Replaces the unusable stored credential on the default payment method with the North Tran ID / BRIC from the North portal. No charge is submitted."}
+            </p>
+            {restoreTarget === "new" && (
+              <div className="space-y-2">
+                <Label>Payment method type</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant={createMethodType === "CreditCard" ? "default" : "outline"}
+                    onClick={() => setCreateMethodType("CreditCard")}
+                    aria-pressed={createMethodType === "CreditCard"}
+                  >
+                    <CreditCard className="mr-2 h-4 w-4" /> Card
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={createMethodType === "ACH" ? "default" : "outline"}
+                    onClick={() => setCreateMethodType("ACH")}
+                    aria-pressed={createMethodType === "ACH"}
+                  >
+                    <Landmark className="mr-2 h-4 w-4" /> Bank account (ACH)
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="north-tran-id">North Tran ID / BRIC</Label>
+              <Input
+                id="north-tran-id"
+                value={northTranId}
+                onChange={(event) => setNorthTranId(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={closeRestore}>Cancel</Button>
+              <Button
+                type="submit"
+                disabled={!northTranId.trim() || (restoreTarget === "new" && !createMethodType) || restoreCredential.isPending}
+              >
+                {restoreCredential.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save North Tran ID / BRIC
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

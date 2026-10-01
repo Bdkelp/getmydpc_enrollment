@@ -1,8 +1,15 @@
 import { query, transaction } from "../lib/neonDb";
 import { storage } from "../storage";
 import { isAtLeastAdmin } from "../auth/roles";
-import { requireCanonicalPaymentCredential } from "./payment-credential";
+import {
+  requireCanonicalPaymentCredential,
+  resolveCanonicalPaymentCredential,
+} from "./payment-credential";
 import { calculateNextBillingCycleDate } from "../utils/membership-dates";
+import {
+  createPaymentTokenFromNorthTranIdWithClient,
+  restorePaymentCredentialWithClient,
+} from "./payment-credential-restore";
 
 export type PaymentMethodAction = "add" | "replace" | "pay_now";
 
@@ -94,7 +101,53 @@ export async function listMemberPaymentMethods(memberId: number) {
      ORDER BY is_active DESC, is_primary DESC, created_at DESC, id DESC`,
     [memberId],
   );
-  return result.rows;
+  return result.rows.map((row: any) => ({
+    ...row,
+    credential_usable:
+      !resolveCanonicalPaymentCredential(row.auth_guid).error ||
+      !resolveCanonicalPaymentCredential(row.bric_reference).error,
+  }));
+}
+
+type RestoredCredentialResult = {
+  paymentTokenId: number;
+  restoredReference: string;
+  created: boolean;
+};
+
+/**
+ * Super-admin restore of a member's BRIC from the North portal Tran ID.
+ * Logic lives in payment-credential-restore.ts; these run it in one
+ * transaction with the shared payment-method audit writer. No charge.
+ */
+export async function restorePaymentCredentialFromNorthTranId(input: {
+  memberId: number;
+  paymentTokenId: number;
+  northTranId: unknown;
+  actor: PaymentMethodActor;
+}): Promise<RestoredCredentialResult> {
+  let result!: RestoredCredentialResult;
+  await transaction(async (client) => {
+    result = await restorePaymentCredentialWithClient(client, input, insertAudit);
+  });
+  return result;
+}
+
+export async function createPaymentTokenFromNorthTranId(input: {
+  memberId: number;
+  paymentMethodType: unknown;
+  northTranId: unknown;
+  actor: PaymentMethodActor;
+}): Promise<RestoredCredentialResult> {
+  let result!: RestoredCredentialResult;
+  await transaction(async (client) => {
+    result = await createPaymentTokenFromNorthTranIdWithClient(
+      client,
+      input,
+      insertAudit,
+    );
+  });
+  return result;
 }
 
 async function insertAudit(
