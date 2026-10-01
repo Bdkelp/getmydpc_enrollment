@@ -11,6 +11,7 @@ import {
 import { paymentEnvironment } from "../services/payment-environment-service";
 import {
   canManageMemberPaymentMethods,
+  getManageableSubscriptionStatuses,
   type PaymentMethodAction,
 } from "../services/member-payment-method-service";
 import { storage } from "../storage";
@@ -160,17 +161,20 @@ router.post(
       const subscriptionResult = await query(
         `SELECT id, amount
          FROM subscriptions
-         WHERE member_id = $1 AND status = 'active'
-         ORDER BY id DESC
+         WHERE member_id = $1 AND status = ANY($2::text[])
+         ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, id DESC
          LIMIT 1`,
-        [memberId],
+        [memberId, getManageableSubscriptionStatuses(action)],
       );
       const subscription = subscriptionResult.rows[0];
 
       if (!member || !subscription) {
         return res.status(404).json({
           success: false,
-          error: "Active member subscription not found",
+          error:
+            action === "pay_now"
+              ? "Active member subscription not found"
+              : "Member subscription not found",
         });
       }
 

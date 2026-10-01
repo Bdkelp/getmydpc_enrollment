@@ -43,6 +43,22 @@ export interface ActivatedPaymentMethodResult {
   alreadyCompleted: boolean;
 }
 
+// Card Add/Replace only stores a credential, so agents may run it for members
+// who are still pending payment or were suspended by recurring billing. Pay Now
+// moves the billing cycle and stays limited to active subscriptions.
+const credentialOnlySubscriptionStatuses = [
+  "active",
+  "pending",
+  "pending_payment",
+  "suspended",
+];
+
+export function getManageableSubscriptionStatuses(
+  action: PaymentMethodAction,
+): string[] {
+  return action === "pay_now" ? ["active"] : credentialOnlySubscriptionStatuses;
+}
+
 const successfulStatuses = new Set([
   "success",
   "succeeded",
@@ -305,10 +321,14 @@ export async function activateHostedPaymentMethod(
     const subscription = subscriptionResult.rows[0];
     if (
       !subscription ||
-      String(subscription.status).toLowerCase() !== "active"
+      !getManageableSubscriptionStatuses(input.action).includes(
+        String(subscription.status).toLowerCase(),
+      )
     ) {
       throw new Error(
-        "Payment method activation requires an active subscription",
+        input.action === "pay_now"
+          ? "Payment method activation requires an active subscription"
+          : "Payment method activation requires a non-cancelled subscription",
       );
     }
     if (
