@@ -115,13 +115,14 @@ Use this when a due subscription is skipped with `missing_or_invalid_processor_r
 The restore is refused when:
 
 - the value is malformed (400);
+- the member is cancelled (409). Cancelled accounts are never restored or reactivated through this action;
 - the token isn't the member's active default (404);
 - the stored BRIC is already usable, or billing already has a usable `original_network_trans_id` or payment `AUTH_GUID` for the member, so a restore wouldn't change what is billed (409);
 - the value is already recorded for another member or group, or on another token for this member (409).
 
 Saving submits no charge and doesn't change `original_network_trans_id`, `payments.transaction_id`, `processor_reference`, subscription dates, billing cycles, or payment status.
 
-**A restore makes the subscription billable on the next live run.** If the subscription is active, automatic, and due, the next scheduled live run charges its due cycle once. Check the subscription's `next_billing_date` before restoring. Don't restore while historical missed months are unreconciled unless the historical-cycle hold is deployed.
+**A restore makes the subscription billable on the next live run.** If the subscription is active, automatic, and due, the next scheduled live run charges its due cycle once. Check the subscription's `next_billing_date` before restoring. Confirm the historical-cycle hold (PR #23) is deployed first. Subscriptions with unreconciled historical months then stay held, with no charge, until they are reconciled.
 
 ### Scheduled cancellations
 

@@ -74,9 +74,22 @@ export async function restorePaymentCredentialWithClient(
   }
   const reference = resolution.credential;
 
-  await client.query("SELECT id FROM members WHERE id = $1 FOR UPDATE", [
-    input.memberId,
-  ]);
+  const memberResult = await client.query(
+    "SELECT id, status FROM members WHERE id = $1 FOR UPDATE",
+    [input.memberId],
+  );
+  const member = memberResult.rows[0];
+  if (!member) {
+    throw new PaymentCredentialRestoreError(404, "member_not_found", "Member not found");
+  }
+  // Recovery policy: cancelled accounts are never restored or reactivated here.
+  if (String(member.status || "").toLowerCase() === "cancelled") {
+    throw new PaymentCredentialRestoreError(
+      409,
+      "member_cancelled",
+      "Cancelled members cannot have a North Tran ID / BRIC restored; review the account status first",
+    );
+  }
   const tokenResult = await client.query(
     `SELECT id, bric_token, original_network_trans_id
      FROM payment_tokens

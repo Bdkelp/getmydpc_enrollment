@@ -38,12 +38,18 @@ class FakeDb implements QueryClient {
   constructor(
     public tokens: Token[],
     public payments: Payment[] = [],
+    public memberStatus: string | null = "active",
   ) {}
 
   async query(sql: string, params: any[] = []) {
     this.statements.push(sql);
-    if (/^SELECT id FROM members WHERE id = \$1 FOR UPDATE$/.test(sql)) {
-      return { rows: [] };
+    if (/^SELECT id, status FROM members WHERE id = \$1 FOR UPDATE$/.test(sql)) {
+      return {
+        rows:
+          this.memberStatus === null
+            ? []
+            : [{ id: params[0], status: this.memberStatus }],
+      };
     }
     if (/FROM payment_tokens\s+WHERE id = \$1 AND member_id = \$2 AND is_active = true AND is_primary = true\s+FOR UPDATE/.test(sql)) {
       const [id, memberId] = params;
@@ -251,6 +257,27 @@ async function run() {
     404,
     "default_token_not_found",
   );
+
+  // Cancelled members are never restored (and never reactivated).
+  {
+    const db = new FakeDb([defaultToken()], [], "cancelled");
+    await expectRejected(restore(db, RESTORED_BRIC), 409, "member_cancelled");
+    assert.equal(db.tokens[0].bric_token, LEGACY_CIPHERTEXT);
+    assert.equal(db.memberStatus, "cancelled");
+  }
+  await expectRejected(
+    restore(new FakeDb([defaultToken()], [], null), RESTORED_BRIC),
+    404,
+    "member_not_found",
+  );
+  // Suspended members may be restored; status is not changed and nothing is billed.
+  {
+    const db = new FakeDb([defaultToken()], [], "suspended");
+    await restore(db, RESTORED_BRIC);
+    assert.equal(db.tokens[0].bric_token, RESTORED_BRIC);
+    assert.equal(db.memberStatus, "suspended");
+    assert.ok(!db.statements.some((sql) => /UPDATE members/i.test(sql)), "member status never written");
+  }
 
   // No charge path is reachable from the restore module.
   const moduleSource = fs.readFileSync(
