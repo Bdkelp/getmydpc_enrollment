@@ -42,6 +42,7 @@ npm run check
 npm run test:durable-billing
 npm run test:scheduler
 npm run test:payment-credential
+npm run test:payment-credential-restore
 npm run build
 ```
 
@@ -102,6 +103,25 @@ Only cycles with `failure_classification='confirmed_decline'` and a non-null due
 ### Manual external payments
 
 The Super Admin external-settlement workflow requires method and external reference evidence. It sets the linked subscription to `manual_external`, excluding it from unattended billing until recurring credentials are explicitly reviewed and the mode is deliberately restored to `automatic`.
+
+### Restoring a credential from North Tran ID / BRIC
+
+Use this when a due subscription is skipped with `missing_or_invalid_processor_reference` or `legacy_encrypted_credential_unavailable` and the member's BRIC is available in the North portal (North shows the BRIC as Tran ID). Per `docs/vendor/epx/EPX_CERTIFICATION_REFERENCE.md`, the BRIC alone is the certified recurring credential. `AUTH_CODE`, amount, date, and MID are not required.
+
+1. As a Super Admin, open the member's payment methods (member profile, or the admin manual EPX card with the member ID).
+2. On the default payment method, choose **Restore North Tran ID / BRIC** and enter the value from North. The button appears only when that method's stored credential is unusable.
+3. Save. The server validates the value with the canonical credential resolver and stores it in `payment_tokens.bric_token`. It writes a `payment_credential_restored` audit entry to `enrollment_modifications` with the member, token, operator, time, and a reference masked to its last four characters.
+
+The restore is refused when:
+
+- the value is malformed (400);
+- the token isn't the member's active default (404);
+- the stored BRIC is already usable, or billing already has a usable `original_network_trans_id` or payment `AUTH_GUID` for the member, so a restore wouldn't change what is billed (409);
+- the value is already recorded for another member or group, or on another token for this member (409).
+
+Saving submits no charge and doesn't change `original_network_trans_id`, `payments.transaction_id`, `processor_reference`, subscription dates, billing cycles, or payment status.
+
+**A restore makes the subscription billable on the next live run.** If the subscription is active, automatic, and due, the next scheduled live run charges its due cycle once. Check the subscription's `next_billing_date` before restoring. Don't restore while historical missed months are unreconciled unless the historical-cycle hold is deployed.
 
 ### Scheduled cancellations
 

@@ -1,11 +1,11 @@
 import { Router, type Response } from "express";
 
 import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
-import { hasAtLeastRole } from "../auth/roles";
+import { restorePaymentCredentialFromNorthTranId } from "../services/member-payment-method-service";
 import {
+  canRestorePaymentCredential,
   PaymentCredentialRestoreError,
-  restorePaymentCredentialFromNorthTranId,
-} from "../services/member-payment-method-service";
+} from "../services/payment-credential-restore";
 
 const router = Router();
 
@@ -19,7 +19,7 @@ router.post(
   "/api/admin/members/:memberId/payment-methods/:paymentTokenId/restore-credential",
   authenticateToken,
   async (req: AuthRequest, res: Response) => {
-    if (!req.user || !hasAtLeastRole(req.user.role, "super_admin")) {
+    if (!req.user || !canRestorePaymentCredential(req.user.role)) {
       return res
         .status(403)
         .json({ success: false, error: "Super admin access required" });
@@ -49,7 +49,7 @@ router.post(
           role: req.user.role || null,
         },
       });
-      console.log("[Payment Credential Restore] BRIC restored", {
+      console.log("[Payment Credential Restore] North Tran ID / BRIC restored", {
         memberId,
         paymentTokenId,
         restoredReference: result.restoredReference,

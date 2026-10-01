@@ -158,10 +158,10 @@ export function PaymentMethodsPanel({
     onSuccess: async () => {
       closeRestore();
       await refresh();
-      toast({ title: "BRIC restored", description: "No charge was submitted." });
+      toast({ title: "North Tran ID / BRIC restored", description: "No charge was submitted." });
     },
     onError: (mutationError: Error) =>
-      toast({ title: "Unable to restore BRIC", description: describeRestoreError(mutationError.message), variant: "destructive" }),
+      toast({ title: "Unable to restore North Tran ID / BRIC", description: describeRestoreError(mutationError.message), variant: "destructive" }),
   });
 
   const openCheckout = (action: PaymentMethodAction, tokenId?: number) => {
@@ -248,7 +248,7 @@ export function PaymentMethodsPanel({
                 )}
                 {data?.canRestoreCredential && method.is_active && method.is_primary && method.credential_usable === false && (
                   <Button type="button" variant="outline" size="sm" onClick={() => setRestoreMethod(method)}>
-                    <KeyRound className="mr-2 h-4 w-4" /> Restore BRIC
+                    <KeyRound className="mr-2 h-4 w-4" /> Restore North Tran ID / BRIC
                   </Button>
                 )}
                 {method.is_active && (
@@ -328,7 +328,7 @@ export function PaymentMethodsPanel({
       <Dialog open={restoreMethod !== null} onOpenChange={(open) => !open && closeRestore()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Restore BRIC from North Tran ID</DialogTitle>
+            <DialogTitle>Restore North Tran ID / BRIC</DialogTitle>
           </DialogHeader>
           <form
             className="space-y-4"
@@ -338,7 +338,7 @@ export function PaymentMethodsPanel({
             }}
           >
             <p className="text-sm text-gray-600">
-              Replaces the unusable stored credential on the default payment method with the BRIC shown as Tran ID in the North portal. No charge is submitted.
+              Replaces the unusable stored credential on the default payment method with the North Tran ID / BRIC from the North portal. No charge is submitted.
             </p>
             <div className="space-y-2">
               <Label htmlFor="north-tran-id">North Tran ID / BRIC</Label>
@@ -355,7 +355,7 @@ export function PaymentMethodsPanel({
               <Button type="button" variant="ghost" onClick={closeRestore}>Cancel</Button>
               <Button type="submit" disabled={!northTranId.trim() || restoreCredential.isPending}>
                 {restoreCredential.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Restore BRIC
+                Save North Tran ID / BRIC
               </Button>
             </DialogFooter>
           </form>
