@@ -114,6 +114,39 @@ assert.doesNotMatch(
   "managed ACH activation must not persist raw account or routing numbers",
 );
 
+const managedCheckout = read("server/routes/member-payment-method-checkout.ts");
+const serverIndex = read("server/index.ts");
+assert.ok(
+  serverIndex.indexOf('app.use("/", memberPaymentMethodCheckoutRoutes)') >= 0 &&
+    serverIndex.indexOf('app.use("/", memberPaymentMethodCheckoutRoutes)') <
+      serverIndex.indexOf('app.use("/", epxHostedRoutes)'),
+  "managed payment-method checkout must stay mounted before the enrollment EPX router",
+);
+assert.match(
+  managedCheckout,
+  /status = ANY\(\$2::text\[\]\)[\s\S]*getManageableSubscriptionStatuses\(action\)/,
+  "Add/Replace must not 404 for pending_payment or suspended members",
+);
+assert.doesNotMatch(managedCheckout, /status = 'active'\s*\n\s*ORDER BY id DESC/);
+assert.match(
+  service,
+  /getManageableSubscriptionStatuses\(input\.action\)\.includes/,
+  "activation must accept the same subscription statuses as checkout",
+);
+assert.match(
+  service,
+  /return action === "pay_now" \? \["active"\] : credentialOnlySubscriptionStatuses;/,
+  "Pay Now must stay limited to active subscriptions",
+);
+const credentialOnlyStatuses = service.slice(
+  service.indexOf("const credentialOnlySubscriptionStatuses"),
+  service.indexOf("export function getManageableSubscriptionStatuses"),
+);
+for (const status of ["active", "pending_payment", "suspended"]) {
+  assert.match(credentialOnlyStatuses, new RegExp(`"${status}"`));
+}
+assert.doesNotMatch(credentialOnlyStatuses, /cancelled/);
+
 assert.match(storage, /AND pt\.is_active = true\s+AND pt\.is_primary = true/);
 assert.match(
   migration,
