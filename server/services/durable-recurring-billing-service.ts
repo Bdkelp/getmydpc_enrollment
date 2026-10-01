@@ -12,6 +12,7 @@ import {
   formatPostgresDateOnly,
 } from "../utils/membership-dates";
 import { processConfirmedPayment } from "./payment-confirmed-service";
+import { evaluateRecurringCycleEligibility } from "./recurring-billing-cycle-policy";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import {
   processClaimedBillingCycle,
@@ -87,6 +88,16 @@ export function deterministicProcessorReference(
   cycleDate: string,
 ): string {
   return `RECUR-${subscriptionId}-${cycleDate.replace(/-/g, "")}`;
+}
+
+// Same anchor rule finalizeProcessorSuccess uses to set next_billing_date.
+function resolveAnchorDay(
+  anchorSource: string | Date | null | undefined,
+  cycleDate: string,
+): number {
+  return anchorSource
+    ? Number(getBillingBusinessDate(new Date(anchorSource)).slice(-2))
+    : Number(cycleDate.slice(-2));
 }
 
 function resolveCredential(subscription: BillableSubscription): {
@@ -411,12 +422,38 @@ export async function runDurableRecurringBilling(options: {
     controlledRetrySubscriptionIds,
     subscriptionIds,
   });
+  const anchorRows =
+    due.length > 0
+      ? await query(
+          `SELECT id, first_payment_date, enrollment_date
+           FROM public.members WHERE id = ANY($1::int[])`,
+          [Array.from(new Set(due.map((subscription) => subscription.memberId)))],
+        )
+      : { rows: [] as any[] };
+  const anchorByMemberId = new Map<number, string | Date | null>(
+    anchorRows.rows.map((row: any) => [
+      Number(row.id),
+      row.first_payment_date || row.enrollment_date || null,
+    ]),
+  );
   const candidates = due.map((subscription) => {
-    const credential = resolveCredential(subscription);
+    // Historical missed cycles are held for reconciliation, never charged.
+    const eligibility = evaluateRecurringCycleEligibility({
+      cycleDate: subscription.nextBillingDate,
+      anchorDay: resolveAnchorDay(
+        anchorByMemberId.get(subscription.memberId),
+        subscription.nextBillingDate,
+      ),
+      businessDate,
+    });
+    const credential = eligibility.eligible
+      ? resolveCredential(subscription)
+      : { credential: null, source: null, error: eligibility.reason };
     return {
       subscription,
       credential,
       cycleDate: subscription.nextBillingDate,
+      eligibility,
     };
   });
   for (const candidate of candidates) {
@@ -437,6 +474,15 @@ export async function runDurableRecurringBilling(options: {
             paymentMethodType: candidate.subscription.paymentMethodType,
             triggerSource: options.triggerSource,
             dryRun,
+            ...(candidate.eligibility.eligible
+              ? {}
+              : {
+                  requiresAttention: true,
+                  missedCycleDates: candidate.eligibility.missedCycleDates,
+                  currentCycleDate: candidate.eligibility.currentCycleDate,
+                  operatorAction:
+                    "Reconcile historical months (externally settled through North or flagged unpaid) before automatic billing resumes. No charge was submitted.",
+                }),
           },
         });
       } catch (alertError: any) {

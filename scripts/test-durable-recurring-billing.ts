@@ -15,6 +15,10 @@ import {
   calculateNextBillingDate,
   formatPostgresDateOnly,
 } from "../server/utils/membership-dates";
+import {
+  evaluateRecurringCycleEligibility,
+  HISTORICAL_CYCLE_EXCLUSION_REASON,
+} from "../server/services/recurring-billing-cycle-policy";
 
 const root = process.cwd();
 const migration = fs.readFileSync(
@@ -480,6 +484,77 @@ async function run() {
     "submitting",
     "finalized",
   ]);
+
+  // Historical missed-cycle policy: only the current cycle is collectible.
+  assert.deepEqual(
+    evaluateRecurringCycleEligibility({
+      cycleDate: "2026-09-28",
+      anchorDay: 28,
+      businessDate: "2026-10-01",
+    }),
+    { eligible: true },
+    "the current cycle stays in normal automatic billing",
+  );
+  assert.deepEqual(
+    evaluateRecurringCycleEligibility({
+      cycleDate: "2026-10-01",
+      anchorDay: 1,
+      businessDate: "2026-10-01",
+    }),
+    { eligible: true },
+    "a cycle due today is current",
+  );
+  assert.deepEqual(
+    evaluateRecurringCycleEligibility({
+      cycleDate: "2026-06-03",
+      anchorDay: 3,
+      businessDate: "2026-10-01",
+    }),
+    {
+      eligible: false,
+      reason: HISTORICAL_CYCLE_EXCLUSION_REASON,
+      missedCycleDates: ["2026-06-03", "2026-07-03", "2026-08-03", "2026-09-03"],
+      currentCycleDate: "2026-09-03",
+    },
+    "months behind must be held for reconciliation, not charged",
+  );
+  assert.equal(
+    evaluateRecurringCycleEligibility({
+      cycleDate: "2026-09-01",
+      anchorDay: 1,
+      businessDate: "2026-10-01",
+    }).eligible,
+    false,
+    "once the following cycle is due, the older cycle is historical",
+  );
+  assert.equal(
+    evaluateRecurringCycleEligibility({
+      cycleDate: "2027-02-28",
+      anchorDay: 31,
+      businessDate: "2027-03-30",
+    }).eligible,
+    true,
+    "month-end anchors use the anchor day, not the shortened cycle day",
+  );
+  const runSource = service.slice(
+    service.indexOf("export async function runDurableRecurringBilling"),
+  );
+  assert.ok(
+    runSource.indexOf("evaluateRecurringCycleEligibility") >= 0 &&
+      runSource.indexOf("evaluateRecurringCycleEligibility") <
+        runSource.indexOf("INSERT INTO public.recurring_billing_cycles"),
+    "eligibility must be decided before any cycle row is created",
+  );
+  assert.match(
+    runSource,
+    /eligibility\.eligible\s*\?\s*resolveCredential\(subscription\)\s*:\s*\{ credential: null/,
+    "historical cycles must never receive a processor credential",
+  );
+  assert.match(
+    runSource,
+    /if \(!credential\.credential\) continue;/,
+    "cycles without a credential must not be inserted or charged",
+  );
 
   console.log("Durable recurring billing behavioral tests passed.");
 }
