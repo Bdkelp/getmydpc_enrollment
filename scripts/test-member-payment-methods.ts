@@ -159,6 +159,17 @@ assert.match(
 assert.match(restoreRoute, /canRestorePaymentCredential\(req\.user\.role\)/);
 assert.match(panel, /data\?\.canRestoreCredential && method\.is_active && method\.is_primary && method\.credential_usable === false/);
 assert.match(panel, /Restore North Tran ID \/ BRIC/);
+assert.match(
+  panel,
+  /data\?\.canRestoreCredential && !isLoading && !error && !methods\.some\(\(method\) => method\.is_active\)[\s\S]*Add from North Tran ID \/ BRIC/,
+  "create-from-North is offered only to super admins when the member has no active method",
+);
+assert.match(panel, /paymentMethodType: createMethodType/);
+assert.match(
+  service,
+  /createPaymentTokenFromNorthTranId[\s\S]*await transaction\(async \(client\) => \{\s*result = await createPaymentTokenFromNorthTranIdWithClient\(/,
+  "create-from-North must run in a single transaction with the shared audit writer",
+);
 assert.match(panel, /<Label htmlFor="north-tran-id">North Tran ID \/ BRIC<\/Label>/);
 assert.doesNotMatch(panel, /apiClient\.post\([^)]*restore-credential/, "apiClient.post logs payloads; credentials must not be logged");
 

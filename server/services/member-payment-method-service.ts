@@ -6,7 +6,10 @@ import {
   resolveCanonicalPaymentCredential,
 } from "./payment-credential";
 import { calculateNextBillingCycleDate } from "../utils/membership-dates";
-import { restorePaymentCredentialWithClient } from "./payment-credential-restore";
+import {
+  createPaymentTokenFromNorthTranIdWithClient,
+  restorePaymentCredentialWithClient,
+} from "./payment-credential-restore";
 
 export type PaymentMethodAction = "add" | "replace" | "pay_now";
 
@@ -106,9 +109,15 @@ export async function listMemberPaymentMethods(memberId: number) {
   }));
 }
 
+type RestoredCredentialResult = {
+  paymentTokenId: number;
+  restoredReference: string;
+  created: boolean;
+};
+
 /**
- * Super-admin restore of the default token's BRIC from the North portal
- * Tran ID. Logic lives in payment-credential-restore.ts; this runs it in one
+ * Super-admin restore of a member's BRIC from the North portal Tran ID.
+ * Logic lives in payment-credential-restore.ts; these run it in one
  * transaction with the shared payment-method audit writer. No charge.
  */
 export async function restorePaymentCredentialFromNorthTranId(input: {
@@ -116,10 +125,27 @@ export async function restorePaymentCredentialFromNorthTranId(input: {
   paymentTokenId: number;
   northTranId: unknown;
   actor: PaymentMethodActor;
-}): Promise<{ paymentTokenId: number; restoredReference: string }> {
-  let result!: { paymentTokenId: number; restoredReference: string };
+}): Promise<RestoredCredentialResult> {
+  let result!: RestoredCredentialResult;
   await transaction(async (client) => {
     result = await restorePaymentCredentialWithClient(client, input, insertAudit);
+  });
+  return result;
+}
+
+export async function createPaymentTokenFromNorthTranId(input: {
+  memberId: number;
+  paymentMethodType: unknown;
+  northTranId: unknown;
+  actor: PaymentMethodActor;
+}): Promise<RestoredCredentialResult> {
+  let result!: RestoredCredentialResult;
+  await transaction(async (client) => {
+    result = await createPaymentTokenFromNorthTranIdWithClient(
+      client,
+      input,
+      insertAudit,
+    );
   });
   return result;
 }

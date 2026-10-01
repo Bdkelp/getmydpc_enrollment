@@ -53,9 +53,9 @@ function describeRestoreError(message: string): string {
     // Not a JSON body.
   }
   if (message.startsWith("HTTP 409")) {
-    return "Restore refused: the credential is already usable, billing already has another reference, or this BRIC is recorded elsewhere.";
+    return "Restore refused: the member is cancelled or already has an active payment method, the credential is already usable, billing has a different reference, or this North Tran ID / BRIC is recorded elsewhere.";
   }
-  if (message.startsWith("HTTP 400")) return "North Tran ID / BRIC is not a valid processor reference.";
+  if (message.startsWith("HTTP 400")) return "Check the North Tran ID / BRIC and payment method type.";
   return message;
 }
 
@@ -87,7 +87,9 @@ export function PaymentMethodsPanel({
   const [checkoutMethodType, setCheckoutMethodType] = useState<"CreditCard" | "ACH" | null>(null);
   const [replaceTokenId, setReplaceTokenId] = useState<number | null>(null);
   const [removeMethod, setRemoveMethod] = useState<PaymentMethod | null>(null);
-  const [restoreMethod, setRestoreMethod] = useState<PaymentMethod | null>(null);
+  // An existing default method to restore, or "new" to create one for a member with none.
+  const [restoreTarget, setRestoreTarget] = useState<PaymentMethod | "new" | null>(null);
+  const [createMethodType, setCreateMethodType] = useState<"CreditCard" | "ACH" | null>(null);
   const [northTranId, setNorthTranId] = useState("");
   const queryKey = ["member-payment-methods", memberId];
 
@@ -145,16 +147,22 @@ export function PaymentMethodsPanel({
   });
 
   const closeRestore = () => {
-    setRestoreMethod(null);
+    setRestoreTarget(null);
+    setCreateMethodType(null);
     setNorthTranId("");
   };
 
   const restoreCredential = useMutation({
-    mutationFn: (method: PaymentMethod) =>
-      apiRequest(`/api/admin/members/${memberId}/payment-methods/${method.id}/restore-credential`, {
-        method: "POST",
-        body: JSON.stringify({ northTranId: northTranId.trim() }),
-      }),
+    mutationFn: (target: PaymentMethod | "new") =>
+      target === "new"
+        ? apiRequest(`/api/admin/members/${memberId}/payment-methods/restore-credential`, {
+            method: "POST",
+            body: JSON.stringify({ northTranId: northTranId.trim(), paymentMethodType: createMethodType }),
+          })
+        : apiRequest(`/api/admin/members/${memberId}/payment-methods/${target.id}/restore-credential`, {
+            method: "POST",
+            body: JSON.stringify({ northTranId: northTranId.trim() }),
+          }),
     onSuccess: async () => {
       closeRestore();
       await refresh();
@@ -247,7 +255,7 @@ export function PaymentMethodsPanel({
                   </Button>
                 )}
                 {data?.canRestoreCredential && method.is_active && method.is_primary && method.credential_usable === false && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => setRestoreMethod(method)}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setRestoreTarget(method)}>
                     <KeyRound className="mr-2 h-4 w-4" /> Restore North Tran ID / BRIC
                   </Button>
                 )}
@@ -264,6 +272,14 @@ export function PaymentMethodsPanel({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {data?.canRestoreCredential && !isLoading && !error && !methods.some((method) => method.is_active) && (
+        <div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setRestoreTarget("new")}>
+            <KeyRound className="mr-2 h-4 w-4" /> Add from North Tran ID / BRIC
+          </Button>
         </div>
       )}
 
@@ -325,21 +341,50 @@ export function PaymentMethodsPanel({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={restoreMethod !== null} onOpenChange={(open) => !open && closeRestore()}>
+      <Dialog open={restoreTarget !== null} onOpenChange={(open) => !open && closeRestore()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Restore North Tran ID / BRIC</DialogTitle>
+            <DialogTitle>
+              {restoreTarget === "new" ? "Add from North Tran ID / BRIC" : "Restore North Tran ID / BRIC"}
+            </DialogTitle>
           </DialogHeader>
           <form
             className="space-y-4"
             onSubmit={(event) => {
               event.preventDefault();
-              if (restoreMethod && northTranId.trim()) restoreCredential.mutate(restoreMethod);
+              if (!restoreTarget || !northTranId.trim()) return;
+              if (restoreTarget === "new" && !createMethodType) return;
+              restoreCredential.mutate(restoreTarget);
             }}
           >
             <p className="text-sm text-gray-600">
-              Replaces the unusable stored credential on the default payment method with the North Tran ID / BRIC from the North portal. No charge is submitted.
+              {restoreTarget === "new"
+                ? "Creates the member's default payment method from the North Tran ID / BRIC in the North portal. No charge is submitted."
+                : "Replaces the unusable stored credential on the default payment method with the North Tran ID / BRIC from the North portal. No charge is submitted."}
             </p>
+            {restoreTarget === "new" && (
+              <div className="space-y-2">
+                <Label>Payment method type</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    type="button"
+                    variant={createMethodType === "CreditCard" ? "default" : "outline"}
+                    onClick={() => setCreateMethodType("CreditCard")}
+                    aria-pressed={createMethodType === "CreditCard"}
+                  >
+                    <CreditCard className="mr-2 h-4 w-4" /> Card
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={createMethodType === "ACH" ? "default" : "outline"}
+                    onClick={() => setCreateMethodType("ACH")}
+                    aria-pressed={createMethodType === "ACH"}
+                  >
+                    <Landmark className="mr-2 h-4 w-4" /> Bank account (ACH)
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="north-tran-id">North Tran ID / BRIC</Label>
               <Input
@@ -353,7 +398,10 @@ export function PaymentMethodsPanel({
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={closeRestore}>Cancel</Button>
-              <Button type="submit" disabled={!northTranId.trim() || restoreCredential.isPending}>
+              <Button
+                type="submit"
+                disabled={!northTranId.trim() || (restoreTarget === "new" && !createMethodType) || restoreCredential.isPending}
+              >
                 {restoreCredential.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save North Tran ID / BRIC
               </Button>
