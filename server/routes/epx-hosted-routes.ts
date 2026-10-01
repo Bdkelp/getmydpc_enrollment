@@ -3884,6 +3884,7 @@ router.get(
     return res.json({
       success: true,
       paymentMethods: await listMemberPaymentMethods(memberId),
+      canRestoreCredential: hasAtLeastRole(req.user?.role, "super_admin"),
       member: member
         ? {
             id: memberId,

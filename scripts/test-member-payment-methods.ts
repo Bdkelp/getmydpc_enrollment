@@ -147,6 +147,44 @@ for (const status of ["active", "pending_payment", "suspended"]) {
 }
 assert.doesNotMatch(credentialOnlyStatuses, /cancelled/);
 
+// Super-admin BRIC restoration from North Tran ID.
+const restoreRoute = read("server/routes/payment-credential-restore.ts");
+const restoreService = service.slice(
+  service.indexOf("export async function restorePaymentCredentialFromNorthTranId"),
+);
+assert.ok(
+  restoreRoute.indexOf('hasAtLeastRole(req.user.role, "super_admin")') >= 0 &&
+    restoreRoute.indexOf('hasAtLeastRole(req.user.role, "super_admin")') <
+      restoreRoute.indexOf("restorePaymentCredentialFromNorthTranId({"),
+  "credential restore must be super-admin only and checked before any work",
+);
+assert.match(serverIndex, /app\.use\("\/", paymentCredentialRestoreRoutes\)/);
+assert.match(restoreService, /resolveCanonicalPaymentCredential\(input\.northTranId\)/);
+assert.match(
+  restoreService,
+  /is_active = true AND is_primary = true\s+FOR UPDATE/,
+  "only the active default token can be restored",
+);
+assert.match(restoreService, /credential_already_usable/);
+assert.match(restoreService, /billing_reference_already_present/);
+assert.match(restoreService, /member_id IS DISTINCT FROM \$2/);
+assert.match(restoreService, /cross_member_duplicate/);
+assert.match(
+  restoreService,
+  /UPDATE payment_tokens SET bric_token = \$3\s+WHERE id = \$1 AND member_id = \$2 AND bric_token IS NOT DISTINCT FROM \$4/,
+  "restore must only replace the bric_token it inspected",
+);
+assert.match(restoreService, /changeType: "payment_credential_restored"/);
+assert.match(restoreService, /chargeSubmitted: false/);
+assert.doesNotMatch(
+  restoreService.slice(0, restoreService.indexOf("insertAudit(client")),
+  /transaction_id|processor_reference|next_billing_date|recurring_billing_cycles|UPDATE subscriptions|UPDATE payments|submitServerPost|original_network_trans_id =/,
+  "restore must not touch transaction IDs, processor references, dates, cycles, or submit a charge",
+);
+assert.doesNotMatch(restoreService, /restoredReference: reference\b/, "audit must store a masked reference");
+assert.match(panel, /data\?\.canRestoreCredential && method\.is_active && method\.is_primary && method\.credential_usable === false/);
+assert.doesNotMatch(panel, /apiClient\.post\([^)]*restore-credential/, "apiClient.post logs payloads; credentials must not be logged");
+
 assert.match(storage, /AND pt\.is_active = true\s+AND pt\.is_primary = true/);
 assert.match(
   migration,

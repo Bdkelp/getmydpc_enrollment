@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Landmark, Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
+import { CreditCard, KeyRound, Landmark, Loader2, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 import EPXHostedPayment from "@/components/EPXHostedPayment";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +40,23 @@ interface PaymentMethod {
   is_primary: boolean;
   created_at: string;
   last_used_at?: string | null;
+  credential_usable?: boolean;
+}
+
+// apiRequest errors look like "HTTP 409: <statusText or response body>".
+function describeRestoreError(message: string): string {
+  const body = message.replace(/^HTTP \d+:\s*/, "");
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.error) return String(parsed.error);
+  } catch {
+    // Not a JSON body.
+  }
+  if (message.startsWith("HTTP 409")) {
+    return "Restore refused: the credential is already usable, billing already has another reference, or this BRIC is recorded elsewhere.";
+  }
+  if (message.startsWith("HTTP 400")) return "North Tran ID / BRIC is not a valid processor reference.";
+  return message;
 }
 
 interface PaymentMethodsPanelProps {
@@ -68,11 +87,14 @@ export function PaymentMethodsPanel({
   const [checkoutMethodType, setCheckoutMethodType] = useState<"CreditCard" | "ACH" | null>(null);
   const [replaceTokenId, setReplaceTokenId] = useState<number | null>(null);
   const [removeMethod, setRemoveMethod] = useState<PaymentMethod | null>(null);
+  const [restoreMethod, setRestoreMethod] = useState<PaymentMethod | null>(null);
+  const [northTranId, setNorthTranId] = useState("");
   const queryKey = ["member-payment-methods", memberId];
 
   const { data, isLoading, error } = useQuery<{
     success: boolean;
     paymentMethods: PaymentMethod[];
+    canRestoreCredential?: boolean;
     member?: {
       name: string;
       email: string;
@@ -120,6 +142,26 @@ export function PaymentMethodsPanel({
     },
     onError: (mutationError: Error) =>
       toast({ title: "Unable to remove payment method", description: mutationError.message, variant: "destructive" }),
+  });
+
+  const closeRestore = () => {
+    setRestoreMethod(null);
+    setNorthTranId("");
+  };
+
+  const restoreCredential = useMutation({
+    mutationFn: (method: PaymentMethod) =>
+      apiRequest(`/api/admin/members/${memberId}/payment-methods/${method.id}/restore-credential`, {
+        method: "POST",
+        body: JSON.stringify({ northTranId: northTranId.trim() }),
+      }),
+    onSuccess: async () => {
+      closeRestore();
+      await refresh();
+      toast({ title: "BRIC restored", description: "No charge was submitted." });
+    },
+    onError: (mutationError: Error) =>
+      toast({ title: "Unable to restore BRIC", description: describeRestoreError(mutationError.message), variant: "destructive" }),
   });
 
   const openCheckout = (action: PaymentMethodAction, tokenId?: number) => {
@@ -204,6 +246,11 @@ export function PaymentMethodsPanel({
                     <Star className="mr-2 h-4 w-4" /> Make Default
                   </Button>
                 )}
+                {data?.canRestoreCredential && method.is_active && method.is_primary && method.credential_usable === false && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => setRestoreMethod(method)}>
+                    <KeyRound className="mr-2 h-4 w-4" /> Restore BRIC
+                  </Button>
+                )}
                 {method.is_active && (
                   <>
                     <Button type="button" variant="outline" size="sm" onClick={() => openCheckout("replace", method.id)}>
@@ -275,6 +322,43 @@ export function PaymentMethodsPanel({
               onError={(message) => toast({ title: "EPX checkout error", description: message, variant: "destructive" })}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={restoreMethod !== null} onOpenChange={(open) => !open && closeRestore()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Restore BRIC from North Tran ID</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (restoreMethod && northTranId.trim()) restoreCredential.mutate(restoreMethod);
+            }}
+          >
+            <p className="text-sm text-gray-600">
+              Replaces the unusable stored credential on the default payment method with the BRIC shown as Tran ID in the North portal. No charge is submitted.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="north-tran-id">North Tran ID / BRIC</Label>
+              <Input
+                id="north-tran-id"
+                value={northTranId}
+                onChange={(event) => setNorthTranId(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                className="font-mono"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={closeRestore}>Cancel</Button>
+              <Button type="submit" disabled={!northTranId.trim() || restoreCredential.isPending}>
+                {restoreCredential.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Restore BRIC
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
