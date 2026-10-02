@@ -240,6 +240,11 @@ export function waivedProcessorReference(subscriptionId: number, cycleDate: stri
   return `NORTH-WAIVE-${subscriptionId}-${cycleDate.replace(/-/g, "")}`;
 }
 
+export function maskNorthTranId(value: string | null): string | null {
+  if (!value) return null;
+  return value.length > 4 ? `****${value.slice(-4)}` : "****";
+}
+
 export function recommendedActionForOpenCycle(cycleDate: string): string {
   return cycleDate < COLLECTIBLE_GAP_START
     ? "waive_platform_gap"
@@ -650,7 +655,8 @@ export async function reconcileNorthPaymentWithClient(
     northPaymentDate: input.northPaymentDate,
     externalReference: input.externalReference,
     authorizationCode: input.authorizationCode,
-    northTranId: input.northTranId,
+    // Audit carries a masked reference; the full value lives only in payment metadata.
+    northTranId: maskNorthTranId(input.northTranId),
     holdReleased: result.holdReleased,
   });
   return result;

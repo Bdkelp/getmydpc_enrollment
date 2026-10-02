@@ -124,7 +124,7 @@ Rules:
 - **Idempotent.** Reconciling a month that already has a settled or waived record returns it without new rows or a second advance.
 - **Refusals (no changes made).** The same North evidence already recorded anywhere; a successful platform payment already in that cycle period; a cycle already recorded by billing; a cancelled member or subscription; a payment date in the future or more than a month before the cycle; a cycle not yet due.
 - **Commissions.** After recording, the payment goes through PaymentConfirmedService only if the member is already active, because that service sets member status to active. For other members, commission processing is reported as deferred. If processing fails, reconciling the same month again retries it safely.
-- **Audit.** Every reconciliation, including replays, writes a `billing_cycle_reconciled` entry to `enrollment_modifications`.
+- **Audit.** Every reconciliation, including replays, writes a `billing_cycle_reconciled` entry to `enrollment_modifications`. The North Tran ID / BRIC appears there only masked to its last four characters; the full value is kept in the payment's `metadata.externalSettlement`.
 
 ### Restoring a credential from North Tran ID / BRIC
 

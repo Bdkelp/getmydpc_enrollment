@@ -390,6 +390,8 @@ async function testExternallySettledCycleCreation() {
   assert.equal(fake.audits[0].details.decision, "settled_external");
   assert.equal(fake.audits[0].details.chargeSubmitted, false);
   assert.equal(fake.audits[0].details.nextBillingDate, "2026-10-21");
+  // The full North Tran ID / BRIC stays in payment metadata; the audit is masked.
+  assert.equal(fake.audits[0].details.northTranId, `****${SYNTHETIC_TRAN_ID.slice(-4)}`);
   assertNoForbiddenSql(fake, "settled");
 
   // ACH evidence records an ach payment method.
@@ -428,6 +430,12 @@ async function testDuplicatePrevention() {
   assert.equal(fake.payments.length, 1);
   assert.equal(fake.audits.length, 3, "every reconciliation action is audited");
   assert.equal(fake.audits[2].details.outcome, "already_reconciled");
+  // No audit entry, first write or replay, ever contains the raw North Tran ID / BRIC.
+  for (const audit of fake.audits) {
+    const serialized = JSON.stringify(audit);
+    assert.ok(!serialized.includes(SYNTHETIC_TRAN_ID), "audit JSON must never contain the raw North Tran ID / BRIC");
+    assert.ok(!serialized.includes(SYNTHETIC_TRAN_ID.slice(0, -4)), "audit JSON may carry only the last four characters");
+  }
 
   // The same North evidence cannot settle a second month.
   const twoMonths = db("2026-08-17", 17);
