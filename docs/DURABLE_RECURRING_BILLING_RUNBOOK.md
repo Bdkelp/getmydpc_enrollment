@@ -119,6 +119,7 @@ Always **Preview** first. **Record reconciliation** is enabled only for the exac
 Rules:
 
 - **In order.** Only the cycle at the subscription's `next_billing_date` can be reconciled. If you enter September while August is open, nothing is recorded and the open cycles are listed with the policy action: cycles before August 2026 are platform gaps to waive (collection needs explicit approval later); August 2026 onward can be reconciled, waived, or, for a single missing cycle, collected through the member's **Pay Now & Use for Recurring**.
+- **Billing day.** Durable billing, reconciliation, and Pay Now all keep the subscription's established billing day: the day of `next_billing_date` (then `current_period_start`), with month-end clamping preserved. The original enrollment or first-payment day is used only when there is no established schedule. To move a member's billing day, the schedule itself (`next_billing_date`) must be corrected through an approved data change; later cycles then keep the moved day.
 - **Advancement.** `next_billing_date`, `current_period_start`, and `current_period_end` move past the reconciled cycle and any later cycle already recorded as completed or waived, never past an open month.
 - **Hold release.** When only the current cycle remains, the historical-cycle hold lifts and normal billing charges that one cycle on the next live run.
 - **Idempotent.** Reconciling a month that already has a settled or waived record returns it without new rows or a second advance.

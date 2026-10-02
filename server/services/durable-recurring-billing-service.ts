@@ -14,7 +14,7 @@ import {
 import { processConfirmedPayment } from "./payment-confirmed-service";
 import {
   evaluateRecurringCycleEligibility,
-  resolveBillingAnchorDay,
+  resolveEstablishedBillingAnchorDay,
 } from "./recurring-billing-cycle-policy";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import {
@@ -237,17 +237,23 @@ class PostgresCycleRepository implements DurableCycleRepository {
     cycle: DurableBillingCycle,
     result: ProcessorResult,
   ): Promise<{ paymentId: number }> {
-    const member = await query(
-      `SELECT first_payment_date, enrollment_date
-       FROM public.members WHERE id = $1`,
-      [cycle.memberId],
+    // Preserve the established billing day (cycleDate is the subscription's
+    // scheduled next_billing_date), not the historical first-payment day.
+    const schedule = await query(
+      `SELECT TO_CHAR(s.current_period_start, 'YYYY-MM-DD') AS current_period_start,
+              m.first_payment_date, m.enrollment_date
+       FROM public.subscriptions s
+       JOIN public.members m ON m.id = s.member_id
+       WHERE s.id = $1`,
+      [cycle.subscriptionId],
     );
-    const anchorSource =
-      member.rows[0]?.first_payment_date || member.rows[0]?.enrollment_date;
-    const anchorDate = anchorSource ? new Date(anchorSource) : null;
-    const anchorDay = anchorDate
-      ? Number(getBillingBusinessDate(anchorDate).slice(-2))
-      : Number(cycle.cycleDate.slice(-2));
+    const scheduleRow = schedule.rows[0];
+    const anchorDay = resolveEstablishedBillingAnchorDay({
+      scheduledCycleDate: cycle.cycleDate,
+      currentPeriodStart: scheduleRow?.current_period_start,
+      historicalAnchorSource:
+        scheduleRow?.first_payment_date || scheduleRow?.enrollment_date || null,
+    });
     const nextBillingDate = calculateNextBillingCycleDate(
       cycle.cycleDate,
       anchorDay,
@@ -417,28 +423,32 @@ export async function runDurableRecurringBilling(options: {
     controlledRetrySubscriptionIds,
     subscriptionIds,
   });
-  const anchorRows =
+  const scheduleRows =
     due.length > 0
       ? await query(
-          `SELECT id, first_payment_date, enrollment_date
-           FROM public.members WHERE id = ANY($1::int[])`,
-          [Array.from(new Set(due.map((subscription) => subscription.memberId)))],
+          `SELECT s.id,
+                  TO_CHAR(s.current_period_start, 'YYYY-MM-DD') AS current_period_start,
+                  m.first_payment_date, m.enrollment_date
+           FROM public.subscriptions s
+           JOIN public.members m ON m.id = s.member_id
+           WHERE s.id = ANY($1::int[])`,
+          [Array.from(new Set(due.map((subscription) => subscription.subscriptionId)))],
         )
       : { rows: [] as any[] };
-  const anchorByMemberId = new Map<number, string | Date | null>(
-    anchorRows.rows.map((row: any) => [
-      Number(row.id),
-      row.first_payment_date || row.enrollment_date || null,
-    ]),
+  const scheduleBySubscriptionId = new Map<number, any>(
+    scheduleRows.rows.map((row: any) => [Number(row.id), row]),
   );
   const candidates = due.map((subscription) => {
+    const schedule = scheduleBySubscriptionId.get(subscription.subscriptionId);
     // Historical missed cycles are held for reconciliation, never charged.
     const eligibility = evaluateRecurringCycleEligibility({
       cycleDate: subscription.nextBillingDate,
-      anchorDay: resolveBillingAnchorDay(
-        anchorByMemberId.get(subscription.memberId),
-        subscription.nextBillingDate,
-      ),
+      anchorDay: resolveEstablishedBillingAnchorDay({
+        scheduledCycleDate: subscription.nextBillingDate,
+        currentPeriodStart: schedule?.current_period_start,
+        historicalAnchorSource:
+          schedule?.first_payment_date || schedule?.enrollment_date || null,
+      }),
       businessDate,
     });
     const credential = eligibility.eligible

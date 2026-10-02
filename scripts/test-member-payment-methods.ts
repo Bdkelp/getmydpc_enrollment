@@ -95,6 +95,12 @@ assert.match(service, /"verification_succeeded"/);
 assert.match(service, /state IN \('declined', 'unknown'\)/);
 assert.match(service, /cycle_date = \$4::date/);
 assert.match(service, /next_billing_date = \$3::date/);
+assert.match(
+  service,
+  /resolveEstablishedBillingAnchorDay\(\{\s*scheduledCycleDate: billedCycleDate,\s*currentPeriodStart: subscription\.current_period_start,/,
+  "Pay Now must keep the established billing day, not the historical first payment day",
+);
+assert.doesNotMatch(service, /new Date\(anchorSource\)\.getUTCDate\(\)/);
 assert.match(service, /billing_mode = 'automatic'/);
 assert.match(
   service.slice(

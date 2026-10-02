@@ -90,7 +90,8 @@ class FakeDb implements QueryClient {
       return {
         rows: [{
           id: s.id, member_id: s.member_id, status: s.status, billing_mode: s.billing_mode, amount: s.amount,
-          next_billing_date: s.next_billing_date, member_status: this.member.status, member_is_active: this.member.is_active,
+          next_billing_date: s.next_billing_date, current_period_start: s.current_period_start,
+          member_status: this.member.status, member_is_active: this.member.is_active,
           first_payment_date: this.member.first_payment_date, enrollment_date: this.member.enrollment_date,
         }],
       };
@@ -611,6 +612,60 @@ async function testHistoricalHoldRelease() {
   assert.equal(fake.cycles.length, 3);
 }
 
+async function testEstablishedBillingAnchor() {
+  // Christian Parra shape: enrolled mid-April (naive first_payment_date reads
+  // as the 13th in Chicago), billing later moved. The established day wins.
+  const parraHistory = new Date("2026-04-14T01:14:11.650Z");
+  const moved = db("2026-09-28", 1);
+  moved.member.first_payment_date = parraHistory;
+  moved.subscription.current_period_start = "2026-08-28";
+  const result = await run(moved, settledInput({ cycleMonth: "2026-09", northPaymentDate: "2026-09-04", amount: "119.00" }));
+  assert.equal(result.nextBillingDate, "2026-10-28", "must not snap to the historical 13th");
+  assert.equal(moved.subscription.next_billing_date, "2026-10-28");
+  assert.equal(moved.cycles[0].next_billing_date, "2026-10-28");
+
+  // Once the schedule is moved to the 4th, reconciliation keeps the 4th.
+  const fourth = db("2026-09-04", 1);
+  fourth.member.first_payment_date = parraHistory;
+  fourth.subscription.current_period_start = "2026-08-04";
+  await run(fourth, settledInput({ cycleMonth: "2026-09", northPaymentDate: "2026-09-04", amount: "119.00" }));
+  assert.equal(fourth.subscription.next_billing_date, "2026-10-04");
+
+  // next_billing_date alone establishes the day when no period start exists.
+  const noPeriod = db("2026-09-04", 1);
+  noPeriod.member.first_payment_date = parraHistory;
+  noPeriod.subscription.current_period_start = null;
+  await run(noPeriod, settledInput({ cycleMonth: "2026-09", northPaymentDate: "2026-09-04", amount: "119.00" }));
+  assert.equal(noPeriod.subscription.next_billing_date, "2026-10-04", "next_billing_date is authoritative over history");
+
+  // The open-cycle list follows the established day too.
+  const held = db("2026-07-04", 1);
+  held.member.first_payment_date = parraHistory;
+  held.subscription.current_period_start = "2026-06-04";
+  const surfaced = await expectRejected(
+    run(held, settledInput({ cycleMonth: "2026-09", northPaymentDate: "2026-09-04" })),
+    409,
+    "earlier_cycles_unresolved",
+  );
+  assert.deepEqual(
+    (surfaced.details?.unresolvedCycles as Array<{ cycleDate: string }>).map((cycle) => cycle.cycleDate),
+    ["2026-07-04", "2026-08-04"],
+  );
+
+  // Unchanged day: established and historical agree.
+  const unchanged = db("2026-09-14", 14);
+  unchanged.subscription.current_period_start = "2026-08-14";
+  await run(unchanged, settledInput({ cycleMonth: "2026-09", northPaymentDate: "2026-09-14" }));
+  assert.equal(unchanged.subscription.next_billing_date, "2026-10-14");
+
+  // Month-end clamping: an August 31 anchor clamped to September 30 returns to the 31st.
+  const monthEnd = db("2026-09-30", 1);
+  monthEnd.member.first_payment_date = null;
+  monthEnd.subscription.current_period_start = "2026-08-31";
+  await run(monthEnd, settledInput({ cycleMonth: "2026-09", northPaymentDate: "2026-09-30" }));
+  assert.equal(monthEnd.subscription.next_billing_date, "2026-10-31");
+}
+
 async function testNoChargeAndStatusSideEffects() {
   // Cancelled members and subscriptions are not reconciled or reactivated.
   const cancelled = db("2026-09-21", 21, { memberStatus: "cancelled" });
@@ -658,6 +713,7 @@ async function main() {
   await testDuplicatePrevention();
   await testDateAdvancement();
   await testHistoricalHoldRelease();
+  await testEstablishedBillingAnchor();
   await testNoChargeAndStatusSideEffects();
   console.log("North payment reconciliation tests passed");
 }
