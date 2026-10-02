@@ -3,6 +3,29 @@ import { calculateNextBillingCycleDate } from "../utils/membership-dates";
 export const HISTORICAL_CYCLE_EXCLUSION_REASON =
   "historical_cycle_requires_reconciliation";
 
+const BILLING_TIMEZONE = "America/Chicago";
+
+export function formatBillingBusinessDate(now: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BILLING_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+// Day of month that recurring cycles anchor to: the member's first payment
+// (or enrollment) date in the billing timezone, else the cycle date's day.
+// Same rule finalizeProcessorSuccess uses to set next_billing_date.
+export function resolveBillingAnchorDay(
+  anchorSource: string | Date | null | undefined,
+  cycleDate: string,
+): number {
+  return anchorSource
+    ? Number(formatBillingBusinessDate(new Date(anchorSource)).slice(-2))
+    : Number(cycleDate.slice(-2));
+}
+
 export type CycleEligibility =
   | { eligible: true }
   | {

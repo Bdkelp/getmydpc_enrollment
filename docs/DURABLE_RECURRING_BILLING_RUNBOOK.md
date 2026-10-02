@@ -43,6 +43,7 @@ npm run test:durable-billing
 npm run test:scheduler
 npm run test:payment-credential
 npm run test:payment-credential-restore
+npm run test:north-reconciliation
 npm run build
 ```
 
@@ -103,6 +104,27 @@ Only cycles with `failure_classification='confirmed_decline'` and a non-null due
 ### Manual external payments
 
 The Super Admin external-settlement workflow requires method and external reference evidence. It sets the linked subscription to `manual_external`, excluding it from unattended billing until recurring credentials are explicitly reviewed and the mode is deliberately restored to `automatic`.
+
+### Reconciling North payments (Billing Ops)
+
+Use **Reconcile North payment** on the Billing Ops page (Super Admin only) for subscriptions held with `historical_cycle_requires_reconciliation`, or any month paid directly in North. It never submits a charge and never changes member status, billing mode, or payment credentials. Unlike the workflow above, it keeps `billing_mode` as it is, so a subscription in `automatic` stays in normal one-cycle-at-a-time billing.
+
+Enter the member ID, subscription ID, and billing month, then choose a decision:
+
+- **Paid through North:** payment method (Card / ACH), North payment date, amount, and evidence (an external invoice/order reference and/or the North Tran ID / BRIC; the authorization code is optional). This records the existing settled pattern: a `succeeded` payment (`verification_method = manual_admin`, `metadata.source = manual_external_reconciliation`, `metadata.externalSettlement`) and a `completed` cycle with `payment_method_type = External` and `credential_source = manual_external_owner_confirmed`. The transaction ID and processor reference are `NORTH-EXT-<subscription>-<YYYYMMDD>`.
+- **Waive platform gap:** a reason is required. This records a `skipped` cycle (`credential_source = platform_gap_waived`) with no payment. Only historical cycles can be waived, never the current one.
+
+Always **Preview** first. **Record reconciliation** is enabled only for the exact inputs that were previewed.
+
+Rules:
+
+- **In order.** Only the cycle at the subscription's `next_billing_date` can be reconciled. If you enter September while August is open, nothing is recorded and the open cycles are listed with the policy action: cycles before August 2026 are platform gaps to waive (collection needs explicit approval later); August 2026 onward can be reconciled, waived, or, for a single missing cycle, collected through the member's **Pay Now & Use for Recurring**.
+- **Advancement.** `next_billing_date`, `current_period_start`, and `current_period_end` move past the reconciled cycle and any later cycle already recorded as completed or waived, never past an open month.
+- **Hold release.** When only the current cycle remains, the historical-cycle hold lifts and normal billing charges that one cycle on the next live run.
+- **Idempotent.** Reconciling a month that already has a settled or waived record returns it without new rows or a second advance.
+- **Refusals (no changes made).** The same North evidence already recorded anywhere; a successful platform payment already in that cycle period; a cycle already recorded by billing; a cancelled member or subscription; a payment date in the future or more than a month before the cycle; a cycle not yet due.
+- **Commissions.** After recording, the payment goes through PaymentConfirmedService only if the member is already active, because that service sets member status to active. For other members, commission processing is reported as deferred. If processing fails, reconciling the same month again retries it safely.
+- **Audit.** Every reconciliation, including replays, writes a `billing_cycle_reconciled` entry to `enrollment_modifications`.
 
 ### Restoring a credential from North Tran ID / BRIC
 

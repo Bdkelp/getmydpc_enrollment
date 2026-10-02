@@ -28,6 +28,7 @@
     "test:payment-credential": "tsx scripts/test-payment-credential.ts",
     "test:member-payment-methods": "tsx scripts/test-member-payment-methods.ts",
     "test:payment-credential-restore": "tsx scripts/test-payment-credential-restore.ts",
+    "test:north-reconciliation": "tsx scripts/test-north-payment-reconciliation.ts",
     "test:plan-start-dates": "tsx scripts/test-plan-start-dates.ts",
     "test:commission-center-authorization": "tsx scripts/test-commission-center-authorization.ts",
     "test:password-reset-flow": "tsx scripts/test-password-reset-flow.ts",

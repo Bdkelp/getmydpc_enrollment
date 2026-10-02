@@ -14,9 +14,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
+import { NorthReconciliationCard } from "@/components/admin/NorthReconciliationCard";
 
 type BillingSnapshot = {
   generatedAt: string;
+  canReconcile?: boolean;
   configuration: {
     enabled: boolean;
     mode: string;
@@ -393,6 +395,8 @@ export default function AdminFinancialOperations() {
             </div>
           </CardContent>
         </Card>
+
+        {billing.canReconcile && <NorthReconciliationCard onReconciled={refresh} />}
 
         <Card>
           <CardHeader>

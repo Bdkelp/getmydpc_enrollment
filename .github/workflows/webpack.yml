@@ -87,6 +87,9 @@ jobs:
     - name: Payment credential restore safety
       run: npm run test:payment-credential-restore
 
+    - name: North payment reconciliation safety
+      run: npm run test:north-reconciliation
+
     - name: Billing operations view safety
       run: npx tsx scripts/test-billing-operations-view.ts
 

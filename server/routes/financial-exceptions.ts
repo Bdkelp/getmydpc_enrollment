@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import { authenticateToken, type AuthRequest } from '../auth/supabaseAuth';
-import { isAtLeastAdmin } from '../auth/roles';
+import { hasAtLeastRole, isAtLeastAdmin } from '../auth/roles';
 import { query } from '../lib/neonDb';
 import { getFinancialException, listFinancialExceptions, resolveFinancialException, retryFinancialException } from '../services/financial-reconciliation-service';
 import { getCommissionCenterAggregation } from '../services/commission-center-aggregation-service';
@@ -135,6 +135,8 @@ router.get('/api/admin/billing-operations', authenticateToken, async (req: AuthR
     res.json({
       success: true,
       generatedAt: new Date().toISOString(),
+      // Reconciliation itself is a separate super-admin route; this flag only shows the form.
+      canReconcile: hasAtLeastRole(req.user?.role, 'super_admin'),
       configuration: configurationResult.rows[0] || null,
       summary: {
         dueActiveAutomatic: dueSubscriptions.length,
