@@ -25,6 +25,7 @@ import { WeeklyRecapService } from "./services/weekly-recap-service";
 import { scheduleMembershipActivation } from "./services/membership-activation-service";
 import memberPaymentMethodCheckoutRoutes from "./routes/member-payment-method-checkout";
 import paymentCredentialRestoreRoutes from "./routes/payment-credential-restore";
+import northPaymentReconciliationRoutes from "./routes/north-payment-reconciliation";
 import epxHostedRoutes from "./routes/epx-hosted-routes";
 import adminLogsRoutes from "./routes/admin-logs";
 import debugPaymentsRoutes from "./routes/debug-payments";
@@ -188,6 +189,7 @@ app.use((req, res, next) => {
   // to the normal enrollment duplicate-payment guards.
   app.use("/", memberPaymentMethodCheckoutRoutes);
   app.use("/", paymentCredentialRestoreRoutes);
+  app.use("/", northPaymentReconciliationRoutes);
 
   // Register EPX Hosted Checkout routes (existing, always active)
   app.use("/", epxHostedRoutes);

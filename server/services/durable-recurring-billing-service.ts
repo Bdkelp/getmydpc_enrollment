@@ -12,7 +12,10 @@ import {
   formatPostgresDateOnly,
 } from "../utils/membership-dates";
 import { processConfirmedPayment } from "./payment-confirmed-service";
-import { evaluateRecurringCycleEligibility } from "./recurring-billing-cycle-policy";
+import {
+  evaluateRecurringCycleEligibility,
+  resolveBillingAnchorDay,
+} from "./recurring-billing-cycle-policy";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
 import {
   processClaimedBillingCycle,
@@ -91,14 +94,6 @@ export function deterministicProcessorReference(
 }
 
 // Same anchor rule finalizeProcessorSuccess uses to set next_billing_date.
-function resolveAnchorDay(
-  anchorSource: string | Date | null | undefined,
-  cycleDate: string,
-): number {
-  return anchorSource
-    ? Number(getBillingBusinessDate(new Date(anchorSource)).slice(-2))
-    : Number(cycleDate.slice(-2));
-}
 
 function resolveCredential(subscription: BillableSubscription): {
   credential: string | null;
@@ -440,7 +435,7 @@ export async function runDurableRecurringBilling(options: {
     // Historical missed cycles are held for reconciliation, never charged.
     const eligibility = evaluateRecurringCycleEligibility({
       cycleDate: subscription.nextBillingDate,
-      anchorDay: resolveAnchorDay(
+      anchorDay: resolveBillingAnchorDay(
         anchorByMemberId.get(subscription.memberId),
         subscription.nextBillingDate,
       ),
