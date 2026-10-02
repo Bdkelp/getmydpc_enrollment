@@ -6,6 +6,7 @@ import {
   resolveCanonicalPaymentCredential,
 } from "./payment-credential";
 import { calculateNextBillingCycleDate } from "../utils/membership-dates";
+import { resolveEstablishedBillingAnchorDay } from "./recurring-billing-cycle-policy";
 import {
   createPaymentTokenFromNorthTranIdWithClient,
   restorePaymentCredentialWithClient,
@@ -365,7 +366,8 @@ export async function activateHostedPaymentMethod(
     }
 
     const subscriptionResult = await client.query(
-      `SELECT id, amount, status, next_billing_date
+      `SELECT id, amount, status, next_billing_date,
+              TO_CHAR(current_period_start, 'YYYY-MM-DD') AS current_period_start
        FROM subscriptions
        WHERE id = $1 AND member_id = $2
        FOR UPDATE`,
@@ -421,11 +423,13 @@ export async function activateHostedPaymentMethod(
       )
         .toISOString()
         .slice(0, 10);
-      const anchorSource =
-        payment.first_payment_date || payment.enrollment_date;
-      const anchorDay = anchorSource
-        ? new Date(anchorSource).getUTCDate()
-        : Number(billedCycleDate.slice(-2));
+      // Preserve the established billing day, not the historical first payment.
+      const anchorDay = resolveEstablishedBillingAnchorDay({
+        scheduledCycleDate: billedCycleDate,
+        currentPeriodStart: subscription.current_period_start,
+        historicalAnchorSource:
+          payment.first_payment_date || payment.enrollment_date || null,
+      });
       nextBillingDate = calculateNextBillingCycleDate(
         billedCycleDate,
         anchorDay,

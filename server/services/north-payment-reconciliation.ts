@@ -3,7 +3,7 @@ import { calculateNextBillingCycleDate } from "../utils/membership-dates";
 import { resolveCanonicalPaymentCredential } from "./payment-credential";
 import {
   evaluateRecurringCycleEligibility,
-  resolveBillingAnchorDay,
+  resolveEstablishedBillingAnchorDay,
 } from "./recurring-billing-cycle-policy";
 
 /**
@@ -262,6 +262,7 @@ export async function reconcileNorthPaymentWithClient(
   const subscriptionResult = await client.query(
     `SELECT s.id, s.member_id, s.status, s.billing_mode, s.amount,
             TO_CHAR(s.next_billing_date, 'YYYY-MM-DD') AS next_billing_date,
+            TO_CHAR(s.current_period_start, 'YYYY-MM-DD') AS current_period_start,
             m.status AS member_status, m.is_active AS member_is_active,
             m.first_payment_date, m.enrollment_date
      FROM subscriptions s
@@ -367,10 +368,13 @@ export async function reconcileNorthPaymentWithClient(
       "Subscription has no next billing date to reconcile against",
     );
   }
-  const anchorDay = resolveBillingAnchorDay(
-    subscription.first_payment_date || subscription.enrollment_date,
-    currentNext,
-  );
+  // The established schedule decides the billing day, not enrollment history.
+  const anchorDay = resolveEstablishedBillingAnchorDay({
+    scheduledCycleDate: currentNext,
+    currentPeriodStart: subscription.current_period_start,
+    historicalAnchorSource:
+      subscription.first_payment_date || subscription.enrollment_date || null,
+  });
   const next = (date: string) => calculateNextBillingCycleDate(date, anchorDay);
   const currentMonth = currentNext.slice(0, 7);
 

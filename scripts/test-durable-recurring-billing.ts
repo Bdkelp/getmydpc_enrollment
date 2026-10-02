@@ -18,6 +18,8 @@ import {
 import {
   evaluateRecurringCycleEligibility,
   HISTORICAL_CYCLE_EXCLUSION_REASON,
+  resolveBillingAnchorDay,
+  resolveEstablishedBillingAnchorDay,
 } from "../server/services/recurring-billing-cycle-policy";
 
 const root = process.cwd();
@@ -555,6 +557,83 @@ async function run() {
     /if \(!credential\.credential\) continue;/,
     "cycles without a credential must not be inserted or charged",
   );
+
+  // Established billing anchor: the current schedule wins over enrollment history.
+  const anchorOf = (
+    scheduledCycleDate: string | null,
+    currentPeriodStart: string | null,
+    historicalAnchorSource: string | Date | null,
+  ) =>
+    resolveEstablishedBillingAnchorDay({
+      scheduledCycleDate,
+      currentPeriodStart,
+      historicalAnchorSource,
+    });
+  const nextAfter = (
+    cycleDate: string,
+    currentPeriodStart: string | null,
+    historicalAnchorSource: string | Date | null,
+  ) =>
+    calculateNextBillingCycleDate(
+      cycleDate,
+      anchorOf(cycleDate, currentPeriodStart, historicalAnchorSource),
+    );
+
+  // Christian Parra regression: first_payment_date is a naive timestamp read
+  // as 2026-04-14T01:14Z, which is the 13th in Chicago.
+  const parraHistory = new Date("2026-04-14T01:14:11.650Z");
+  assert.equal(
+    resolveBillingAnchorDay(parraHistory, "2026-09-28"),
+    13,
+    "the old historical rule derives the 13th",
+  );
+  assert.equal(anchorOf("2026-09-28", "2026-08-28", parraHistory), 28, "established 28th is kept, not the historical 13th");
+  assert.equal(nextAfter("2026-09-28", "2026-08-28", parraHistory), "2026-10-28");
+  assert.equal(anchorOf("2026-10-04", "2026-09-28", parraHistory), 4, "a day moved to the 4th stays on the 4th");
+  assert.equal(nextAfter("2026-10-04", "2026-09-28", parraHistory), "2026-11-04");
+  assert.equal(nextAfter("2026-11-04", "2026-10-04", parraHistory), "2026-12-04");
+
+  // Moved away from the original enrollment day.
+  assert.equal(nextAfter("2026-09-04", "2026-08-04", "2026-04-14T17:00:00Z"), "2026-10-04");
+  // Normal, unchanged billing day.
+  assert.equal(nextAfter("2026-09-14", "2026-08-14", "2026-04-14T17:00:00Z"), "2026-10-14");
+  assert.equal(nextAfter("2026-09-14", null, null), "2026-10-14");
+
+  // Month-end clamping is preserved.
+  assert.equal(nextAfter("2027-02-28", "2027-01-31", null), "2027-03-31", "31st anchor survives February");
+  assert.equal(nextAfter("2027-02-28", null, "2026-12-31T18:00:00Z"), "2027-03-31", "historical 31st restores a clamped Feb 28");
+  assert.equal(nextAfter("2026-04-30", "2026-03-31", null), "2026-05-31", "31st anchor survives April");
+  assert.equal(nextAfter("2027-02-28", "2027-01-30", null), "2027-03-30", "a moved 30th survives February");
+  assert.equal(nextAfter("2026-09-30", "2026-08-30", "2026-04-14T17:00:00Z"), "2026-10-30");
+  assert.equal(
+    nextAfter("2027-02-28", null, "2026-04-13T17:00:00Z"),
+    "2027-03-28",
+    "a month-end date never falls back to an earlier historical day",
+  );
+  assert.equal(nextAfter("2026-01-31", null, null), "2026-02-28");
+  // Without an established schedule the historical day is the fallback.
+  assert.equal(anchorOf(null, null, "2026-04-14T17:00:00Z"), 14);
+  assert.equal(anchorOf(null, null, null), 1);
+
+  // Durable billing uses the same rule for eligibility and for the next date
+  // set after a successful charge.
+  const durableRun = service.slice(service.indexOf("export async function runDurableRecurringBilling"));
+  assert.match(
+    durableRun,
+    /anchorDay: resolveEstablishedBillingAnchorDay\(\{\s*scheduledCycleDate: subscription\.nextBillingDate,\s*currentPeriodStart: schedule\?\.current_period_start,/,
+    "eligibility must use the established schedule",
+  );
+  const finalize = service.slice(
+    service.indexOf("async finalizeProcessorSuccess"),
+    service.indexOf("async completeInternalSync"),
+  );
+  assert.match(
+    finalize,
+    /resolveEstablishedBillingAnchorDay\(\{\s*scheduledCycleDate: cycle\.cycleDate,\s*currentPeriodStart: scheduleRow\?\.current_period_start,/,
+    "success finalization must keep the established billing day",
+  );
+  assert.doesNotMatch(finalize, /getBillingBusinessDate\(anchorDate\)/, "finalization must not derive the day from history alone");
+  assert.doesNotMatch(service, /resolveBillingAnchorDay\(/, "durable billing must not use the history-only anchor");
 
   console.log("Durable recurring billing behavioral tests passed.");
 }

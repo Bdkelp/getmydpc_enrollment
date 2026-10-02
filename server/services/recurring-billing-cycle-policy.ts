@@ -26,6 +26,52 @@ export function resolveBillingAnchorDay(
     : Number(cycleDate.slice(-2));
 }
 
+function isDateOnly(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function lastDayOfMonth(date: string): number {
+  const [year, month] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * Anchor day for future cycles, taken from the subscription's established
+ * schedule rather than its history. A billing day moved away from the
+ * original enrollment day (for example by an owner-approved change in North)
+ * must stay moved, so the historical first-payment/enrollment day never
+ * overrides it.
+ *
+ * Precedence:
+ * 1. The scheduled cycle (next_billing_date, or the cycle being billed), then
+ *    the current period start: the first one that isn't the last day of its
+ *    month is the exact anchor.
+ * 2. A last-day-of-month date may be a month-end clamp (Feb 28 for a 31st
+ *    anchor), so it only bounds the anchor from below. A longer anchor is
+ *    kept when the historical day supports it (31 for Feb 28 / Apr 30);
+ *    otherwise the bound itself is used.
+ * 3. With no established schedule, the historical day (then 1).
+ */
+export function resolveEstablishedBillingAnchorDay(options: {
+  scheduledCycleDate: string | null | undefined;
+  currentPeriodStart?: string | null;
+  historicalAnchorSource?: string | Date | null;
+}): number {
+  const established = [options.scheduledCycleDate, options.currentPeriodStart].filter(isDateOnly);
+  for (const date of established) {
+    const day = Number(date.slice(-2));
+    if (day < lastDayOfMonth(date)) return day;
+  }
+  const historicalDay = options.historicalAnchorSource
+    ? resolveBillingAnchorDay(options.historicalAnchorSource, "1970-01-01")
+    : null;
+  if (established.length > 0) {
+    const lowerBound = Math.max(...established.map((date) => Number(date.slice(-2))));
+    return historicalDay !== null && historicalDay >= lowerBound ? historicalDay : lowerBound;
+  }
+  return historicalDay ?? 1;
+}
+
 export type CycleEligibility =
   | { eligible: true }
   | {
