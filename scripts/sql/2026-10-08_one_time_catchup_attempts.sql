@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS public.one_time_catchup_attempts (
   subscription_id integer NOT NULL REFERENCES public.subscriptions(id),
   cycle_month date NOT NULL,
   amount numeric(10,2) NOT NULL CHECK (amount > 0),
-  processor_reference text NOT NULL UNIQUE,
+  processor_reference text NOT NULL UNIQUE, -- internal immutable request UUID
+  epx_tran_nbr varchar(32), -- actual EPX-normalized on-wire transaction number
   state text NOT NULL DEFAULT 'reserved'
     CHECK (state IN ('reserved','submitting','succeeded','declined','unknown','record_pending')),
   initiated_by uuid NOT NULL,
