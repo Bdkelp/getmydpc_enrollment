@@ -60,18 +60,39 @@ router.post("/api/admin/billing-operations/one-time-catchup/preview", authentica
          ) AS recorded_success`,
         [memberId, row.subscription_id, month],
       );
-      const alreadyCovered = Boolean(settled.rows[0]?.covered_cycle || settled.rows[0]?.recorded_success);
+      const attempt = await query(
+        `SELECT state FROM one_time_catchup_attempts
+         WHERE subscription_id=$1 AND cycle_month=$2::date LIMIT 1`,
+        [row.subscription_id, month + "-01"]
+      );
+      const alreadyCovered = Boolean(settled.rows[0]?.covered_cycle || settled.rows[0]?.recorded_success || attempt.rows.length);
+      const earliestMonth=new Date(row.next_billing_date).toISOString().slice(0,7);
+      const todayMonth=new Intl.DateTimeFormat("en-CA",{
+        timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"
+      }).format(new Date()).slice(0,7);
+      let sequential = month===earliestMonth;
+      if (month>earliestMonth && month<=todayMonth) {
+        const priorDate=new Date(month+"-01T12:00:00Z");
+        priorDate.setUTCMonth(priorDate.getUTCMonth()-1);
+        const prior=await query(
+          `SELECT state FROM one_time_catchup_attempts
+             WHERE subscription_id=$1 AND cycle_month=$2::date`,
+          [row.subscription_id,priorDate.toISOString().slice(0,7)+"-01"]
+        );
+        sequential=prior.rows[0]?.state==="succeeded";
+      }
+      sequential=sequential && month>=earliestMonth && month<=todayMonth;
       const eligible = row.member_status !== "cancelled" && row.subscription_status === "active" &&
-        row.payment_method_type === "CreditCard" && !reference.error && !alreadyCovered;
+        row.payment_method_type === "CreditCard" && !reference.error && !alreadyCovered && sequential;
       return res.json({
-        success: true, chargeSubmitted: false, chargeEnabled: false,
+        success: true, chargeSubmitted: false, chargeEnabled: eligible && process.env.ONE_TIME_CATCHUP_ENABLED === "true",
         memberId, memberName: [row.first_name, row.last_name].join(" "),
         subscriptionId: row.subscription_id, amount: row.amount,
         cycleMonth: month, nextBillingDate: row.next_billing_date,
         billingMode: row.billing_mode, paymentMethodType: row.payment_method_type || null,
         credentialAvailable: !reference.error,
         alreadyCovered, candidateEligible: eligible,
-        message: "Preview only. Schedule-neutral payment execution is not enabled or deployed.",
+        message: process.env.ONE_TIME_CATCHUP_ENABLED === "true" ? "Charge can be submitted once after operator confirmation." : "One-time collection remains disabled server-side until migration and validation are complete.",
       });
     } catch (error: any) {
       console.error("[Catch-up preview] Failed", { memberId, message: error?.message });
