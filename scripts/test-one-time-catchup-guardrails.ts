@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+const service=readFileSync("server/services/one-time-catchup-service.ts","utf8");
+const route=readFileSync("server/routes/one-time-catchup.ts","utf8");
+const schema=readFileSync("scripts/sql/2026-10-08_one_time_catchup_attempts.sql","utf8");
+assert.match(service,/ONE_TIME_CATCHUP_ENABLED[^\n]+true/,"feature gate required");
+assert.match(service,/confirmation !== "CHARGE ONE PAYMENT"/,"explicit charge confirmation required");
+assert.match(service,/submitServerPostRecurringPayment/,"certified processor call required");
+assert.match(service,/tranType:"CCE1"/,"card MIT required");
+assert.doesNotMatch(service,/UPDATE subscriptions|UPDATE recurring_billing_cycles/,"one-time collection must never advance schedule");
+assert.match(service,/state='record_pending'/,"processor success with ledger failure must not retry");
+assert.match(service,/markUnknown/,"uncertain outcome must be tracked");
+assert.match(schema,/UNIQUE INDEX IF NOT EXISTS uq_one_time_catchup_month/,"unique month reservation required");
+assert.match(route,/canRestorePaymentCredential/,"existing Super Admin gate required");
+assert.match(route,/one-time-catchup\/preview/);
+assert.match(route,/one-time-catchup\/charge/);
+console.log("One-time catch-up source guardrails: PASS (10 checks)");
