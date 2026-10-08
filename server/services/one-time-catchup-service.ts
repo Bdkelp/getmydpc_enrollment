@@ -139,7 +139,6 @@ export async function chargeOneTimeCatchup(input: {
         `INSERT INTO payments (member_id,subscription_id,amount,currency,status,
            transaction_id,payment_method,payment_method_type,epx_auth_guid,metadata,created_at,updated_at)
          VALUES ($1,$2,$3,'USD','succeeded',$4,'card','CreditCard',$5,$6::jsonb,NOW(),NOW())
-         ON CONFLICT (transaction_id) DO UPDATE SET transaction_id=EXCLUDED.transaction_id
          RETURNING id`,
         [reservation.memberId,reservation.subscriptionId,reservation.amount,epxTranNbr,
          authGuid,JSON.stringify({source:"admin_one_time_catchup",cycleMonth:reservation.cycleMonth,
