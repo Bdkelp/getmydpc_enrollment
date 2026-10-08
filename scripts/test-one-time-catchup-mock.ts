@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 process.env.DATABASE_URL ||= "postgresql://postgres:postgres@127.0.0.1:5432/catchup_mock_test";
 process.env.ONE_TIME_CATCHUP_ENABLED = "true";
+// Fake, nonfunctional key only for imports that initialize Supabase at module load.
+// The injected mock processor and DB do not contact this URL or use this key.
+process.env.SUPABASE_URL = "https://catchup-test.invalid";
+const jwtPart = (value: Record<string,string>) => Buffer.from(JSON.stringify(value)).toString("base64url");
+process.env.SUPABASE_SERVICE_ROLE_KEY = jwtPart({alg:"HS256",typ:"JWT"}) + "." + jwtPart({role:"service_role"}) + ".test-only";
 
 const { chargeOneTimeCatchup, CatchupError } =
   await import("../server/services/one-time-catchup-service");
