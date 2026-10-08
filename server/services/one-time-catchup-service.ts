@@ -135,8 +135,8 @@ export async function chargeOneTimeCatchup(input: {
     const code = outcome.responseFields?.AUTH_RESP;
     const decline = Boolean(code && /^(?:05|51|54|N|DECLINED)$/i.test(String(code)));
     await transaction(async (db) => {
-      await db.query("UPDATE one_time_catchup_attempts SET state=$2,processor_response_code=$3,updated_at=NOW(),completed_at=NOW() WHERE id=$1",
-        [reservation.id,decline?"declined":"unknown",code||null]);
+      await db.query("UPDATE one_time_catchup_attempts SET state=$2,processor_response_code=$3,epx_tran_nbr=$4,updated_at=NOW(),completed_at=NOW() WHERE id=$1",
+        [reservation.id,decline?"declined":"unknown",code||null,epxTranNbr||null]);
     });
     return {success:false,status:decline?"declined":"unknown",
       message:decline?"EPX declined the payment":"Processor outcome unverified; inspect North before retrying"};
@@ -144,7 +144,7 @@ export async function chargeOneTimeCatchup(input: {
   const code=outcome.responseFields?.AUTH_RESP;
   const authGuid=outcome.responseFields?.AUTH_GUID || outcome.responseFields?.GUID;
   if (!code || !authGuid || !epxTranNbr) {
-    await markUnknown(reservation.id);
+    await markUnknown(reservation.id,epxTranNbr);
     return {success:false,status:"unknown",message:"Approval lacks verifiable processor reference; reconcile in North"};
   }
   try {
@@ -162,8 +162,8 @@ export async function chargeOneTimeCatchup(input: {
       await db.query(
         `UPDATE one_time_catchup_attempts SET state='succeeded',payment_id=$2,
           processor_auth_guid=$3,processor_auth_code=$4,processor_response_code=$5,
-          completed_at=NOW(),updated_at=NOW() WHERE id=$1`,
-        [reservation.id,paymentId,authGuid,outcome.responseFields?.AUTH_CODE||null,code]);
+          epx_tran_nbr=$6,completed_at=NOW(),updated_at=NOW() WHERE id=$1`,
+        [reservation.id,paymentId,authGuid,outcome.responseFields?.AUTH_CODE||null,code,epxTranNbr]);
       await db.query(
         `INSERT INTO enrollment_modifications
           (member_id,subscription_id,modified_by,change_type,change_details,created_at)
@@ -176,14 +176,14 @@ export async function chargeOneTimeCatchup(input: {
       nextBillingDateUnchanged:reservation.previousNextBillingDate};
   } catch {
     await transaction(async(db)=>{await db.query(
-      "UPDATE one_time_catchup_attempts SET state='record_pending',updated_at=NOW() WHERE id=$1",
-      [reservation.id]);});
+      "UPDATE one_time_catchup_attempts SET state='record_pending',epx_tran_nbr=$2,updated_at=NOW() WHERE id=$1",
+      [reservation.id,epxTranNbr]);});
     return {success:false,status:"record_pending",
       message:"EPX approved, but internal payment recording requires repair. Do not charge again."};
   }
 }
 
-async function markUnknown(id:number){
+async function markUnknown(id:number,epxTranNbr:string|null=null){
   await transaction(async(db)=>{await db.query(
-    "UPDATE one_time_catchup_attempts SET state='unknown',updated_at=NOW() WHERE id=$1",[id]);});
+    "UPDATE one_time_catchup_attempts SET state='unknown',epx_tran_nbr=$2,updated_at=NOW() WHERE id=$1",[id,epxTranNbr]);});
 }
