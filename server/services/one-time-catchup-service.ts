@@ -32,7 +32,7 @@ export async function chargeOneTimeCatchup(input: {
     throw new CatchupError(400, "Explicit one-payment confirmation required");
   }
   const requestKey = randomUUID();
-  const tranNbr = `CU${Date.now()}${Math.floor(Math.random() * 1000)}`;
+  const tranNbr = requestKey; // EPX normalizes this into its on-wire transaction number.
   let reservation!: Reservation;
 
   await transaction(async (db) => {
@@ -114,6 +114,7 @@ export async function chargeOneTimeCatchup(input: {
     await markUnknown(reservation.id);
     return {success:false,status:"unknown",message:"Processor outcome unknown; inspect North before any additional charge"};
   }
+  const epxTranNbr=String(outcome.requestFields?.TRAN_NBR || "");
   if (!outcome.success) {
     // A timeout, HTTP failure, or malformed response is NOT evidence of a decline.
     const code = outcome.responseFields?.AUTH_RESP;
@@ -127,7 +128,7 @@ export async function chargeOneTimeCatchup(input: {
   }
   const code=outcome.responseFields?.AUTH_RESP;
   const authGuid=outcome.responseFields?.AUTH_GUID || outcome.responseFields?.GUID;
-  if (!code || !authGuid) {
+  if (!code || !authGuid || !epxTranNbr) {
     await markUnknown(reservation.id);
     return {success:false,status:"unknown",message:"Approval lacks verifiable processor reference; reconcile in North"};
   }
@@ -140,7 +141,7 @@ export async function chargeOneTimeCatchup(input: {
          VALUES ($1,$2,$3,'USD','succeeded',$4,'card','CreditCard',$5,$6::jsonb,NOW(),NOW())
          ON CONFLICT (transaction_id) DO UPDATE SET transaction_id=EXCLUDED.transaction_id
          RETURNING id`,
-        [reservation.memberId,reservation.subscriptionId,reservation.amount,reservation.tranNbr,
+        [reservation.memberId,reservation.subscriptionId,reservation.amount,epxTranNbr,
          authGuid,JSON.stringify({source:"admin_one_time_catchup",cycleMonth:reservation.cycleMonth,
            attemptId:reservation.id,operatorId:input.actor.id,scheduledBillingDateUnchanged:true})]);
       paymentId=Number(result.rows[0].id);
