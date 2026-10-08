@@ -3,6 +3,7 @@ import { authenticateToken, type AuthRequest } from "../auth/supabaseAuth";
 import { canRestorePaymentCredential } from "../services/payment-credential-restore";
 import { resolveCanonicalPaymentCredential } from "../services/payment-credential";
 import { query } from "../lib/neonDb";
+import { CatchupError, chargeOneTimeCatchup } from "../services/one-time-catchup-service";
 
 const router = Router();
 
@@ -77,4 +78,26 @@ router.post("/api/admin/billing-operations/one-time-catchup/preview", authentica
       return res.status(500).json({ success: false, error: "Unable to preview catch-up" });
     }
   });
+router.post("/api/admin/billing-operations/one-time-catchup/charge",authenticateToken, async(req:AuthRequest,res:Response)=>{
+  if (!req.user || !canRestorePaymentCredential(req.user.role)) {
+    return res.status(403).json({success:false,error:"Super Admin required"});
+  }
+  const memberId=Number(req.body?.memberId);
+  const cycleMonth=String(req.body?.cycleMonth||"");
+  if (!Number.isSafeInteger(memberId) || memberId<=0)
+    return res.status(400).json({success:false,error:"Invalid member ID"});
+  try {
+    const outcome=await chargeOneTimeCatchup({
+      memberId,cycleMonth,
+      actor:{id:req.user.id,email:req.user.email||null},
+      confirmation:String(req.body?.confirmation||"")
+    });
+    return res.status(outcome.success?200:outcome.status==="declined"?402:409)
+      .json(outcome);
+  } catch(error:any) {
+    if(error instanceof CatchupError) return res.status(error.status).json({success:false,error:error.message});
+    console.error("[Catch-up charge] Failed",{memberId,message:error?.message});
+    return res.status(500).json({success:false,error:"Catch-up could not be submitted; review attempts before retrying"});
+  }
+});
 export default router;
