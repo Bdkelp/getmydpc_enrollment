@@ -188,7 +188,7 @@ export async function chargeOneTimeCatchup(input: {
   }
 }
 
-async function markUnknown(id:number,epxTranNbr:string|null=null){
-  await deps.withTransaction(async(db)=>{await db.query(
+async function markUnknown(id:number,epxTranNbr:string|null=null,withTransaction:typeof transaction=transaction){
+  await withTransaction(async(db)=>{await db.query(
     "UPDATE one_time_catchup_attempts SET state='unknown',epx_tran_nbr=$2,updated_at=NOW() WHERE id=$1",[id,epxTranNbr]);});
 }
