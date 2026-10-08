@@ -64,11 +64,26 @@ export async function chargeOneTimeCatchup(input: {
     if (!Number.isFinite(Number(x.amount)) || Number(x.amount) <= 0) {
       throw new CatchupError(409, "Invalid subscription amount");
     }
-    const billingDay = new Date(x.next_billing_date).toISOString().slice(8,10);
-    const targetDate = `${input.cycleMonth}-${billingDay}`;
-    // Never charge months newer than the earliest outstanding scheduled month.
-    if (input.cycleMonth !== new Date(x.next_billing_date).toISOString().slice(0,7)) {
-      throw new CatchupError(409, "Only the earliest outstanding scheduled month can be collected");
+    // Keep subscription dates unchanged. A second later-month catch-up is
+    // allowed only after the immediately preceding month has a successful
+    // standalone catch-up recorded in our durable ledger.
+    const earliestMonth = new Date(x.next_billing_date).toISOString().slice(0,7);
+    const nowChicago = new Intl.DateTimeFormat("en-CA",{
+      timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"
+    }).format(new Date()).slice(0,7);
+    if (input.cycleMonth < earliestMonth || input.cycleMonth > nowChicago) {
+      throw new CatchupError(409, "Month is outside the unpaid billing window");
+    }
+    if (input.cycleMonth !== earliestMonth) {
+      const previousMonth = new Date(input.cycleMonth + "-01T12:00:00Z");
+      previousMonth.setUTCMonth(previousMonth.getUTCMonth()-1);
+      const prior = await db.query(
+        `SELECT state FROM one_time_catchup_attempts WHERE subscription_id=$1
+           AND cycle_month=$2::date`,
+        [x.subscription_id,previousMonth.toISOString().slice(0,7)+"-01"]);
+      if (prior.rows[0]?.state !== "succeeded") {
+        throw new CatchupError(409, "Collect and verify the preceding month first");
+      }
     }
     const conflict = await db.query(
       `SELECT EXISTS(SELECT 1 FROM one_time_catchup_attempts
