@@ -90,6 +90,9 @@ jobs:
     - name: North payment reconciliation safety
       run: npm run test:north-reconciliation
 
+    - name: One-time catch-up payment guardrails
+      run: npm run test:one-time-catchup
+
     - name: Billing operations view safety
       run: npx tsx scripts/test-billing-operations-view.ts
 
