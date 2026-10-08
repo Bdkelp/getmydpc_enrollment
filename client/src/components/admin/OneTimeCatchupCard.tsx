@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 type Preview = {
   success: boolean; error?: string; memberName?: string; subscriptionId?: number;
   amount?: string; cycleMonth?: string; nextBillingDate?: string;
-  credentialAvailable?: boolean; alreadyCovered?: boolean; candidateEligible?: boolean;
+  credentialAvailable?: boolean; alreadyCovered?: boolean; candidateEligible?: boolean; chargeEnabled?: boolean;
   message?: string;
 };
 export function OneTimeCatchupCard() {
@@ -38,7 +38,7 @@ export function OneTimeCatchupCard() {
   };
 
   const charge = async () => {
-    if (!preview?.candidateEligible || !window.confirm(
+    if (!preview?.chargeEnabled || !window.confirm(
       "Charge " + preview.memberName + " $" + preview.amount + " once for " + preview.cycleMonth + "? The recurring date will not change."
     )) return;
     setCharging(true); setResult(null);
@@ -83,7 +83,7 @@ export function OneTimeCatchupCard() {
           <p>{preview.message}</p>
         </> : <p className="text-red-700">{preview.error || "Unable to preview"}</p>}
       </div>}
-      <Button type="button" disabled={charging || !preview?.candidateEligible} variant="outline" onClick={charge}>
+      <Button type="button" disabled={charging || !preview?.chargeEnabled} variant="outline" onClick={charge}>
         {charging ? "Submitting one payment…" : "Charge stored BRIC once"}
       </Button>
       {result && <p role="status" className="text-sm font-medium">{result}</p>}
