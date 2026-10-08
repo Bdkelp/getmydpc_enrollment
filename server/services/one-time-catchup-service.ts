@@ -18,10 +18,15 @@ type Reservation = {
   member: Record<string, any>; previousNextBillingDate: string;
 };
 
+type CatchupDeps = {
+  withTransaction: typeof transaction;
+  submit: typeof submitServerPostRecurringPayment;
+};
+
 export async function chargeOneTimeCatchup(input: {
   memberId: number; cycleMonth: string; actor: Actor;
   confirmation: string;
-}) {
+}, deps: CatchupDeps = { withTransaction: transaction, submit: submitServerPostRecurringPayment }) {
   if (process.env.ONE_TIME_CATCHUP_ENABLED !== "true") {
     throw new CatchupError(503, "One-time catch-up collection has not been enabled");
   }
@@ -35,7 +40,7 @@ export async function chargeOneTimeCatchup(input: {
   const tranNbr = requestKey; // EPX normalizes this into its on-wire transaction number.
   let reservation!: Reservation;
 
-  await transaction(async (db) => {
+  await deps.withTransaction(async (db) => {
     const found = await db.query(
       `SELECT s.id subscription_id, s.amount, s.status subscription_status,
               s.next_billing_date, m.id member_id, m.first_name, m.last_name,
@@ -119,14 +124,14 @@ export async function chargeOneTimeCatchup(input: {
   // EPX may capture even when the connection times out. Never resubmit this request.
   let outcome: Awaited<ReturnType<typeof submitServerPostRecurringPayment>>;
   try {
-    outcome = await submitServerPostRecurringPayment({
+    outcome = await deps.submit({
       amount:Number(reservation.amount), authGuid:reservation.reference,
       tranType:"CCE1", tranNbr:reservation.tranNbr, member:reservation.member,
       description:`Admin one-time catch-up ${reservation.cycleMonth}`,
       metadata:{source:"admin_one_time_catchup",attemptId:reservation.id}
     });
   } catch {
-    await markUnknown(reservation.id);
+    await markUnknown(reservation.id, null, deps.withTransaction);
     return {success:false,status:"unknown",message:"Processor outcome unknown; inspect North before any additional charge"};
   }
   const epxTranNbr=String(outcome.requestFields?.TRAN_NBR || "");
@@ -134,7 +139,7 @@ export async function chargeOneTimeCatchup(input: {
     // A timeout, HTTP failure, or malformed response is NOT evidence of a decline.
     const code = outcome.responseFields?.AUTH_RESP;
     const decline = Boolean(code && /^(?:05|51|54|N|DECLINED)$/i.test(String(code)));
-    await transaction(async (db) => {
+    await deps.withTransaction(async (db) => {
       await db.query("UPDATE one_time_catchup_attempts SET state=$2,processor_response_code=$3,epx_tran_nbr=$4,updated_at=NOW(),completed_at=NOW() WHERE id=$1",
         [reservation.id,decline?"declined":"unknown",code||null,epxTranNbr||null]);
     });
@@ -144,12 +149,12 @@ export async function chargeOneTimeCatchup(input: {
   const code=outcome.responseFields?.AUTH_RESP;
   const authGuid=outcome.responseFields?.AUTH_GUID || outcome.responseFields?.GUID;
   if (!code || !authGuid || !epxTranNbr) {
-    await markUnknown(reservation.id,epxTranNbr);
+    await markUnknown(reservation.id,epxTranNbr,deps.withTransaction);
     return {success:false,status:"unknown",message:"Approval lacks verifiable processor reference; reconcile in North"};
   }
   try {
     let paymentId!:number;
-    await transaction(async (db)=>{
+    await deps.withTransaction(async (db)=>{
       const result=await db.query(
         `INSERT INTO payments (member_id,subscription_id,amount,currency,status,
            transaction_id,payment_method,payment_method_type,epx_auth_guid,metadata,created_at,updated_at)
@@ -175,7 +180,7 @@ export async function chargeOneTimeCatchup(input: {
     return {success:true,status:"succeeded",paymentId,amount:reservation.amount,
       nextBillingDateUnchanged:reservation.previousNextBillingDate};
   } catch {
-    await transaction(async(db)=>{await db.query(
+    await deps.withTransaction(async(db)=>{await db.query(
       "UPDATE one_time_catchup_attempts SET state='record_pending',epx_tran_nbr=$2,updated_at=NOW() WHERE id=$1",
       [reservation.id,epxTranNbr]);});
     return {success:false,status:"record_pending",
@@ -184,6 +189,6 @@ export async function chargeOneTimeCatchup(input: {
 }
 
 async function markUnknown(id:number,epxTranNbr:string|null=null){
-  await transaction(async(db)=>{await db.query(
+  await deps.withTransaction(async(db)=>{await db.query(
     "UPDATE one_time_catchup_attempts SET state='unknown',epx_tran_nbr=$2,updated_at=NOW() WHERE id=$1",[id,epxTranNbr]);});
 }
