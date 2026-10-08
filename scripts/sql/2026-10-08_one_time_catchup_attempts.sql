@@ -23,9 +23,8 @@ CREATE TABLE IF NOT EXISTS public.one_time_catchup_attempts (
   CONSTRAINT one_time_catchup_month_first CHECK
     (date_trunc('month',cycle_month::timestamp)::date=cycle_month)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_one_time_catchup_unresolved_month
- ON public.one_time_catchup_attempts (subscription_id, cycle_month)
- WHERE state IN ('reserved','submitting','succeeded','unknown','record_pending');
+CREATE UNIQUE INDEX IF NOT EXISTS uq_one_time_catchup_month
+ ON public.one_time_catchup_attempts (subscription_id, cycle_month);
 ALTER TABLE public.one_time_catchup_attempts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.one_time_catchup_attempts FROM anon, authenticated;
 REVOKE ALL ON SEQUENCE public.one_time_catchup_attempts_id_seq FROM anon, authenticated;
