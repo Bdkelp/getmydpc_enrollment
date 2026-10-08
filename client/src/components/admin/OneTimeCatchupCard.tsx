@@ -15,6 +15,8 @@ export function OneTimeCatchupCard() {
   const [cycleMonth, setCycleMonth] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
+  const [charging, setCharging] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
   const runPreview = async () => {
     setBusy(true);
     setPreview(null);
@@ -34,6 +36,31 @@ export function OneTimeCatchupCard() {
       setPreview({ success: false, error: error?.message || "Preview unavailable" });
     } finally { setBusy(false); }
   };
+
+  const charge = async () => {
+    if (!preview?.candidateEligible || !window.confirm(
+      "Charge " + preview.memberName + " $" + preview.amount + " once for " + preview.cycleMonth + "? The recurring date will not change."
+    )) return;
+    setCharging(true); setResult(null);
+    try {
+      const { API_URL } = await import("@/lib/apiClient");
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(API_URL + "/api/admin/billing-operations/one-time-catchup/charge", {
+        method:"POST",credentials:"include",
+        headers:{"Content-Type":"application/json",
+          ...(session?.access_token ? { Authorization:"Bearer " + session.access_token } : {})},
+        body:JSON.stringify({memberId:Number(memberId),cycleMonth,confirmation:"CHARGE ONE PAYMENT"})
+      });
+      const data = await response.json();
+      setResult(data.success ? "Approved: payment #" + data.paymentId + ". The recurring billing date was not changed."
+        : (data.message || data.error || "Payment not completed. Review North before retrying."));
+      setPreview(null);
+    } catch {
+      setResult("Outcome not confirmed. Check North and Billing Ops before attempting again.");
+      setPreview(null);
+    } finally { setCharging(false); }
+  };
   return <Card>
     <CardHeader><CardTitle>One-time catch-up (keep billing date)</CardTitle></CardHeader>
     <CardContent className="space-y-4">
@@ -52,11 +79,15 @@ export function OneTimeCatchupCard() {
           <p><strong>Current next billing date:</strong> {preview.nextBillingDate ? String(preview.nextBillingDate).slice(0, 10) : "Unknown"} (unchanged)</p>
           <p><strong>Stored credential:</strong> {preview.credentialAvailable ? "Available" : "Unavailable"}</p>
           <p><strong>Recorded month:</strong> {preview.alreadyCovered ? "Payment or protected cycle already exists" : "No matching settled cycle identified"}</p>
-          <p className="font-medium">{preview.candidateEligible ? "Preflight passed; charge remains disabled pending audited processor integration." : "Preflight needs review before charging."}</p>
+          <p className="font-medium">{preview.candidateEligible ? "Preflight passed; Operator may submit one charge if the server-side collection feature is enabled." : "Preflight needs review before charging."}</p>
           <p>{preview.message}</p>
         </> : <p className="text-red-700">{preview.error || "Unable to preview"}</p>}
       </div>}
-      <Button type="button" disabled variant="outline">Submit one-time payment — not yet enabled</Button>
+      <Button type="button" disabled={charging || !preview?.candidateEligible} variant="outline" onClick={charge}>
+        {charging ? "Submitting one payment…" : "Charge stored BRIC once"}
+      </Button>
+      {result && <p role="status" className="text-sm font-medium">{result}</p>}
+      <p className="text-xs text-gray-500">Availability controlled server-side. Do not retry an unknown response without checking North.</p>
     </CardContent>
   </Card>;
 }
