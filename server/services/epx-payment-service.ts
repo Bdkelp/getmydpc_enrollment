@@ -916,7 +916,7 @@ export async function submitServerPostRecurringPayment(
     if (phone) requestFields.PHONE_CELL = phone;
     if (options.description) requestFields.USER_DATA_2 = options.description;
 
-    rawFieldSnapshot = { ...requestFields };
+    rawFieldSnapshot = maskServerPostFields(requestFields);
 
     requestPayload = buildServerPostPayload(requestFields);
     const maskedFields = maskServerPostFields(requestFields);
@@ -1038,16 +1038,16 @@ export async function submitServerPostRecurringPayment(
         body: {
           form: maskedFields,
           rawFields: rawFieldSnapshot,
-          raw: requestPayload,
-          authGuid: authGuidLogValue,
+          raw: '[REDACTED - payment credentials in request body]',
+          authGuid: maskAuthGuid(authGuid),
           authGuidVisibility
         }
       },
       response: {
         statusCode: response.status,
         body: {
-          raw: rawResponse,
-          fields: responseFields
+          raw: '[REDACTED - processor response]',
+          fields: Object.fromEntries(Object.entries(responseFields).map(([key, value]) => [key, /GUID|TOKEN|BRIC/i.test(key) ? maskAuthGuid(value) : value]))
         },
         processingTimeMs: Date.now() - startTime
       },
@@ -1094,9 +1094,9 @@ export async function submitServerPostRecurringPayment(
           method: 'POST',
           endpoint: '/serverpost',
           body: {
-            raw: requestPayload,
-            rawFields: fallbackRawFields,
-            authGuid: authGuidLogValue,
+            raw: '[REDACTED - payment credentials in request body]',
+            rawFields: fallbackRawFields ? maskServerPostFields(fallbackRawFields) : undefined,
+            authGuid: maskAuthGuid(options.authGuid),
             authGuidVisibility
           }
         },

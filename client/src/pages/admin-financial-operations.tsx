@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { NorthReconciliationCard } from "@/components/admin/NorthReconciliationCard";
+import { OneTimeCatchupCard } from "@/components/admin/OneTimeCatchupCard";
 
 type BillingSnapshot = {
   generatedAt: string;
@@ -397,6 +398,7 @@ export default function AdminFinancialOperations() {
         </Card>
 
         {billing.canReconcile && <NorthReconciliationCard onReconciled={refresh} />}
+        {billing.canReconcile && <OneTimeCatchupCard />}
 
         <Card>
           <CardHeader>

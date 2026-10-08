@@ -26,6 +26,7 @@
     "test:durable-billing:postgres": "tsx scripts/test-durable-recurring-billing-postgres.ts",
     "test:staging-billing-safety": "tsx scripts/test-staging-billing-safety.ts",
     "test:payment-credential": "tsx scripts/test-payment-credential.ts",
+    "test:one-time-catchup": "tsx scripts/test-one-time-catchup-guardrails.ts && tsx scripts/test-one-time-catchup-mock.ts",
     "test:member-payment-methods": "tsx scripts/test-member-payment-methods.ts",
     "test:payment-credential-restore": "tsx scripts/test-payment-credential-restore.ts",
     "test:north-reconciliation": "tsx scripts/test-north-payment-reconciliation.ts",
