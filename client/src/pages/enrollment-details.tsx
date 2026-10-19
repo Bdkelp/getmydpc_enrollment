@@ -1105,6 +1105,7 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
                   </Badge>
                 </div>
                 <p className="text-sm">Next billing date: <strong>{pbmStateQuery.data?.nextBillingDate || "Unavailable"}</strong></p>
+                <p className="text-xs text-muted-foreground">PBM changes start with a recurring 30-day cycle. Removing PBM does not refund the current paid period.</p>
                 {pbmStateQuery.data?.pendingChange ? (
                   <div className="rounded bg-amber-50 p-3 text-sm">
                     <p><strong>Pending:</strong> {pbmStateQuery.data.pendingChange.target_enabled ? "Add PBM" : "Remove PBM"} effective {pbmStateQuery.data.pendingChange.effective_date} · fulfillment {pbmStateQuery.data.pendingChange.fulfillment_status}</p>

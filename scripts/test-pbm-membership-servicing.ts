@@ -4,6 +4,7 @@ import {
   canWithdrawPbmChange,
   getPbmAmountDelta,
   getPbmCycleAmount,
+  getPbmEffectiveDate,
   isPbmChangeEffective,
   resolvePbmRequestError,
   shouldApplyPbmChangeAfterBilling,
@@ -12,6 +13,18 @@ import {
 assert.equal(getPbmAmountDelta(false, true), 30, "PBM add is $30 per household");
 assert.equal(getPbmAmountDelta(true, false), -30, "PBM removal subtracts $30");
 assert.equal(getPbmAmountDelta(true, true), 0, "unchanged state has no delta");
+assert.equal(getPbmEffectiveDate({
+  nextBillingDate: "2026-11-01", businessDate: "2026-10-19",
+  billingAnchorDay: 1, currentCycleStarted: false,
+}), "2026-11-01", "future billing date remains the effective date");
+assert.equal(getPbmEffectiveDate({
+  nextBillingDate: "2026-10-19", businessDate: "2026-10-19",
+  billingAnchorDay: 19, currentCycleStarted: false,
+}), "2026-11-19", "request on billing date is queued for the next 30-day cycle");
+assert.equal(getPbmEffectiveDate({
+  nextBillingDate: "2026-11-30", businessDate: "2026-10-19",
+  billingAnchorDay: 31, currentCycleStarted: true,
+}), "2026-12-31", "started cycle advances using established month-end anchor");
 assert.equal(calculatePbmAmount(129, 30), 159);
 assert.equal(calculatePbmAmount(159, -30), 129);
 
@@ -31,6 +44,8 @@ assert.equal(shouldApplyPbmChangeAfterBilling("unknown"), false,
   "possible captures require reconciliation before applying PBM state");
 assert.equal(shouldApplyPbmChangeAfterBilling("completed"), true,
   "only a confirmed successful charge applies PBM state");
+assert.equal(getPbmCycleAmount(159, -30, false), 159,
+  "PBM removal keeps the current paid period amount, with no prorated refund");
 assert.equal(canWithdrawPbmChange("Pending Submission"), true,
   "a pending request can be withdrawn before manual eligibility submission");
 assert.equal(canWithdrawPbmChange("Submitted"), false,

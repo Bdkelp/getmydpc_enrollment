@@ -1,4 +1,5 @@
 import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
+import { calculateNextBillingCycleDate } from "../utils/membership-dates";
 
 export const PBM_MONTHLY_PRICE = RX_ADDON_MONTHLY_PRICE;
 
@@ -12,6 +13,18 @@ export function getPbmAmountDelta(currentEnabled: boolean, targetEnabled: boolea
 
 export function isPbmChangeEffective(effectiveDate: string, billingDate: string): boolean {
   return effectiveDate <= billingDate;
+}
+
+export function getPbmEffectiveDate(input: {
+  nextBillingDate: string;
+  businessDate: string;
+  billingAnchorDay: number;
+  currentCycleStarted: boolean;
+}): string {
+  const cycleStarted = input.currentCycleStarted || input.nextBillingDate <= input.businessDate;
+  return cycleStarted
+    ? calculateNextBillingCycleDate(input.nextBillingDate, input.billingAnchorDay)
+    : input.nextBillingDate;
 }
 
 export function resolvePbmRequestError(input: {

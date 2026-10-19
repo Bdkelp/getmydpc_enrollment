@@ -1293,6 +1293,7 @@ export default function AgentDashboard() {
                   </Badge>
                 </div>
                 <p className="text-sm">Next billing date: <strong>{pbmQuery.data?.nextBillingDate || "Unavailable"}</strong></p>
+                <p className="text-xs text-muted-foreground">PBM changes start with a recurring 30-day cycle. Removing PBM does not refund the current paid period.</p>
                 {pbmQuery.data?.pendingChange && (
                   <div className="rounded bg-amber-50 p-3 text-sm">
                     <p><strong>Pending:</strong> {pbmQuery.data.pendingChange.target_enabled ? "Add PBM" : "Remove PBM"} effective {pbmQuery.data.pendingChange.effective_date}</p>

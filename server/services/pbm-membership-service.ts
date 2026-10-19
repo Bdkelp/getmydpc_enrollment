@@ -1,9 +1,11 @@
 import { transaction } from "../lib/neonDb";
 import {
   canWithdrawPbmChange,
+  getPbmEffectiveDate,
   getPbmAmountDelta,
   resolvePbmRequestError,
 } from "./pbm-membership-policy";
+import { resolveEstablishedBillingAnchorDay } from "./recurring-billing-cycle-policy";
 
 export type PbmRequestStatus = "pending" | "applied" | "withdrawn";
 export type PbmFulfillmentStatus = "Pending Submission" | "Submitted" | "Confirmed";
@@ -20,8 +22,9 @@ export async function requestPbmChange(input: {
       `SELECT m.id AS member_id, m.add_rx_valet AS current_enabled,
               m.status AS member_status, s.id AS subscription_id,
               s.status AS subscription_status,
-              TO_CHAR(s.next_billing_date, 'YYYY-MM-DD') AS effective_date,
-              s.amount
+              TO_CHAR(s.next_billing_date, 'YYYY-MM-DD') AS next_billing_date,
+              TO_CHAR(s.current_period_start, 'YYYY-MM-DD') AS current_period_start,
+              m.first_payment_date, m.enrollment_date, s.amount
        FROM public.members m
        JOIN public.subscriptions s ON s.member_id = m.id
        WHERE m.id = $1
@@ -31,15 +34,28 @@ export async function requestPbmChange(input: {
     );
     const row = result.rows[0];
     if (!row) throw Object.assign(new Error("Active DPC subscription not found"), { status: 404 });
-    if (!row.effective_date) {
+    if (!row.next_billing_date) {
       throw Object.assign(new Error("Subscription is missing its next billing date"), { status: 409 });
     }
     const businessDate = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(new Date());
-    if (row.effective_date <= businessDate) {
-      throw Object.assign(new Error("The current billing cycle is due or already in progress. Resolve it before scheduling a PBM change."), { status: 409 });
-    }
+    const billingAnchorDay = resolveEstablishedBillingAnchorDay({
+      scheduledCycleDate: row.next_billing_date,
+      currentPeriodStart: row.current_period_start,
+      historicalAnchorSource: row.first_payment_date || row.enrollment_date || null,
+    });
+    const cycleStarted = await client.query(
+      `SELECT 1 FROM public.recurring_billing_cycles
+       WHERE subscription_id = $1 AND cycle_date = $2::date LIMIT 1`,
+      [row.subscription_id, row.next_billing_date],
+    );
+    const effectiveDate = getPbmEffectiveDate({
+      nextBillingDate: row.next_billing_date,
+      businessDate,
+      billingAnchorDay,
+      currentCycleStarted: cycleStarted.rows.length > 0,
+    });
     const currentEnabled = row.current_enabled === true;
     const pending = await client.query(
       `SELECT id FROM public.pbm_membership_changes
@@ -63,7 +79,7 @@ export async function requestPbmChange(input: {
        VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8)
        RETURNING *`,
       [input.memberId, row.subscription_id, currentEnabled, input.targetEnabled,
-        amountDelta, row.effective_date, input.actorId, input.actorRole],
+        amountDelta, effectiveDate, input.actorId, input.actorRole],
     );
     const change = inserted.rows[0];
     await client.query(
@@ -72,7 +88,7 @@ export async function requestPbmChange(input: {
        VALUES ($1, 'requested', $2, $3, $4, $5, $6)`,
       [change.id, currentEnabled ? "enabled" : "disabled",
         input.targetEnabled ? "enabled" : "disabled",
-        "PBM change scheduled for the next recurring billing cycle",
+        `PBM change scheduled for recurring cycle ${effectiveDate}; the current paid period is not refunded`,
         input.actorId, input.actorRole],
     );
     return change;
