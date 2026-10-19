@@ -1,5 +1,8 @@
+Warning: truncated output (original token count: 17808)
+Total output lines: 1467
+
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -219,6 +222,33 @@ export default function AgentDashboard() {
     queryKey: ["/api/members/refund-eligibility", membershipTarget?.id, cancellationReasonCode, serviceUsageStatus],
     queryFn: () => apiRequest(`/api/members/${membershipTarget!.id}/refund-eligibility?reasonCode=${encodeURIComponent(cancellationReasonCode)}&serviceUsageStatus=${encodeURIComponent(serviceUsageStatus)}`),
     enabled: showMembershipDialog && Boolean(membershipTarget),
+  });
+
+  const queryClient = useQueryClient();
+  const pbmQuery = useQuery<any>({
+    queryKey: ["/api/members", membershipTarget?.id, "pbm"],
+    queryFn: () => apiRequest(`/api/members/${membershipTarget!.id}/pbm`),
+    enabled: showMembershipDialog && Boolean(membershipTarget),
+  });
+  const pbmMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest(`/api/members/${membershipTarget!.id}/pbm`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+    onSuccess: async () => {
+      toast({ title: "PBM change scheduled", description: "The change will take effect with the next recurring billing cycle." });
+      await queryClient.invalidateQueries({ queryKey: ["/api/members", membershipTarget?.id, "pbm"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments"] });
+    },
+    onError: (error: any) => toast({ title: "PBM change failed", description: error?.message || "Unable to schedule PBM change.", variant: "destructive" }),
+  });
+  const withdrawPbmMutation = useMutation({
+    mutationFn: () => apiRequest(`/api/members/${membershipTarget!.id}/pbm/pending`, { method: "DELETE" }),
+    onSuccess: async () => {
+      toast({ title: "Pending PBM change withdrawn" });
+      await queryClient.invalidateQueries({ queryKey: ["/api/members", membershipTarget?.id, "pbm"] });
+    },
+    onError: (error: any) => toast({ title: "Unable to withdraw change", description: error?.message || "Try again.", variant: "destructive" }),
   });
 
   const {
@@ -561,428 +591,7 @@ export default function AgentDashboard() {
                 </div>
               </div>
               <div className="hidden md:block">
-                <TrendingUp className="h-24 w-24 text-sky-aqua-200 opacity-60" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {!!lifecycleAlerts && (
-          <Card className="mb-8 border-bright-teal-blue-200 bg-sky-aqua-50/60">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="flex items-center gap-2 text-sm font-semibold text-deep-twilight-800">
-                    <AlertCircle className="h-4 w-4" />
-                    Recurring Lifecycle Alerts (Next {lifecycleAlerts.horizonDays} Days)
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {LIFECYCLE_ALERT_LEGEND.map((kind) => (
-                      <span key={kind} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getLifecycleAlertBadgeClasses(kind)}`}>
-                        {getLifecycleAlertLabel(kind)}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-600">Billing Due Soon</p>
-                      <p className="text-lg font-semibold text-gray-900">{lifecycleAlerts.billing.dueSoon}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Billing Overdue + Failed</p>
-                      <p className="text-lg font-semibold text-red-700">{lifecycleAlerts.billing.overdue + lifecycleAlerts.billing.failed}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Commissions Due Soon</p>
-                      <p className="text-lg font-semibold text-gray-900">{lifecycleAlerts.commissions.dueSoon}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600">Commissions Overdue + Unscheduled</p>
-                      <p className="text-lg font-semibold text-red-700">{lifecycleAlerts.commissions.overdue + lifecycleAlerts.commissions.unscheduled}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <Badge variant={lifecycleAlerts.totals.totalAttention > 0 ? 'destructive' : 'secondary'}>
-                    {lifecycleAlerts.totals.totalAttention} Active Alerts
-                  </Badge>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => setLocation('/agent')}>
-                      Review Billing
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setLocation(scopedCommissionsPath)}>
-                      Review Commissions
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="rounded-lg border border-french-blue-100 bg-white p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Top Billing Alerts</p>
-                  {(lifecycleAlerts.billingItems || []).slice(0, 4).length > 0 ? (
-                    <div className="space-y-2">
-                      {(lifecycleAlerts.billingItems || []).slice(0, 4).map((item, idx) => (
-                        <button
-                          key={`${item.kind}-${item.memberId}-${idx}`}
-                          type="button"
-                          onClick={() => setLocation(`/agent?memberId=${item.memberId}&alertType=${item.kind}`)}
-                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-french-blue-50"
-                        >
-                          <div className="min-w-0">
-                            <p className="font-medium text-gray-900 truncate">{item.memberLabel}</p>
-                            <p className="text-xs">
-                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${getLifecycleAlertBadgeClasses(item.kind)}`}>
-                                {getLifecycleAlertLabel(item.kind)}
-                              </span>
-                            </p>
-                          </div>
-                          <span className="text-xs text-gray-500 whitespace-nowrap">
-                            {item.referenceDate ? format(new Date(item.referenceDate), 'MMM d') : 'N/A'}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">No billing alerts in the selected horizon.</p>
-                  )}
-                </div>
-                <div className="rounded-lg border border-french-blue-100 bg-white p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-600 mb-2">Top Commission Alerts</p>
-                  {(lifecycleAlerts.commissionItems || []).slice(0, 4).length > 0 ? (
-                    <div className="space-y-2">
-                      {(lifecycleAlerts.commissionItems || []).slice(0, 4).map((item, idx) => (
-                        <button
-                          key={`${item.kind}-${item.commissionId}-${idx}`}
-                          type="button"
-                          onClick={() => setLocation(buildScopedCommissionAlertPath(item.memberId, item.commissionId, item.kind))}
-                          className="w-full text-sm flex items-center justify-between gap-3 rounded px-2 py-1 text-left hover:bg-french-blue-50"
-                        >
-                          <div className="min-w-0">
-                            <p className="font-medium text-gray-900 truncate">{item.memberLabel}</p>
-                            <p className="text-xs text-gray-500 flex items-center gap-2">
-                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${getLifecycleAlertBadgeClasses(item.kind)}`}>
-                                {getLifecycleAlertLabel(item.kind)}
-                              </span>
-                              <span>${item.amount.toFixed(2)}</span>
-                            </p>
-                          </div>
-                          <span className="text-xs text-gray-500 whitespace-nowrap">
-                            {item.referenceDate ? format(new Date(item.referenceDate), 'MMM d') : 'N/A'}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">No commission alerts in the selected horizon.</p>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        
-        {performanceGoals && (
-          <Card className="mb-8 border border-french-blue-200 bg-white shadow-soft">
-            <CardHeader className="pb-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-sm text-french-blue-700 uppercase tracking-wide font-semibold">Performance Goals</p>
-                  <h3 className="text-2xl font-semibold text-deep-twilight-800 mt-1">
-                    {stats?.performanceGoalsMeta?.hasOverride ? 'Custom targets for your desk' : 'Platform targets applied to you'}
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Weekly, monthly, and quarterly goals are pulled directly from the admin console.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="border-french-blue-200 bg-french-blue-50 text-french-blue-700">
-                    {stats?.performanceGoalsMeta?.hasOverride ? 'Agent Override Active' : 'Default Platform Goal'}
-                  </Badge>
-                  {isAdminUser && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setLocation('/admin/performance-goals')}
-                    >
-                      Manage Goals
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-3">
-                {goalPeriodSummaries.map(({ key, label, helper }) => (
-                  <div key={key} className="space-y-3 rounded-xl border border-french-blue-100 bg-french-blue-50/60 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs uppercase text-french-blue-700 tracking-wide">{helper}</p>
-                        <p className="text-lg font-semibold text-deep-twilight-800">{label}</p>
-                      </div>
-                      <Target className="h-4 w-4 text-french-blue-600" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <p className="text-xs text-gray-500">Enrollments</p>
-                        <p className="font-semibold text-gray-900">{formatInteger(performanceGoals[key].enrollments)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Revenue</p>
-                        <p className="font-semibold text-gray-900">{formatCurrency(performanceGoals[key].revenue)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Commissions</p>
-                        <p className="font-semibold text-gray-900">{formatCurrency(performanceGoals[key].commissions)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Leads</p>
-                        <p className="font-semibold text-gray-900">{formatInteger(performanceGoals[key].leads)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-french-blue-600" />
-                  <p className="text-sm font-semibold text-deep-twilight-800">Plan Enrollment Targets</p>
-                </div>
-                {performanceGoals.productGoals?.length ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-left text-gray-500 uppercase text-xs tracking-wide">
-                          <th className="py-2">Plan</th>
-                          {planGoalFields.map((field) => (
-                            <th key={field.key} className="py-2">{field.label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {performanceGoals.productGoals.map((planGoal) => (
-                          <tr key={`${planGoal.planId}-${planGoal.planName || 'plan'}`} className="border-t">
-                            <td className="py-2 font-medium text-gray-900">
-                              {planGoal.planName || `Plan #${planGoal.planId}`}
-                            </td>
-                            {planGoalFields.map((field) => (
-                              <td key={field.key} className="py-2 text-gray-800">
-                                {planGoal[field.key] ?? '—'}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    No plan-specific enrollment targets yet. You can add them from the admin Performance Goals page.
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Enhanced Dashboard Stats */}
-        <DashboardStats userRole="agent" agentId={viewingAgentId || undefined} />
-
-        {/* Enrollments */}
-        <Card className="border-french-blue-100">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle className="text-deep-twilight-900">Enrollments</CardTitle>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1 rounded-md border border-french-blue-100 bg-white p-1">
-                  <Button
-                    variant={businessFilter === 'all' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setBusinessFilter('all')}
-                  >
-                    All
-                  </Button>
-                  <Button
-                    variant={businessFilter === 'individual' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setBusinessFilter('individual')}
-                  >
-                    Individual
-                  </Button>
-                  <Button
-                    variant={businessFilter === 'group' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setBusinessFilter('group')}
-                  >
-                    Group
-                  </Button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label htmlFor="dashboardStartDate" className="text-sm text-gray-600">From:</label>
-                  <input
-                    id="dashboardStartDate"
-                    name="startDate"
-                    type="date"
-                    autoComplete="off"
-                    value={dateFilter.startDate}
-                    onChange={(e) => setDateFilter({ ...dateFilter, startDate: e.target.value })}
-                    className="rounded border border-french-blue-200 px-3 py-1"
-                  />
-                  <label htmlFor="dashboardEndDate" className="text-sm text-gray-600">To:</label>
-                  <input
-                    id="dashboardEndDate"
-                    name="endDate"
-                    type="date"
-                    autoComplete="off"
-                    value={dateFilter.endDate}
-                    onChange={(e) => setDateFilter({ ...dateFilter, endDate: e.target.value })}
-                    className="rounded border border-french-blue-200 px-3 py-1"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">Pending:</label>
-                  <Select value={pendingActionFilter} onValueChange={setPendingActionFilter}>
-                    <SelectTrigger className="h-9 w-[180px] border-french-blue-200">
-                      <SelectValue placeholder="All pending" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All pending</SelectItem>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="member_cancelled">Member Cancelled</SelectItem>
-                      <SelectItem value="plan_change">Plan Change</SelectItem>
-                      <SelectItem value="payment_delinquent">Payment Delinquent</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">Risk:</label>
-                  <Select value={paymentRiskFilter} onValueChange={setPaymentRiskFilter}>
-                    <SelectTrigger className="h-9 w-[140px] border-french-blue-200">
-                      <SelectValue placeholder="All risk" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All risk</SelectItem>
-                      <SelectItem value="ok">OK</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                      <SelectItem value="unknown">Unknown</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600">Access:</label>
-                  <Select value={accessWindowFilter} onValueChange={setAccessWindowFilter}>
-                    <SelectTrigger className="h-9 w-[200px] border-french-blue-200">
-                      <SelectValue placeholder="All access windows" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All access windows</SelectItem>
-                      <SelectItem value="has_access_through">Has access-through date</SelectItem>
-                      <SelectItem value="missing_access_through">Missing access-through date</SelectItem>
-                      <SelectItem value="access_ended">Access ended</SelectItem>
-                      <SelectItem value="access_active_or_future">Access active/future</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => downloadMutation.mutate()}
-                  disabled={downloadMutation.isPending}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Export CSV
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {focusMemberId && (
-              <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-french-blue-200 bg-french-blue-50/60 p-3">
-                <p className="text-sm text-deep-twilight-900">Focused member view: #{focusMemberId}</p>
-                <Button size="sm" variant="outline" onClick={() => setLocation('/agent')}>
-                  Clear Focus
-                </Button>
-              </div>
-            )}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Date</th>
-                    <th className="text-left py-2">Member ID</th>
-                    <th className="text-left py-2">Member Name</th>
-                    <th className="text-left py-2">Plan</th>
-                    <th className="text-left py-2">Type</th>
-                    <th className="text-left py-2">Monthly</th>
-                    <th className="text-left py-2">Commission</th>
-                    <th className="text-left py-2">Enrolled By</th>
-                    <th className="text-left py-2">Status</th>
-                    <th className="text-left py-2">Lifecycle</th>
-                    <th className="text-left py-2">Cancellation</th>
-                    <th className="text-left py-2">Payment</th>
-                    <th className="text-left py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEnrollments.map((enrollment: any) => (
-                    <tr 
-                      key={enrollment.id} 
-                      className={`border-b border-french-blue-100 hover:bg-french-blue-50/40 ${enrollment.status === 'pending' ? 'cursor-pointer' : ''}`}
-                      onClick={() => enrollment.status === 'pending' && handlePendingClick(enrollment)}
-                    >
-                      <td className="py-2">{format(new Date(enrollment.createdAt), "MM/dd/yyyy")}</td>
-                      <td className="py-2 font-mono text-xs">
-                        #{enrollment.id}
-                        {enrollment.memberPublicId && (
-                          <div className="text-[11px] text-gray-500">
-                            Public: {enrollment.memberPublicId}
-                          </div>
-                        )}
-                        {enrollment.customerNumber && (
-                          <div className="text-[11px] text-gray-500">
-                            Customer: {enrollment.customerNumber}
-                          </div>
-                        )}
-                      </td>
-                      <td className="py-2">{enrollment.firstName} {enrollment.lastName}</td>
-                      <td className="py-2">{enrollment.planName}</td>
-                      <td className="py-2">{enrollment.memberType}</td>
-                      <td className="py-2">${enrollment.totalMonthlyPrice}</td>
-                      <td className="py-2 text-green-600">${enrollment.commissionAmount ? Number(enrollment.commissionAmount).toFixed(2) : '0.00'}</td>
-                      <td className="py-2">
-                        {enrollment.enrolledBy && enrollment.enrolledBy.includes('Downline') ? (
-                          <span className="text-xs text-blue-600" title={enrollment.enrolledByAgentName || ''}>
-                            {enrollment.enrollingAgentNumber || 'Downline'}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-600">Self</span>
-                        )}
-                      </td>
-                      <td className="py-2">
-                        <span className={`rounded-full px-2 py-1 text-xs ${
-                          enrollment.status === 'active' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-bright-teal-blue-100 text-bright-teal-blue-800'
-                        }`}>
-                          {enrollment.status}
-                          {enrollment.status === 'pending' && (
-                            <span className="ml-1">ⓘ</span>
-                          )}
-                        </span>
-                      </td>
-                      <td className="py-2 text-xs">
-                        {(() => {
-                          const lifecycle = enrollment.lifecycleSummary;
-
-                          return (
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-gray-500">Sub:</span>
-                                <Badge className={getLifecycleSubscriptionBadgeClasses(lifecycle?.subscriptionStatus)}>
-                                  {getLifecycleSubscriptionLabel(lifecycle?.subscriptionStatus)}
-                                </Badge>
-                              </div>
+                <TrendingUp className="h-24 w-24 text-sky-aqua-200 o…5808 tokens truncated…div>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-gray-500">Pending:</span>
                                 <Badge className={getLifecyclePendingBadgeClasses(lifecycle?.pendingAction)}>
@@ -1254,6 +863,36 @@ export default function AgentDashboard() {
                 monthlyAmount={Number(membershipTarget.totalMonthlyPrice || 0)}
                 compact
               />
+
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold">Manage BestChoiceRX PBM</h3>
+                    <p className="text-sm text-muted-foreground">${pbmQuery.data?.monthlyPrice ?? 30}/month per household · no activation fee for existing DPC members</p>
+                  </div>
+                  <Badge variant={pbmQuery.data?.currentEnabled ? "default" : "outline"}>
+                    {pbmQuery.isLoading ? "Loading" : pbmQuery.data?.currentEnabled ? "Enrolled" : "Not enrolled"}
+                  </Badge>
+                </div>
+                <p className="text-sm">Next billing date: <strong>{pbmQuery.data?.nextBillingDate || "Unavailable"}</strong></p>
+                {pbmQuery.data?.pendingChange && (
+                  <div className="rounded bg-amber-50 p-3 text-sm">
+                    <p><strong>Pending:</strong> {pbmQuery.data.pendingChange.target_enabled ? "Add PBM" : "Remove PBM"} effective {pbmQuery.data.pendingChange.effective_date}</p>
+                    <p>Eligibility fulfillment: {pbmQuery.data.pendingChange.fulfillment_status}</p>
+                    <Button className="mt-2" variant="outline" size="sm" onClick={() => withdrawPbmMutation.mutate()} disabled={withdrawPbmMutation.isPending || pbmQuery.data.pendingChange.fulfillment_status !== "Pending Submission"}>Withdraw pending change</Button>
+                  </div>
+                )}
+                {!pbmQuery.data?.pendingChange && pbmQuery.data?.nextBillingDate && (
+                  <Button
+                    variant={pbmQuery.data.currentEnabled ? "outline" : "default"}
+                    disabled={pbmMutation.isPending || pbmQuery.data?.subscriptionStatus !== "active"}
+                    onClick={() => pbmMutation.mutate(!pbmQuery.data.currentEnabled)}
+                  >
+                    {pbmMutation.isPending ? "Scheduling…" : pbmQuery.data.currentEnabled ? "Remove PBM next cycle" : "Add PBM next cycle"}
+                  </Button>
+                )}
+                {pbmQuery.isError && <p className="text-sm text-destructive">PBM management details could not be loaded.</p>}
+              </div>
 
               <div>
                 <Label>Plan</Label>

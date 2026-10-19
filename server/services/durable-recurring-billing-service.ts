@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { query } from "../lib/neonDb";
+import { query, transaction } from "../lib/neonDb";
 import {
   getSubscriptionsDueForBilling,
   resolveRecurringBillingExceptionNotifications,
@@ -17,6 +17,14 @@ import {
   resolveEstablishedBillingAnchorDay,
 } from "./recurring-billing-cycle-policy";
 import { submitServerPostRecurringPayment } from "./epx-payment-service";
+import {
+  applyPbmChangeAfterSuccessfulCycle,
+} from "./pbm-membership-service";
+import {
+  getPbmCycleAmount,
+  isPbmChangeEffective,
+  shouldApplyPbmChangeAfterBilling,
+} from "./pbm-membership-policy";
 import {
   processClaimedBillingCycle,
   processJustInTimeBatch,
@@ -423,6 +431,32 @@ export async function runDurableRecurringBilling(options: {
     controlledRetrySubscriptionIds,
     subscriptionIds,
   });
+  const baseAmountBySubscriptionId = new Map<number, string>(
+    due.map((subscription) => [subscription.subscriptionId, subscription.amount]),
+  );
+  const pendingPbmRows = due.length > 0
+    ? await query(
+        `SELECT c.subscription_id, c.member_id, c.amount_delta, c.target_enabled,
+                c.effective_date::text AS effective_date
+         FROM public.pbm_membership_changes c
+         JOIN public.subscriptions s ON s.id = c.subscription_id
+         WHERE c.request_status = 'pending'
+           AND c.subscription_id = ANY($1::int[])
+           AND c.effective_date <= s.next_billing_date::date`,
+        [Array.from(new Set(due.map((subscription) => subscription.subscriptionId)))],
+      )
+    : { rows: [] as any[] };
+  const pendingPbmBySubscriptionId = new Map<number, any>(
+    pendingPbmRows.rows.map((row: any) => [Number(row.subscription_id), row]),
+  );
+  for (const subscription of due) {
+    const change = pendingPbmBySubscriptionId.get(subscription.subscriptionId);
+    if (change && isPbmChangeEffective(change.effective_date, subscription.nextBillingDate)) {
+      subscription.amount = getPbmCycleAmount(
+        Number(subscription.amount), Number(change.amount_delta), true,
+      ).toFixed(2);
+    }
+  }
   const scheduleRows =
     due.length > 0
       ? await query(
@@ -598,29 +632,58 @@ export async function runDurableRecurringBilling(options: {
       },
     });
 
-    for (const { subscription, credential, cycleDate } of candidates) {
-      if (!credential.credential) continue;
-      await query(
-        `INSERT INTO public.recurring_billing_cycles
-         (subscription_id, member_id, cycle_date, processor_reference, amount,
-          payment_method_type, credential_source, processor_auth_guid, run_id)
-       VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (subscription_id, cycle_date) DO NOTHING`,
-        [
-          subscription.subscriptionId,
-          subscription.memberId,
-          cycleDate,
-          deterministicProcessorReference(
-            subscription.subscriptionId,
-            cycleDate,
-          ),
-          subscription.amount,
-          subscription.paymentMethodType,
-          credential.source,
-          credential.credential,
-          summary.runId,
-        ],
-      );
+    const cycleCandidates = candidates.filter(({ credential }) => Boolean(credential.credential));
+    if (cycleCandidates.length > 0) {
+      await transaction(async (client) => {
+        const subscriptionIdsToLock = Array.from(new Set(
+          cycleCandidates.map(({ subscription }) => subscription.subscriptionId),
+        ));
+        // Serialize cycle creation against PBM requests/withdrawals, which lock this same
+        // subscription row. The locked request plus cycle row makes the amount immutable.
+        await client.query(
+          `SELECT id FROM public.subscriptions WHERE id = ANY($1::int[]) FOR UPDATE`,
+          [subscriptionIdsToLock],
+        );
+        const lockedChanges = await client.query(
+          `SELECT c.subscription_id, c.amount_delta, c.effective_date::text AS effective_date
+           FROM public.pbm_membership_changes c
+           JOIN public.subscriptions s ON s.id = c.subscription_id
+           WHERE c.request_status = 'pending'
+             AND c.subscription_id = ANY($1::int[])
+             AND c.effective_date <= s.next_billing_date::date
+           FOR UPDATE OF c`,
+          [subscriptionIdsToLock],
+        );
+        const changesBySubscriptionId = new Map<number, any>(
+          lockedChanges.rows.map((row: any) => [Number(row.subscription_id), row]),
+        );
+        for (const { subscription, credential, cycleDate } of cycleCandidates) {
+          const baseAmount = Number(baseAmountBySubscriptionId.get(subscription.subscriptionId) || subscription.amount);
+          const change = changesBySubscriptionId.get(subscription.subscriptionId);
+          const effective = Boolean(change && isPbmChangeEffective(change.effective_date, cycleDate));
+          subscription.amount = getPbmCycleAmount(
+            baseAmount, Number(change?.amount_delta || 0), effective,
+          ).toFixed(2);
+          await client.query(
+            `INSERT INTO public.recurring_billing_cycles
+             (subscription_id, member_id, cycle_date, processor_reference, amount,
+              payment_method_type, credential_source, processor_auth_guid, run_id)
+             VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (subscription_id, cycle_date) DO NOTHING`,
+            [
+              subscription.subscriptionId,
+              subscription.memberId,
+              cycleDate,
+              deterministicProcessorReference(subscription.subscriptionId, cycleDate),
+              subscription.amount,
+              subscription.paymentMethodType,
+              credential.source,
+              credential.credential,
+              summary.runId,
+            ],
+          );
+        }
+      });
     }
 
     const amounts = { succeeded: 0, declined: 0, unknown: 0 };
@@ -650,6 +713,23 @@ export async function runDurableRecurringBilling(options: {
         if (outcome === "completed") {
           summary.succeeded++;
           amounts.succeeded += Number(cycle.amount);
+          try {
+            if (shouldApplyPbmChangeAfterBilling(outcome)) await applyPbmChangeAfterSuccessfulCycle({
+              subscriptionId: cycle.subscriptionId,
+              memberId: cycle.memberId,
+              cycleDate: cycle.cycleDate,
+              cycleAmount: cycle.amount,
+            });
+          } catch (error: any) {
+            // Payment is already confirmed; preserve it and surface fulfillment/account sync
+            // failure for operator repair instead of risking a second charge.
+            console.error("[DurableBilling][PBM] Failed to apply scheduled PBM state after successful cycle", {
+              subscriptionId: cycle.subscriptionId,
+              memberId: cycle.memberId,
+              cycleDate: cycle.cycleDate,
+              error: error?.message || String(error),
+            });
+          }
         } else if (outcome === "declined") {
           summary.declined++;
           amounts.declined += Number(cycle.amount);
