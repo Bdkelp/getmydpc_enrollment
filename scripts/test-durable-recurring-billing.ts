@@ -554,7 +554,7 @@ async function run() {
   );
   assert.match(
     runSource,
-    /if \(!credential\.credential\) continue;/,
+    /const cycleCandidates = candidates\.filter\(\(\{ credential \}\) => Boolean\(credential\.credential\)\);/,
     "cycles without a credential must not be inserted or charged",
   );
 
