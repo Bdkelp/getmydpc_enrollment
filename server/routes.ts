@@ -4402,7 +4402,7 @@ router.get(
       const householdResult = await storage.query(
         `SELECT first_name, last_name, relationship
          FROM public.family_members WHERE primary_member_id = $1 AND is_active = true
-         ORDER BY dependent_suffix NULLS LAST, id`,
+         ORDER BY id`,
         [memberId],
       );
       return res.json({
