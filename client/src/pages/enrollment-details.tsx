@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 27916)
-Total output lines: 2528
-
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -714,7 +711,1343 @@ export default function EnrollmentDetails() {
     },
     onError: (error: any) => {
       toast({
-        title: 'Failed …15916 tokens truncated…                     >
+        title: 'Failed to update SSN',
+        description: error?.message || 'Unable to update SSN.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const updateBankMutation = useMutation({
+    mutationFn: async () => {
+      if (!enrollment?.id) throw new Error('Member ID is missing');
+      return apiRequest(`/api/admin/enrollment/${enrollment.id}/bank-info`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          routingNumber: editedBank.routingNumber,
+          accountNumber: editedBank.accountNumber,
+          accountType: editedBank.accountType,
+          accountHolderName: editedBank.accountHolderName,
+          reason: editedBank.reason,
+        }),
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'Bank info updated',
+        description: 'Bank information has been securely updated.',
+      });
+      setIsEditingBank(false);
+      setEditedBank({
+        routingNumber: '',
+        accountNumber: '',
+        accountType: 'Checking',
+        accountHolderName: '',
+        reason: '',
+      });
+      setIsBankVisible(false);
+      setRevealedBankInfo(null);
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Failed to update bank info',
+        description: error?.message || 'Unable to update bank information.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const updateMembershipMutation = useMutation({
+    mutationFn: async (payload: {
+      action: 'change' | 'cancel' | 'reactivate';
+      planId?: number;
+      memberType?: string;
+      reason?: string;
+    }) => {
+      return apiRequest(`/api/members/${enrollmentId}/membership`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    },
+    onSuccess: (data: any, payload) => {
+      const actionLabel = payload.action === 'cancel'
+        ? 'Membership cancelled'
+        : payload.action === 'reactivate'
+          ? 'Membership reactivated'
+          : 'Membership updated';
+
+      toast({
+        title: actionLabel,
+        description: data?.message || 'Member subscription changes have been applied successfully.',
+      });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/admin/payments/member/${enrollmentId}`] });
+      setMembershipReason('');
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Membership update failed',
+        description: error?.message || 'Unable to apply membership changes.',
+        variant: 'destructive',
+      });
+    },
+  });
+  
+  // Export enrollment summary
+  const exportSummary = () => {
+    if (!enrollment) return;
+
+    const enrollmentDate = formatDateDisplay(enrollment.createdAt, "MMMM d, yyyy", "N/A");
+    const dateOfBirth = formatDateDisplay(enrollment.dateOfBirth, "MM/dd/yyyy", "N/A");
+    const planStartDate = formatDateDisplay(enrollment.planStartDate, "MM/dd/yyyy", "N/A");
+    const phone = formatPhoneDisplay(enrollment.phone, "Not provided");
+    const emergencyPhone = formatPhoneDisplay(enrollment.emergencyContactPhone, "Not provided");
+    const coverageType = formatCoverageLabel(enrollment.memberType);
+
+    const familySection = enrollment.familyMembers && enrollment.familyMembers.length > 0
+      ? `
+FAMILY MEMBERS
+--------------
+${enrollment.familyMembers.map((member, index) => `
+${index + 1}. ${member.firstName} ${member.lastName}
+   Relationship: ${member.relationship}
+   DOB: ${formatDateDisplay(member.dateOfBirth, 'MM/dd/yyyy', 'N/A')}
+   Status: ${member.isActive ? 'Active' : 'Inactive'}
+`).join('')}
+`
+      : '';
+
+    const emergencySection = enrollment.emergencyContactName
+      ? `
+EMERGENCY CONTACT
+-----------------
+Name: ${enrollment.emergencyContactName}
+Phone: ${emergencyPhone}
+`
+      : '';
+
+    const summary = `
+ENROLLMENT SUMMARY
+==================
+Customer Number: ${enrollment.customerNumber || 'Pending'}
+Member ID: ${enrollment.memberPublicId || 'Pending'}
+Enrollment Date: ${enrollmentDate}
+
+MEMBER INFORMATION
+------------------
+Name: ${enrollment.firstName} ${enrollment.middleName || ''} ${enrollment.lastName}
+Date of Birth: ${dateOfBirth}
+Email: ${enrollment.email}
+Phone: ${phone}
+
+ADDRESS
+-------
+${enrollment.address}
+${enrollment.address2 || ''}
+${enrollment.city}, ${enrollment.state} ${enrollment.zipCode}
+
+PLAN DETAILS
+------------
+Plan: ${enrollment.planName}
+Coverage Type: ${coverageType}
+Monthly Premium: $${enrollment.totalMonthlyPrice}
+Start Date: ${planStartDate}
+Status: ${enrollment.status}
+${emergencySection}
+${familySection}
+
+ENROLLMENT AGENT
+----------------
+${enrollment.enrolledBy || 'Self-enrolled'}
+`;
+
+    const blob = new Blob([summary], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `enrollment-${enrollment.id}-summary.txt`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+  
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+  
+  if (!enrollment) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold text-gray-900">No Enrollment Details Available</h2>
+          <p className="text-gray-600 mt-2">This user is not an enrolled member.</p>
+          <p className="text-sm text-gray-500 mt-1">Enrollment details are only available for members who have completed registration.</p>
+          <div className="mt-4 space-x-2">
+            <Button onClick={() => setLocation("/admin/enrollments")}>
+              Back to Enrollments
+            </Button>
+            <Button variant="outline" onClick={() => setLocation("/admin/users")}>
+              Back to Users
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const enrollmentDateLabel = formatDateDisplay(enrollment.createdAt, "MMM d, yyyy", "N/A");
+  const planStartLabel = formatDateDisplay(enrollment.planStartDate, "MMMM d, yyyy", "Not scheduled");
+  const dateOfBirthLabel = formatDateDisplay(enrollment.dateOfBirth, "MM/dd/yyyy", "Not provided");
+  const coverageTypeLabel = formatCoverageLabel(enrollment.memberType);
+  const formattedPhone = formatPhoneDisplay(enrollment.phone, "Not provided");
+  const formattedEmergencyPhone = formatPhoneDisplay(enrollment.emergencyContactPhone, "Not provided");
+  const monthlyPremiumValue = Number(enrollment.totalMonthlyPrice ?? enrollment.planPrice ?? 0);
+  const monthlyPremiumDisplay = Number.isFinite(monthlyPremiumValue)
+    ? monthlyPremiumValue.toFixed(2)
+    : "0.00";
+  const nextBillingDateLabel = formatDateDisplay(
+    enrollment.lifecycleSummary?.nextBillingDate || enrollment.nextBillingDate || null,
+    "MMMM d, yyyy",
+    "Not scheduled",
+  );
+  const lifecycleMemberSinceLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.memberSinceDate || enrollment.memberSinceDate || enrollment.enrollmentDate || enrollment.createdAt || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleEffectiveLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.effectiveDate || enrollment.effectiveDate || enrollment.membershipStartDate || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleLastRunLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.lastPaymentRunDate || enrollment.lastPaymentRunDate || enrollment.lastPaymentAttemptDate || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleLastSuccessLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.lastSuccessfulPaymentDate || enrollment.lastSuccessfulPaymentDate || null,
+    "MMMM d, yyyy",
+    "Not available",
+  );
+  const lifecycleNextRunLabel = formatDateDisplay(
+    enrollment.lifecycleTimeline?.nextPaymentRunDate || enrollment.nextPaymentRunDate || enrollment.nextBillingDate || null,
+    "MMMM d, yyyy",
+    "Not scheduled",
+  );
+  const monthsAsMemberValue = Number.isFinite(Number(enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember))
+    ? Number(enrollment.lifecycleTimeline?.monthsAsMember ?? enrollment.monthsAsMember)
+    : null;
+  const lifecycleHistorySummary = enrollment.lifecycleTimeline?.paymentHistorySummary || enrollment.paymentHistorySummary;
+  const lifecycleFlags = enrollment.lifecycleTimeline?.lifecycleFlags || enrollment.lifecycleFlags;
+  const profilePaymentHistory = Array.isArray(enrollment.paymentHistory) ? enrollment.paymentHistory : [];
+  const transactionHistoryRows = profilePaymentHistory.length > 0 ? profilePaymentHistory : (Array.isArray(paymentHistory) ? paymentHistory : []);
+  const accessThroughDateLabel = formatDateDisplay(
+    enrollment.lifecycleSummary?.accessThroughDate || enrollment.subscriptionEndDate || null,
+    "MMMM d, yyyy",
+    "Not scheduled",
+  );
+  const pendingLifecycleLabel = String(enrollment.lifecycleSummary?.pendingAction || enrollment.subscriptionPendingReason || '')
+    .trim()
+    .replace(/_/g, ' ') || 'None';
+  
+  const startEditingContact = () => {
+    setEditedContact({
+      email: enrollment.email,
+      phone: enrollment.phone,
+      emergencyContactName: enrollment.emergencyContactName || '',
+      emergencyContactPhone: enrollment.emergencyContactPhone || '',
+    });
+    setIsEditingContact(true);
+  };
+  
+  const startEditingAddress = () => {
+    setEditedAddress({
+      address: enrollment.address,
+      address2: enrollment.address2 || '',
+      city: enrollment.city,
+      state: enrollment.state,
+      zipCode: enrollment.zipCode,
+    });
+    setIsEditingAddress(true);
+  };
+  
+  const saveContact = () => {
+    updateContactMutation.mutate({
+      ...editedContact,
+      phone: cleanPhoneNumber(editedContact.phone),
+      emergencyContactPhone: cleanPhoneNumber(editedContact.emergencyContactPhone),
+    });
+  };
+  
+  const saveAddress = () => {
+    updateAddressMutation.mutate({
+      ...editedAddress,
+      zipCode: editedAddress.zipCode.replace(/-/g, ''),
+    });
+  };
+
+  const startEditingPersonal = () => {
+    setEditedPersonal({
+      firstName: enrollment.firstName || '',
+      lastName: enrollment.lastName || '',
+      middleName: enrollment.middleName || '',
+      dateOfBirth: formatDateForInput(enrollment.dateOfBirth),
+      gender: enrollment.gender || '',
+      employerName: enrollment.employerName || '',
+      divisionName: enrollment.divisionName || '',
+      dateOfHire: formatDateForInput(enrollment.dateOfHire),
+    });
+    setIsEditingPersonal(true);
+  };
+
+  const savePersonal = () => {
+    updatePersonalMutation.mutate({
+      ...editedPersonal,
+      firstName: (editedPersonal.firstName || '').trim(),
+      lastName: (editedPersonal.lastName || '').trim(),
+      middleName: (editedPersonal.middleName || '').trim(),
+      employerName: (editedPersonal.employerName || '').trim(),
+      divisionName: (editedPersonal.divisionName || '').trim(),
+    });
+  };
+
+  const submitMembershipChange = () => {
+    const payload: {
+      action: 'change' | 'cancel' | 'reactivate';
+      planId?: number;
+      memberType?: string;
+      reason?: string;
+    } = {
+      action: 'change',
+    };
+
+    if (selectedPlanId) {
+      payload.planId = Number(selectedPlanId);
+    }
+
+    if (selectedMemberType && selectedMemberType.trim() !== enrollment.memberType) {
+      payload.memberType = selectedMemberType.trim();
+    }
+
+    if (membershipReason.trim()) {
+      payload.reason = membershipReason.trim();
+    }
+
+    if (!payload.planId && !payload.memberType) {
+      toast({
+        title: 'No change selected',
+        description: 'Choose a different plan or coverage type before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    updateMembershipMutation.mutate(payload);
+  };
+  
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                className="mr-4"
+                onClick={() => setLocation("/admin/enrollments")}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {enrollment.firstName} {enrollment.lastName}
+                </h1>
+                <p className="text-gray-600 mt-1">
+                  Member ID {enrollment.memberPublicId || 'Pending'} • Customer #{enrollment.customerNumber || 'Pending'} • Enrolled {enrollmentDateLabel}
+                </p>
+              </div>
+            </div>
+            <Button onClick={exportSummary}>
+              <Download className="h-4 w-4 mr-2" />
+              Export Summary
+            </Button>
+          </div>
+        </div>
+      </div>
+      
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Tabs defaultValue="overview" className="space-y-6">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="contact">Contact Info</TabsTrigger>
+            <TabsTrigger value="members">Family Members</TabsTrigger>
+            <TabsTrigger value="payment">Payment Info</TabsTrigger>
+          </TabsList>
+          
+          {/* Overview Tab */}
+          <TabsContent value="overview" className="space-y-6">
+            <Card>
+              <CardHeader><CardTitle>Manage BestChoiceRX PBM</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">$30/month per household · no activation fee for existing DPC members</p>
+                  <Badge variant={pbmStateQuery.data?.currentEnabled ? "default" : "outline"}>
+                    {pbmStateQuery.data?.currentEnabled ? "Enrolled" : "Not enrolled"}
+                  </Badge>
+                </div>
+                <p className="text-sm">Next billing date: <strong>{pbmStateQuery.data?.nextBillingDate || "Unavailable"}</strong></p>
+                {pbmStateQuery.data?.pendingChange ? (
+                  <div className="rounded bg-amber-50 p-3 text-sm">
+                    <p><strong>Pending:</strong> {pbmStateQuery.data.pendingChange.target_enabled ? "Add PBM" : "Remove PBM"} effective {pbmStateQuery.data.pendingChange.effective_date} · fulfillment {pbmStateQuery.data.pendingChange.fulfillment_status}</p>
+                    <Button className="mt-2" variant="outline" size="sm" onClick={() => withdrawPbmChangeMutation.mutate()} disabled={withdrawPbmChangeMutation.isPending || pbmStateQuery.data.pendingChange.fulfillment_status !== "Pending Submission"}>Withdraw pending change</Button>
+                  </div>
+                ) : pbmStateQuery.data?.nextBillingDate ? (
+                  <Button
+                    variant={pbmStateQuery.data.currentEnabled ? "outline" : "default"}
+                    disabled={pbmChangeMutation.isPending || pbmStateQuery.data.subscriptionStatus !== "active"}
+                    onClick={() => pbmChangeMutation.mutate(!pbmStateQuery.data.currentEnabled)}
+                  >
+                    {pbmStateQuery.data.currentEnabled ? "Remove PBM next cycle" : "Add PBM next cycle"}
+                  </Button>
+                ) : <p className="text-sm text-muted-foreground">PBM changes are available for active DPC subscriptions with a scheduled billing date.</p>}
+                {pbmStateQuery.isError && <p className="text-sm text-destructive">PBM details could not be loaded.</p>}
+              </CardContent>
+            </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Plan Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Shield className="h-5 w-5 mr-2 text-blue-600" />
+                    Plan Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label className="text-gray-600">Plan Name</Label>
+                    <p className="font-semibold">{enrollment.planName}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Coverage Type</Label>
+                    <p className="font-semibold capitalize">{coverageTypeLabel}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Monthly Premium</Label>
+                    <p className="font-semibold text-2xl text-green-600">${monthlyPremiumDisplay}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Start Date</Label>
+                    <p className="font-semibold">{planStartLabel}</p>
+                  </div>
+                  <div>
+                    <Label className="text-gray-600">Status</Label>
+                    <Badge className={enrollment.status === 'active' ? 'bg-green-100 text-green-800' : ''}>
+                      {enrollment.status}
+                    </Badge>
+                  </div>
+                  <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+                    <div>
+                      <Label className="text-gray-600">Subscription Status</Label>
+                      <p className="font-semibold capitalize">{enrollment.subscriptionStatus || 'Unknown'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Next Billing Date</Label>
+                      <p className="font-semibold">{nextBillingDateLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Access Through</Label>
+                      <p className="font-semibold">{accessThroughDateLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Pending Lifecycle Action</Label>
+                      <p className="font-semibold capitalize">{pendingLifecycleLabel}</p>
+                    </div>
+                    {enrollment.subscriptionPendingDetails && (
+                      <div>
+                        <Label className="text-gray-600">Pending Details</Label>
+                        <pre className="text-xs whitespace-pre-wrap bg-white border rounded p-2 mt-1">
+                          {typeof enrollment.subscriptionPendingDetails === 'string'
+                            ? enrollment.subscriptionPendingDetails
+                            : JSON.stringify(enrollment.subscriptionPendingDetails, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                  <div className="border rounded-lg p-3 bg-blue-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-gray-600">Lifecycle Timeline</Label>
+                      <div className="flex flex-wrap gap-1">
+                        {lifecycleFlags?.billingAtRisk && (
+                          <Badge className="bg-red-100 text-red-800">Billing At Risk</Badge>
+                        )}
+                        {lifecycleFlags?.gapDetected && (
+                          <Badge className="bg-amber-100 text-amber-800">Gap Detected</Badge>
+                        )}
+                        {lifecycleFlags?.statusMismatch && (
+                          <Badge className="bg-orange-100 text-orange-800">Status Mismatch</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Member Since (Revenue/Commission)</Label>
+                      <p className="font-semibold">{lifecycleMemberSinceLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Effective Date</Label>
+                      <p className="font-semibold">{lifecycleEffectiveLabel}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Months As Member</Label>
+                      <p className="font-semibold">{monthsAsMemberValue ?? 'Not available'}</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-gray-600">Last Payment Run</Label>
+                        <p className="font-semibold">{lifecycleLastRunLabel}</p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-600">Last Successful Payment</Label>
+                        <p className="font-semibold">{lifecycleLastSuccessLabel}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Next Payment Run Date</Label>
+                      <p className="font-semibold">{lifecycleNextRunLabel}</p>
+                    </div>
+                    {lifecycleHistorySummary && (
+                      <div className="border rounded bg-white p-2 text-sm grid grid-cols-2 md:grid-cols-3 gap-2">
+                        <div>
+                          <span className="text-gray-600">Total:</span> {lifecycleHistorySummary.totalPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Success:</span> {lifecycleHistorySummary.successfulPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Failed:</span> {lifecycleHistorySummary.failedPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Pending:</span> {lifecycleHistorySummary.pendingPayments ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">90d Attempts:</span> {lifecycleHistorySummary.last90DaysAttempts ?? 0}
+                        </div>
+                        <div>
+                          <span className="text-gray-600">90d Success:</span> {lifecycleHistorySummary.last90DaysSuccesses ?? 0}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t pt-4 space-y-3">
+                    <Label className="text-gray-600">Membership Actions</Label>
+                    <div>
+                      <Label>Plan</Label>
+                      <Select
+                        value={selectedPlanId || String(enrollment.planId || '')}
+                        onValueChange={setSelectedPlanId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a plan" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePlans.map((plan) => (
+                            <SelectItem key={plan.id} value={String(plan.id)}>
+                              {plan.name} (${Number(plan.price || 0).toFixed(2)})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Coverage Type</Label>
+                      <Select
+                        value={selectedMemberType || enrollment.memberType || ''}
+                        onValueChange={setSelectedMemberType}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select coverage type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="member-only">Member Only</SelectItem>
+                          <SelectItem value="member-spouse">Member + Spouse</SelectItem>
+                          <SelectItem value="member-children">Member + Children</SelectItem>
+                          <SelectItem value="family">Family</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Reason (optional)</Label>
+                      <Input
+                        value={membershipReason}
+                        onChange={(e) => setMembershipReason(e.target.value)}
+                        placeholder="Document caller request or consent details"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={submitMembershipChange}
+                        disabled={updateMembershipMutation.isPending}
+                      >
+                        {updateMembershipMutation.isPending ? 'Saving...' : 'Apply Change'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={updateMembershipMutation.isPending}
+                        onClick={() =>
+                          updateMembershipMutation.mutate({
+                            action: 'cancel',
+                            reason: membershipReason.trim() || 'Cancelled per member request',
+                          })
+                        }
+                      >
+                        Schedule Cancellation
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={updateMembershipMutation.isPending}
+                        onClick={() =>
+                          updateMembershipMutation.mutate({
+                            action: 'reactivate',
+                            reason: membershipReason.trim() || 'Reactivated per member request',
+                          })
+                        }
+                      >
+                        Reactivate
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* Personal Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <span className="flex items-center">
+                      <User className="h-5 w-5 mr-2 text-blue-600" />
+                      Personal Information
+                    </span>
+                    {!isEditingPersonal ? (
+                      <Button size="sm" variant="outline" onClick={startEditingPersonal}>
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                    ) : (
+                      <div className="flex space-x-2">
+                        <Button size="sm" onClick={savePersonal} disabled={updatePersonalMutation.isPending}>
+                          <Save className="h-4 w-4 mr-2" />
+                          Save
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setIsEditingPersonal(false)}>
+                          <X className="h-4 w-4 mr-2" />
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {!isEditingPersonal ? (
+                    <>
+                      <div>
+                        <Label className="text-gray-600">Full Name</Label>
+                        <p className="font-semibold">
+                          {enrollment.firstName} {enrollment.middleName} {enrollment.lastName}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-600">Date of Birth</Label>
+                        <p className="font-semibold">{dateOfBirthLabel}</p>
+                      </div>
+                      <div>
+                        <Label className="text-gray-600">Gender</Label>
+                        <p className="font-semibold capitalize">{enrollment.gender || 'Not specified'}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label>First Name</Label>
+                          <Input
+                            value={editedPersonal.firstName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, firstName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Middle Name</Label>
+                          <Input
+                            value={editedPersonal.middleName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, middleName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Last Name</Label>
+                          <Input
+                            value={editedPersonal.lastName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, lastName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label>Date of Birth</Label>
+                          <Input
+                            type="date"
+                            value={editedPersonal.dateOfBirth || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, dateOfBirth: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Gender</Label>
+                          <Select
+                            value={editedPersonal.gender || ''}
+                            onValueChange={(value) => setEditedPersonal({ ...editedPersonal, gender: value })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select gender" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="M">Male</SelectItem>
+                              <SelectItem value="F">Female</SelectItem>
+                              <SelectItem value="O">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label>Employer Name</Label>
+                          <Input
+                            value={editedPersonal.employerName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, employerName: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <Label>Division Name</Label>
+                          <Input
+                            value={editedPersonal.divisionName || ''}
+                            onChange={(e) => setEditedPersonal({ ...editedPersonal, divisionName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <Label>Date of Hire</Label>
+                        <Input
+                          type="date"
+                          value={editedPersonal.dateOfHire || ''}
+                          onChange={(e) => setEditedPersonal({ ...editedPersonal, dateOfHire: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <Label className="text-gray-600">SSN</Label>
+                    {!isEditingSSN ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="font-semibold tracking-wide">
+                          {isSSNVisible ? (revealedSSN || 'Not available') : getMaskedSSN(enrollment.ssn)}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            if (isSSNVisible) {
+                              setIsSSNVisible(false);
+                              return;
+                            }
+                            revealSensitiveMutation.mutate();
+                          }}
+                          disabled={revealSensitiveMutation.isPending}
+                          aria-label={isSSNVisible ? 'Hide SSN' : 'Reveal SSN'}
+                        >
+                          {isSSNVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const normalizedVisibleSSN = (isSSNVisible && revealedSSN && !revealedSSN.includes('*'))
+                              ? revealedSSN
+                              : '';
+                            setEditedSSN(normalizedVisibleSSN);
+                            setIsEditingSSN(true);
+                          }}
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Update
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 mt-2">
+                        <Input
+                          value={editedSSN}
+                          onChange={(e) => setEditedSSN(e.target.value)}
+                          placeholder="XXX-XX-XXXX"
+                        />
+                        <Input
+                          value={ssnUpdateReason}
+                          onChange={(e) => setSsnUpdateReason(e.target.value)}
+                          placeholder="Reason for SSN correction (optional)"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => updateSSNMutation.mutate()}
+                            disabled={!editedSSN.trim() || updateSSNMutation.isPending}
+                          >
+                            {updateSSNMutation.isPending ? 'Saving...' : 'Save SSN'}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setIsEditingSSN(false);
+                              setEditedSSN('');
+                              setSsnUpdateReason('');
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {!isEditingPersonal && enrollment.employerName && (
+                    <div>
+                      <Label className="text-gray-600">Employer</Label>
+                      <p className="font-semibold">{enrollment.employerName}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Agent Information */}
+            {enrollment.enrolledBy && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-blue-600" />
+                    Enrollment Agent
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="font-semibold">{enrollment.enrolledBy}</p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+          
+          {/* Contact Info Tab */}
+          <TabsContent value="contact" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <Mail className="h-5 w-5 mr-2 text-blue-600" />
+                    Contact Information
+                  </span>
+                  {!isEditingContact ? (
+                    <Button size="sm" variant="outline" onClick={startEditingContact}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <div className="flex space-x-2">
+                      <Button size="sm" onClick={saveContact} disabled={updateContactMutation.isPending}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIsEditingContact(false)}>
+                        <X className="h-4 w-4 mr-2" />
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!isEditingContact ? (
+                  <>
+                    <div>
+                      <Label className="text-gray-600">Email Address</Label>
+                      <p className="font-semibold">{enrollment.email}</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Phone Number</Label>
+                      <p className="font-semibold">{formattedPhone}</p>
+                    </div>
+                    {enrollment.emergencyContactName && (
+                      <>
+                        <div className="border-t pt-4">
+                          <h4 className="font-semibold mb-2">Emergency Contact</h4>
+                          <div>
+                            <Label className="text-gray-600">Name</Label>
+                            <p className="font-semibold">{enrollment.emergencyContactName}</p>
+                          </div>
+                          {enrollment.emergencyContactPhone && (
+                            <div className="mt-2">
+                              <Label className="text-gray-600">Phone</Label>
+                              <p className="font-semibold">{formattedEmergencyPhone}</p>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label>Email Address</Label>
+                      <Input
+                        type="email"
+                        value={editedContact.email}
+                        onChange={(e) => setEditedContact({ ...editedContact, email: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Phone Number</Label>
+                      <Input
+                        type="tel"
+                        value={formatPhoneNumber(editedContact.phone || "")}
+                        onChange={(e) => {
+                          const formatted = formatPhoneNumber(e.target.value || "");
+                          setEditedContact({ ...editedContact, phone: formatted });
+                        }}
+                      />
+                    </div>
+                    <div className="border-t pt-4">
+                      <h4 className="font-semibold mb-2">Emergency Contact</h4>
+                      <div>
+                        <Label>Name</Label>
+                        <Input
+                          value={editedContact.emergencyContactName}
+                          onChange={(e) => setEditedContact({ ...editedContact, emergencyContactName: e.target.value })}
+                        />
+                      </div>
+                      <div className="mt-2">
+                        <Label>Phone</Label>
+                        <Input
+                          type="tel"
+                          value={formatPhoneNumber(editedContact.emergencyContactPhone || "")}
+                          onChange={(e) => {
+                            const formatted = formatPhoneNumber(e.target.value || "");
+                            setEditedContact({ ...editedContact, emergencyContactPhone: formatted });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <MapPin className="h-5 w-5 mr-2 text-blue-600" />
+                    Address
+                  </span>
+                  {!isEditingAddress ? (
+                    <Button size="sm" variant="outline" onClick={startEditingAddress}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <div className="flex space-x-2">
+                      <Button size="sm" onClick={saveAddress} disabled={updateAddressMutation.isPending}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setIsEditingAddress(false)}>
+                        <X className="h-4 w-4 mr-2" />
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!isEditingAddress ? (
+                  <div className="space-y-1">
+                    <p className="font-semibold">{enrollment.address}</p>
+                    {enrollment.address2 && <p className="font-semibold">{enrollment.address2}</p>}
+                    <p className="font-semibold">
+                      {enrollment.city}, {enrollment.state} {formatZipCode(enrollment.zipCode)}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Street Address</Label>
+                      <Input
+                        value={editedAddress.address}
+                        onChange={(e) => setEditedAddress({ ...editedAddress, address: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Address Line 2</Label>
+                      <Input
+                        value={editedAddress.address2}
+                        onChange={(e) => setEditedAddress({ ...editedAddress, address2: e.target.value })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <Label>City</Label>
+                        <Input
+                          value={editedAddress.city}
+                          onChange={(e) => setEditedAddress({ ...editedAddress, city: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Label>State</Label>
+                        <Input
+                          value={editedAddress.state}
+                          onChange={(e) => setEditedAddress({ ...editedAddress, state: e.target.value })}
+                          maxLength={2}
+                        />
+                      </div>
+                      <div>
+                        <Label>ZIP Code</Label>
+                        <Input
+                          value={formatZipCode(editedAddress.zipCode || "")}
+                          onChange={(e) => {
+                            const formatted = formatZipCode(e.target.value || "");
+                            setEditedAddress({ ...editedAddress, zipCode: formatted });
+                          }}
+                          maxLength={10}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          {/* Family Members Tab */}
+          <TabsContent value="members" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-blue-600" />
+                    Family Members
+                  </span>
+                  <Dialog open={showAddFamilyDialog} onOpenChange={setShowAddFamilyDialog}>
+                      <DialogTrigger asChild>
+                        <Button size="sm">
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          Add Family Member
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Add Family Member</DialogTitle>
+                          <DialogDescription>
+                            Add a spouse, child, or dependent to this enrollment.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 mt-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">
+                                First Name <span className="text-red-500">*</span>
+                              </label>
+                              <Input
+                                value={newFamilyMember.firstName}
+                                onChange={(e) => setNewFamilyMember({...newFamilyMember, firstName: e.target.value})}
+                                placeholder="First name"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">
+                                Last Name <span className="text-red-500">*</span>
+                              </label>
+                              <Input
+                                value={newFamilyMember.lastName}
+                                onChange={(e) => setNewFamilyMember({...newFamilyMember, lastName: e.target.value})}
+                                placeholder="Last name"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Middle Name</label>
+                            <Input
+                              value={newFamilyMember.middleName}
+                              onChange={(e) => setNewFamilyMember({...newFamilyMember, middleName: e.target.value})}
+                              placeholder="Middle name (optional)"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm font-medium mb-1">
+                              Relationship <span className="text-red-500">*</span>
+                            </label>
+                            <Select
+                              value={newFamilyMember.relationship}
+                              onValueChange={(value) => setNewFamilyMember({...newFamilyMember, relationship: value})}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="spouse">Spouse</SelectItem>
+                                <SelectItem value="child">Child</SelectItem>
+                                <SelectItem value="dependent">Dependent</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Date of Birth</label>
+                              <Input
+                                type="date"
+                                value={newFamilyMember.dateOfBirth}
+                                onChange={(e) => setNewFamilyMember({...newFamilyMember, dateOfBirth: e.target.value})}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Gender</label>
+                              <Select
+                                value={newFamilyMember.gender}
+                                onValueChange={(value) => setNewFamilyMember({...newFamilyMember, gender: value})}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select gender" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="male">Male</SelectItem>
+                                  <SelectItem value="female">Female</SelectItem>
+                                  <SelectItem value="other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Email</label>
+                            <Input
+                              type="email"
+                              value={newFamilyMember.email}
+                              onChange={(e) => setNewFamilyMember({...newFamilyMember, email: e.target.value})}
+                              placeholder="email@example.com (optional)"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Phone</label>
+                            <Input
+                              type="tel"
+                              value={newFamilyMember.phone}
+                              onChange={(e) => setNewFamilyMember({...newFamilyMember, phone: e.target.value})}
+                              placeholder="(555) 555-5555 (optional)"
+                            />
+                          </div>
+
+                          <div className="flex justify-end gap-2 mt-6">
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setShowAddFamilyDialog(false);
+                                setNewFamilyMember({
+                                  firstName: '',
+                                  lastName: '',
+                                  middleName: '',
+                                  dateOfBirth: '',
+                                  gender: '',
+                                  relationship: 'spouse',
+                                  email: '',
+                                  phone: ''
+                                });
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={() => addFamilyMemberMutation.mutate(newFamilyMember)}
+                              disabled={!newFamilyMember.firstName || !newFamilyMember.lastName || !newFamilyMember.relationship || addFamilyMemberMutation.isPending}
+                            >
+                              {addFamilyMemberMutation.isPending ? 'Adding...' : 'Add Family Member'}
+                            </Button>
+                          </div>
+                        </div>
+                      </DialogContent>
+                  </Dialog>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {enrollment.familyMembers && enrollment.familyMembers.length > 0 ? (
+                  <div className="space-y-4">
+                    {enrollment.familyMembers.map((member) => (
+                      <div key={member.id} className="p-4 border rounded-lg">
+                        {editingFamilyMemberId === member.id ? (
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">First Name *</label>
+                                <Input
+                                  value={editedFamilyMember.firstName}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, firstName: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Last Name *</label>
+                                <Input
+                                  value={editedFamilyMember.lastName}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, lastName: e.target.value })}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Middle Name</label>
+                              <Input
+                                value={editedFamilyMember.middleName}
+                                onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, middleName: e.target.value })}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Relationship *</label>
+                              <Select
+                                value={editedFamilyMember.relationship}
+                                onValueChange={(value) => setEditedFamilyMember({ ...editedFamilyMember, relationship: value })}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="spouse">Spouse</SelectItem>
+                                  <SelectItem value="child">Child</SelectItem>
+                                  <SelectItem value="dependent">Dependent</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Date of Birth</label>
+                                <Input
+                                  type="date"
+                                  value={editedFamilyMember.dateOfBirth}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, dateOfBirth: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Gender</label>
+                                <Select
+                                  value={editedFamilyMember.gender}
+                                  onValueChange={(value) => setEditedFamilyMember({ ...editedFamilyMember, gender: value })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select gender" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="male">Male</SelectItem>
+                                    <SelectItem value="female">Female</SelectItem>
+                                    <SelectItem value="other">Other</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Email</label>
+                                <Input
+                                  type="email"
+                                  value={editedFamilyMember.email}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, email: e.target.value })}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Phone</label>
+                                <Input
+                                  type="tel"
+                                  value={editedFamilyMember.phone}
+                                  onChange={(e) => setEditedFamilyMember({ ...editedFamilyMember, phone: e.target.value })}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <Button variant="outline" size="sm" onClick={() => setEditingFamilyMemberId(null)}>
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => updateFamilyMemberMutation.mutate({ familyMemberId: member.id, data: editedFamilyMember })}
+                                disabled={!editedFamilyMember.firstName || !editedFamilyMember.lastName || updateFamilyMemberMutation.isPending}
+                              >
+                                {updateFamilyMemberMutation.isPending ? 'Saving...' : 'Save Changes'}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-semibold">
+                                {member.firstName} {member.lastName}
+                              </h4>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={member.isActive ? "default" : "secondary"}>
+                                  {member.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setEditingFamilyMemberId(member.id);
+                                    setEditedFamilyMember({
+                                      firstName: member.firstName || '',
+                                      lastName: member.lastName || '',
+                                      middleName: member.middleName || '',
+                                      dateOfBirth: member.dateOfBirth || '',
+                                      gender: member.gender || '',
+                                      relationship: member.relationship || 'dependent',
+                                      email: member.email || '',
+                                      phone: member.phone || ''
+                                    });
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <AlertDialog open={deletingFamilyMemberId === member.id} onOpenChange={(open) => setDeletingFamilyMemberId(open ? member.id : null)}>
+                                      <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Remove {member.firstName} {member.lastName}?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            This will permanently remove this dependent from the enrollment. This action cannot be undone.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => deleteFamilyMemberMutation.mutate(member.id)}
+                                            disabled={deleteFamilyMemberMutation.isPending}
+                                          >
                                             {deleteFamilyMemberMutation.isPending ? 'Removing...' : 'Remove'}
                                           </AlertDialogAction>
                                         </AlertDialogFooter>
