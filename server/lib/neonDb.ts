@@ -77,12 +77,13 @@ export async function query(text: string, params?: any[]) {
 }
 
 // Transaction helper
-export async function transaction(callback: (client: any) => Promise<void>) {
+export async function transaction<T>(callback: (client: any) => Promise<T>): Promise<T> {
   const client = await neonPool.connect();
   try {
     await client.query('BEGIN');
-    await callback(client);
+    const result = await callback(client);
     await client.query('COMMIT');
+    return result;
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

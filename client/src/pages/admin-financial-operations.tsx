@@ -83,6 +83,12 @@ function StateBadge({ state }: { state?: string | null }) {
 export default function AdminFinancialOperations() {
   const queryClient = useQueryClient();
 
+  const pbmTasksQuery = useQuery<{ tasks: any[] }>({
+    queryKey: ["/api/admin/pbm-fulfillment"],
+    queryFn: () => apiRequest("/api/admin/pbm-fulfillment"),
+    refetchInterval: 60_000,
+  });
+
   const billingQuery = useQuery<BillingSnapshot>({
     queryKey: ["/api/admin/billing-operations"],
     queryFn: () => apiRequest("/api/admin/billing-operations"),
@@ -91,6 +97,15 @@ export default function AdminFinancialOperations() {
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["/api/admin/billing-operations"] });
+    await queryClient.invalidateQueries({ queryKey: ["/api/admin/pbm-fulfillment"] });
+  };
+
+  const updatePbmTask = async (id: number, status: string) => {
+    await apiRequest(`/api/admin/pbm-fulfillment/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    await queryClient.invalidateQueries({ queryKey: ["/api/admin/pbm-fulfillment"] });
   };
 
   if (billingQuery.isLoading) {
@@ -211,6 +226,43 @@ export default function AdminFinancialOperations() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle>PBM eligibility fulfillment</CardTitle>
+              <Badge variant="outline">Manual FTP submission</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              These tasks track eligibility work only. The application never transmits PBM eligibility files.
+            </p>
+            {pbmTasksQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading PBM tasks…</p>
+            ) : pbmTasksQuery.isError ? (
+              <p className="text-sm text-destructive">PBM fulfillment tasks are unavailable.</p>
+            ) : (pbmTasksQuery.data?.tasks || []).length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No open PBM eligibility tasks.</div>
+            ) : (pbmTasksQuery.data?.tasks || []).map((task: any) => (
+              <div key={task.id} className="flex flex-col gap-3 rounded-xl border p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{task.first_name} {task.last_name}</span>
+                    <Badge variant="outline">{task.fulfillment_status}</Badge>
+                    <Badge>{task.target_enabled ? "Add PBM" : "Remove PBM"}</Badge>
+                  </div>
+                  <p className="mt-1 text-sm text-muted-foreground">Member #{task.member_id} · {task.customer_number || "No customer number"} · Effective {fmtDate(task.effective_date)}</p>
+                  <p className="text-sm text-muted-foreground">Household: {Array.isArray(task.household) && task.household.length ? task.household.map((person: any) => `${person.firstName} ${person.lastName}`).join(", ") : `${task.first_name} ${task.last_name} only`}</p>
+                </div>
+                <div className="flex gap-2">
+                  {task.fulfillment_status === "Pending Submission" && <Button variant="outline" onClick={() => updatePbmTask(task.id, "Submitted")}>Mark submitted</Button>}
+                  {task.fulfillment_status === "Submitted" && <Button onClick={() => updatePbmTask(task.id, "Confirmed")}>Mark confirmed</Button>}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

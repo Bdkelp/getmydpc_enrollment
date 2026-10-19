@@ -28,6 +28,7 @@
     "test:payment-credential": "tsx scripts/test-payment-credential.ts",
     "test:one-time-catchup": "tsx scripts/test-one-time-catchup-guardrails.ts && tsx scripts/test-one-time-catchup-mock.ts",
     "test:member-payment-methods": "tsx scripts/test-member-payment-methods.ts",
+    "test:pbm-membership-servicing": "node --import tsx scripts/test-pbm-membership-servicing.ts",
     "test:payment-credential-restore": "tsx scripts/test-payment-credential-restore.ts",
     "test:north-reconciliation": "tsx scripts/test-north-payment-reconciliation.ts",
     "test:plan-start-dates": "tsx scripts/test-plan-start-dates.ts",

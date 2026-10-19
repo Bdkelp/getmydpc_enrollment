@@ -332,6 +332,32 @@ export default function EnrollmentDetails() {
     queryKey: [`/api/admin/enrollment/${enrollmentId}`],
     enabled: !!enrollmentId,
   });
+
+  const pbmStateQuery = useQuery<any>({
+    queryKey: ["/api/members", enrollmentId, "pbm"],
+    queryFn: () => apiRequest(`/api/members/${enrollmentId}/pbm`),
+    enabled: Boolean(enrollmentId && enrollment?.subscriptionId),
+  });
+  const pbmChangeMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest(`/api/members/${enrollmentId}/pbm`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+    onSuccess: async () => {
+      toast({ title: "PBM change scheduled", description: "It will take effect with the next recurring billing cycle." });
+      await queryClient.invalidateQueries({ queryKey: ["/api/members", enrollmentId, "pbm"] });
+      await queryClient.invalidateQueries({ queryKey: [`/api/admin/enrollment/${enrollmentId}`] });
+    },
+    onError: (error: any) => toast({ title: "PBM change failed", description: error?.message || "Unable to schedule PBM change.", variant: "destructive" }),
+  });
+  const withdrawPbmChangeMutation = useMutation({
+    mutationFn: () => apiRequest(`/api/members/${enrollmentId}/pbm/pending`, { method: "DELETE" }),
+    onSuccess: async () => {
+      toast({ title: "Pending PBM change withdrawn" });
+      await queryClient.invalidateQueries({ queryKey: ["/api/members", enrollmentId, "pbm"] });
+    },
+    onError: (error: any) => toast({ title: "Unable to withdraw PBM change", description: error?.message || "Try again.", variant: "destructive" }),
+  });
   
   // Fetch payment history for this member
   const { data: paymentHistory, isLoading: paymentsLoading } = useQuery<any>({
@@ -1069,6 +1095,34 @@ ${enrollment.enrolledBy || 'Self-enrolled'}
           
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
+            <Card>
+              <CardHeader><CardTitle>Manage BestChoiceRX PBM</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">$30/month per household · no activation fee for existing DPC members</p>
+                  <Badge variant={pbmStateQuery.data?.currentEnabled ? "default" : "outline"}>
+                    {pbmStateQuery.data?.currentEnabled ? "Enrolled" : "Not enrolled"}
+                  </Badge>
+                </div>
+                <p className="text-sm">Next billing date: <strong>{pbmStateQuery.data?.nextBillingDate || "Unavailable"}</strong></p>
+                <p className="text-xs text-muted-foreground">PBM changes start with a recurring 30-day cycle. Removing PBM does not refund the current paid period.</p>
+                {pbmStateQuery.data?.pendingChange ? (
+                  <div className="rounded bg-amber-50 p-3 text-sm">
+                    <p><strong>Pending:</strong> {pbmStateQuery.data.pendingChange.target_enabled ? "Add PBM" : "Remove PBM"} effective {pbmStateQuery.data.pendingChange.effective_date} · fulfillment {pbmStateQuery.data.pendingChange.fulfillment_status}</p>
+                    <Button className="mt-2" variant="outline" size="sm" onClick={() => withdrawPbmChangeMutation.mutate()} disabled={withdrawPbmChangeMutation.isPending || pbmStateQuery.data.pendingChange.fulfillment_status !== "Pending Submission"}>Withdraw pending change</Button>
+                  </div>
+                ) : pbmStateQuery.data?.nextBillingDate ? (
+                  <Button
+                    variant={pbmStateQuery.data.currentEnabled ? "outline" : "default"}
+                    disabled={pbmChangeMutation.isPending || pbmStateQuery.data.subscriptionStatus !== "active"}
+                    onClick={() => pbmChangeMutation.mutate(!pbmStateQuery.data.currentEnabled)}
+                  >
+                    {pbmStateQuery.data.currentEnabled ? "Remove PBM next cycle" : "Add PBM next cycle"}
+                  </Button>
+                ) : <p className="text-sm text-muted-foreground">PBM changes are available for active DPC subscriptions with a scheduled billing date.</p>}
+                {pbmStateQuery.isError && <p className="text-sm text-destructive">PBM details could not be loaded.</p>}
+              </CardContent>
+            </Card>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Plan Information */}
               <Card>

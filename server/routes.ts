@@ -34,6 +34,13 @@ import {
   syncCommissionLedgerFromFeed,
 } from "./services/commission-ledger-service";
 import { displaySSN } from "@shared/display-ssn";
+import { RX_ADDON_MONTHLY_PRICE } from "@shared/pricing";
+import {
+  requestPbmChange,
+  updatePbmFulfillment,
+  withdrawPbmChange,
+  type PbmFulfillmentStatus,
+} from "./services/pbm-membership-service";
 import {
   addDaysLocal,
   formatLocalDate,
@@ -4346,6 +4353,185 @@ router.get(
       cancellationRequestedAt: requestedAt,
       ...evaluation,
     });
+  },
+);
+
+router.get(
+  "/api/members/:memberId/pbm",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!hasAgentOrAdminAccess(req.user?.role)) {
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    const memberId = Number(req.params.memberId);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return res.status(400).json({ message: "Invalid member ID" });
+    }
+    if (!(await canManageMemberForUser(String(memberId), req.user))) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+    try {
+      const [memberResult, changesResult] = await Promise.all([
+        storage.query(
+          `SELECT m.id, m.first_name, m.last_name, m.add_rx_valet,
+                  s.id AS subscription_id, s.amount, s.status AS subscription_status,
+                  TO_CHAR(s.next_billing_date, 'YYYY-MM-DD') AS next_billing_date
+           FROM public.members m
+           LEFT JOIN LATERAL (
+             SELECT * FROM public.subscriptions
+             WHERE member_id = m.id ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1
+           ) s ON TRUE
+           WHERE m.id = $1`,
+          [memberId],
+        ),
+        storage.query(
+          `SELECT c.*, COALESCE(json_agg(json_build_object(
+             'id', e.id, 'eventType', e.event_type, 'oldValue', e.old_value,
+             'newValue', e.new_value, 'note', e.note, 'actorRole', e.actor_role,
+             'createdAt', e.created_at
+           ) ORDER BY e.created_at DESC) FILTER (WHERE e.id IS NOT NULL), '[]'::json) AS history
+           FROM public.pbm_membership_changes c
+           LEFT JOIN public.pbm_membership_change_events e ON e.change_id = c.id
+           WHERE c.member_id = $1
+           GROUP BY c.id ORDER BY c.created_at DESC LIMIT 20`,
+          [memberId],
+        ),
+      ]);
+      const member = memberResult.rows[0];
+      if (!member) return res.status(404).json({ message: "Member not found" });
+      const householdResult = await storage.query(
+        `SELECT first_name, last_name, relationship
+         FROM public.family_members WHERE primary_member_id = $1 AND is_active = true
+         ORDER BY dependent_suffix NULLS LAST, id`,
+        [memberId],
+      );
+      return res.json({
+        currentEnabled: member.add_rx_valet === true,
+        monthlyPrice: RX_ADDON_MONTHLY_PRICE,
+        nextBillingDate: member.next_billing_date,
+        subscriptionId: member.subscription_id,
+        subscriptionStatus: member.subscription_status,
+        pendingChange: changesResult.rows.find((row: any) => row.request_status === "pending") || null,
+        changes: changesResult.rows,
+        household: householdResult.rows,
+      });
+    } catch (error: any) {
+      console.error("[PBM] Failed to fetch member servicing state", error);
+      return res.status(500).json({ message: "Unable to load PBM membership details" });
+    }
+  },
+);
+
+router.post(
+  "/api/members/:memberId/pbm",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!hasAgentOrAdminAccess(req.user?.role)) {
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    const memberId = Number(req.params.memberId);
+    if (!Number.isInteger(memberId) || memberId <= 0 || typeof req.body?.enabled !== "boolean") {
+      return res.status(400).json({ message: "A valid member ID and PBM selection are required" });
+    }
+    if (!(await canManageMemberForUser(String(memberId), req.user))) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+    try {
+      const change = await requestPbmChange({
+        memberId,
+        targetEnabled: req.body.enabled,
+        actorId: req.user!.id,
+        actorRole: req.user!.role,
+      });
+      return res.status(201).json({
+        success: true,
+        change,
+        message: `PBM ${change.target_enabled ? "addition" : "removal"} scheduled for ${change.effective_date}; billing will remain unchanged until then.`,
+      });
+    } catch (error: any) {
+      const status = Number(error?.status) || (String(error?.code) === "23505" ? 409 : 500);
+      return res.status(status).json({ message: error?.message || "Unable to schedule PBM change" });
+    }
+  },
+);
+
+router.delete(
+  "/api/members/:memberId/pbm/pending",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!hasAgentOrAdminAccess(req.user?.role)) {
+      return res.status(403).json({ message: "Agent or admin access required" });
+    }
+    const memberId = Number(req.params.memberId);
+    if (!Number.isInteger(memberId) || memberId <= 0) {
+      return res.status(400).json({ message: "Invalid member ID" });
+    }
+    if (!(await canManageMemberForUser(String(memberId), req.user))) {
+      return res.status(403).json({ message: "Access denied to this member" });
+    }
+    try {
+      const change = await withdrawPbmChange({
+        memberId,
+        actorId: req.user!.id,
+        actorRole: req.user!.role,
+      });
+      return res.json({ success: true, change, message: "Pending PBM change withdrawn" });
+    } catch (error: any) {
+      return res.status(Number(error?.status) || 500).json({ message: error?.message || "Unable to withdraw PBM change" });
+    }
+  },
+);
+
+router.get(
+  "/api/admin/pbm-fulfillment",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) return res.status(403).json({ message: "Admin access required" });
+    try {
+      const result = await storage.query(
+        `SELECT c.id, c.member_id, c.subscription_id, c.current_enabled,
+                c.target_enabled, c.amount_delta, c.effective_date, c.request_status,
+                c.fulfillment_status, c.requested_at, c.requested_by,
+                m.first_name, m.last_name, m.email, m.customer_number,
+                COALESCE(json_agg(json_build_object(
+                  'firstName', f.first_name, 'lastName', f.last_name,
+                  'relationship', f.relationship
+                )) FILTER (WHERE f.id IS NOT NULL), '[]'::json) AS household
+         FROM public.pbm_membership_changes c
+         JOIN public.members m ON m.id = c.member_id
+         LEFT JOIN public.family_members f ON f.primary_member_id = m.id AND f.is_active = true
+         WHERE c.request_status <> 'withdrawn'
+           AND c.fulfillment_status <> 'Confirmed'
+         GROUP BY c.id, m.id
+         ORDER BY c.effective_date, c.created_at`,
+      );
+      return res.json({ tasks: result.rows });
+    } catch (error: any) {
+      console.error("[PBM] Failed to load fulfillment tasks", error);
+      return res.status(500).json({ message: "Unable to load PBM fulfillment tasks" });
+    }
+  },
+);
+
+router.patch(
+  "/api/admin/pbm-fulfillment/:changeId",
+  authenticateToken,
+  async (req: AuthRequest, res) => {
+    if (!isAdmin(req.user?.role)) return res.status(403).json({ message: "Admin access required" });
+    const changeId = Number(req.params.changeId);
+    const status = req.body?.status as PbmFulfillmentStatus;
+    if (!Number.isInteger(changeId) || changeId <= 0 || !["Pending Submission", "Submitted", "Confirmed"].includes(status)) {
+      return res.status(400).json({ message: "Invalid task ID or fulfillment status" });
+    }
+    try {
+      const change = await updatePbmFulfillment({
+        changeId, status, actorId: req.user!.id, actorRole: req.user!.role,
+        note: typeof req.body?.note === "string" ? req.body.note : undefined,
+      });
+      return res.json({ success: true, change });
+    } catch (error: any) {
+      return res.status(Number(error?.status) || 500).json({ message: error?.message || "Unable to update PBM fulfillment task" });
+    }
   },
 );
 

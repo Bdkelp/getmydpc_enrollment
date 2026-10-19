@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -219,6 +219,33 @@ export default function AgentDashboard() {
     queryKey: ["/api/members/refund-eligibility", membershipTarget?.id, cancellationReasonCode, serviceUsageStatus],
     queryFn: () => apiRequest(`/api/members/${membershipTarget!.id}/refund-eligibility?reasonCode=${encodeURIComponent(cancellationReasonCode)}&serviceUsageStatus=${encodeURIComponent(serviceUsageStatus)}`),
     enabled: showMembershipDialog && Boolean(membershipTarget),
+  });
+
+  const queryClient = useQueryClient();
+  const pbmQuery = useQuery<any>({
+    queryKey: ["/api/members", membershipTarget?.id, "pbm"],
+    queryFn: () => apiRequest(`/api/members/${membershipTarget!.id}/pbm`),
+    enabled: showMembershipDialog && Boolean(membershipTarget),
+  });
+  const pbmMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest(`/api/members/${membershipTarget!.id}/pbm`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+    onSuccess: async () => {
+      toast({ title: "PBM change scheduled", description: "The change will take effect with the next recurring billing cycle." });
+      await queryClient.invalidateQueries({ queryKey: ["/api/members", membershipTarget?.id, "pbm"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/agent/enrollments"] });
+    },
+    onError: (error: any) => toast({ title: "PBM change failed", description: error?.message || "Unable to schedule PBM change.", variant: "destructive" }),
+  });
+  const withdrawPbmMutation = useMutation({
+    mutationFn: () => apiRequest(`/api/members/${membershipTarget!.id}/pbm/pending`, { method: "DELETE" }),
+    onSuccess: async () => {
+      toast({ title: "Pending PBM change withdrawn" });
+      await queryClient.invalidateQueries({ queryKey: ["/api/members", membershipTarget?.id, "pbm"] });
+    },
+    onError: (error: any) => toast({ title: "Unable to withdraw change", description: error?.message || "Try again.", variant: "destructive" }),
   });
 
   const {
@@ -1254,6 +1281,37 @@ export default function AgentDashboard() {
                 monthlyAmount={Number(membershipTarget.totalMonthlyPrice || 0)}
                 compact
               />
+
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold">Manage BestChoiceRX PBM</h3>
+                    <p className="text-sm text-muted-foreground">${pbmQuery.data?.monthlyPrice ?? 30}/month per household · no activation fee for existing DPC members</p>
+                  </div>
+                  <Badge variant={pbmQuery.data?.currentEnabled ? "default" : "outline"}>
+                    {pbmQuery.isLoading ? "Loading" : pbmQuery.data?.currentEnabled ? "Enrolled" : "Not enrolled"}
+                  </Badge>
+                </div>
+                <p className="text-sm">Next billing date: <strong>{pbmQuery.data?.nextBillingDate || "Unavailable"}</strong></p>
+                <p className="text-xs text-muted-foreground">PBM changes start with a recurring 30-day cycle. Removing PBM does not refund the current paid period.</p>
+                {pbmQuery.data?.pendingChange && (
+                  <div className="rounded bg-amber-50 p-3 text-sm">
+                    <p><strong>Pending:</strong> {pbmQuery.data.pendingChange.target_enabled ? "Add PBM" : "Remove PBM"} effective {pbmQuery.data.pendingChange.effective_date}</p>
+                    <p>Eligibility fulfillment: {pbmQuery.data.pendingChange.fulfillment_status}</p>
+                    <Button className="mt-2" variant="outline" size="sm" onClick={() => withdrawPbmMutation.mutate()} disabled={withdrawPbmMutation.isPending || pbmQuery.data.pendingChange.fulfillment_status !== "Pending Submission"}>Withdraw pending change</Button>
+                  </div>
+                )}
+                {!pbmQuery.data?.pendingChange && pbmQuery.data?.nextBillingDate && (
+                  <Button
+                    variant={pbmQuery.data.currentEnabled ? "outline" : "default"}
+                    disabled={pbmMutation.isPending || pbmQuery.data?.subscriptionStatus !== "active"}
+                    onClick={() => pbmMutation.mutate(!pbmQuery.data.currentEnabled)}
+                  >
+                    {pbmMutation.isPending ? "Scheduling…" : pbmQuery.data.currentEnabled ? "Remove PBM next cycle" : "Add PBM next cycle"}
+                  </Button>
+                )}
+                {pbmQuery.isError && <p className="text-sm text-destructive">PBM management details could not be loaded.</p>}
+              </div>
 
               <div>
                 <Label>Plan</Label>
