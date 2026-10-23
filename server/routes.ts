@@ -5423,6 +5423,7 @@ router.patch(
 
       const member = await storage.updateMember(parsedMemberId, memberUpdates);
       const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
+      await recordAgentMembershipChange({ memberRef: String(parsedMemberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "membership_changed", summary: "Membership plan or coverage changed by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
 
       res.json({
         success: true,
