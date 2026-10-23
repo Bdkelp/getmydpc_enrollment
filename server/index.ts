@@ -44,6 +44,7 @@ import internalRecurringBillingRoutes from "./routes/internal-recurring-billing"
 import paymentTrackingRoutes from "./routes/payment-tracking";
 import financialExceptionRoutes from "./routes/financial-exceptions";
 import { scheduleFinancialReconciliation } from "./services/financial-reconciliation-worker";
+import { schedulePbmEmailAlerts } from "./services/pbm-email-alerts";
 import achPaymentRoutes from "./routes/ach-payment-routes";
 import { getSupabaseClientDiagnostics } from "./lib/supabaseClient";
 import { isSupabaseServiceRoleReady } from "./lib/supabaseClient";
@@ -316,6 +317,7 @@ app.use((req, res, next) => {
 
     // Recurring billing is invoked only by the protected external scheduler endpoint.
     scheduleFinancialReconciliation();
+    schedulePbmEmailAlerts();
 
     // Validate EPX configuration
     try {
