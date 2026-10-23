@@ -2,7 +2,7 @@ import sgMail from "@sendgrid/mail";
 import { query } from "../lib/neonDb";
 
 export function pbmEmailRecipients(): string[] {
- return [...new Set((process.env.PBM_OPERATIONS_ALERT_EMAILS || "").split(",").map(v=>v.trim().toLowerCase()).filter(v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)))];
+ return [...new Set((process.env.PBM_OPERATIONS_ALERT_EMAILS || "info@mypremierplans.com").split(",").map(v=>v.trim().toLowerCase()).filter(v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)))];
 }
 export function formatPbmAlert(change: {id:number; member_id:number;target_enabled:boolean;effective_date:string;amount_delta:string}) {
  const action = change.target_enabled ? "addition" : "removal";
@@ -38,8 +38,8 @@ export async function dispatchPbmEmailAlerts(): Promise<void> {
  }
 }
 export function schedulePbmEmailAlerts() {
- if (!process.env.PBM_OPERATIONS_ALERT_EMAILS || !process.env.SENDGRID_API_KEY) {
-  console.warn("[PBM Email] Disabled until PBM_OPERATIONS_ALERT_EMAILS and SENDGRID_API_KEY are configured");
+ if (!process.env.SENDGRID_API_KEY) {
+  console.warn("[PBM Email] Disabled until SENDGRID_API_KEY is configured");
   return;
  }
  const run=()=>dispatchPbmEmailAlerts().catch(e=>console.error("[PBM Email] Dispatcher failed",e));
