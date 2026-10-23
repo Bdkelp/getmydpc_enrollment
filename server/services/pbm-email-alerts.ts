@@ -2,7 +2,7 @@ import sgMail from "@sendgrid/mail";
 import { query } from "../lib/neonDb";
 
 export function pbmEmailRecipients(): string[] {
- return [...new Set((process.env.PBM_OPERATIONS_ALERT_EMAILS || "info@mypremierplans.com").split(",").map(v=>v.trim().toLowerCase()).filter(v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)))];
+ return Array.from(new Set((process.env.PBM_OPERATIONS_ALERT_EMAILS || "info@mypremierplans.com").split(",").map(v=>v.trim().toLowerCase()).filter(v=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v))));
 }
 export function formatPbmAlert(change: {id:number; member_id:number;target_enabled:boolean;effective_date:string;amount_delta:string}) {
  const action = change.target_enabled ? "addition" : "removal";
