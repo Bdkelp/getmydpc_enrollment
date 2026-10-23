@@ -28,7 +28,8 @@ export async function requestPbmChange(input: {
        FROM public.members m
        JOIN public.subscriptions s ON s.member_id = m.id
        WHERE m.id = $1
-       ORDER BY s.created_at DESC NULLS LAST, s.id DESC
+       ORDER BY CASE WHEN LOWER(TRIM(s.status)) = 'active' THEN 0 ELSE 1 END,
+                s.created_at DESC NULLS LAST, s.id DESC
        LIMIT 1 FOR UPDATE OF m, s`,
       [input.memberId],
     );
@@ -64,8 +65,8 @@ export async function requestPbmChange(input: {
     );
     const policyError = resolvePbmRequestError({
       inScope: true,
-      memberActive: row.member_status === "active",
-      subscriptionActive: row.subscription_status === "active",
+      memberActive: String(row.member_status || "").trim().toLowerCase() === "active",
+      subscriptionActive: String(row.subscription_status || "").trim().toLowerCase() === "active",
       currentEnabled,
       targetEnabled: input.targetEnabled,
       hasPendingChange: pending.rows.length > 0,
