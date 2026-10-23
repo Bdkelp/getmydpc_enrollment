@@ -4379,7 +4379,9 @@ router.get(
            FROM public.members m
            LEFT JOIN LATERAL (
              SELECT * FROM public.subscriptions
-             WHERE member_id = m.id ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1
+             WHERE member_id = m.id
+             ORDER BY CASE WHEN LOWER(TRIM(status)) = 'active' THEN 0 ELSE 1 END,
+                      created_at DESC NULLS LAST, id DESC LIMIT 1
            ) s ON TRUE
            WHERE m.id = $1`,
           [memberId],
