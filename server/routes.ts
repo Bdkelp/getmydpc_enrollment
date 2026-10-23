@@ -1,3 +1,4 @@
+import { recordAgentMembershipChange } from "./services/agent-membership-change-alerts";
 // @ts-nocheck - Temporarily disable strict type checking for legacy code
 import { Router } from "express";
 import { storage } from "./storage";
@@ -6906,6 +6907,7 @@ router.put(
         updateData,
       );
 
+      await recordAgentMembershipChange({ memberRef: String(memberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "member_profile_updated", summary: "Member profile edited by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       res.json(updatedMember);
     } catch (error) {
       console.error("Error updating member:", error);
@@ -6985,6 +6987,7 @@ router.put(
         },
       );
 
+      await recordAgentMembershipChange({ memberRef: String(memberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "subscription_plan_updated", summary: "DPC plan or coverage type updated by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       res.json({
         subscription: updatedSubscription,
         plan: newPlan,
@@ -7037,6 +7040,7 @@ router.post(
         familyMemberData.lastName,
       );
 
+      await recordAgentMembershipChange({ memberRef: String(memberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "family_member_added", summary: "Dependent added by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       res.status(201).json(newFamilyMember);
     } catch (error) {
       console.error("Error adding family member:", error);
