@@ -75,6 +75,9 @@ jobs:
     - name: Durable billing behavior
       run: npm run test:durable-billing
 
+    - name: PBM membership servicing policy
+      run: npm run test:pbm-membership-servicing
+
     - name: Internal billing route safety
       run: npm run test:internal-billing-route
 

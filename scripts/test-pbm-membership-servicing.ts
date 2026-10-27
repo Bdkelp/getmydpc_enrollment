@@ -74,4 +74,19 @@ assert.equal(resolvePbmRequestError({
   currentEnabled: false, targetEnabled: true, hasPendingChange: false,
 }), null, "eligible in-scope member request is accepted");
 
+// Regression for confirmed-paid membership 67: a stale member state is blocked
+// until reconciled from an independently confirmed payment and completed cycle.
+assert.equal(resolvePbmRequestError({
+  inScope: true, memberActive: false, subscriptionActive: true,
+  currentEnabled: false, targetEnabled: true, hasPendingChange: false,
+})?.status, 409, "active subscription alone cannot override a pending member state");
+assert.equal(resolvePbmRequestError({
+  inScope: true, memberActive: true, subscriptionActive: true,
+  currentEnabled: false, targetEnabled: true, hasPendingChange: false,
+}), null, "reconciled paid member can schedule its next-cycle PBM addition");
+assert.equal(getPbmCycleAmount(61.36, 30, false), 61.36,
+  "current paid cycle remains unchanged");
+assert.equal(getPbmCycleAmount(61.36, 30, true), 91.36,
+  "next paid billing cycle includes the $30 household PBM add-on");
+
 console.log("✓ PBM membership servicing policy tests passed");
