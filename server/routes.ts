@@ -1,4 +1,5 @@
 // @ts-nocheck - Temporarily disable strict type checking for legacy code
+import { recordAgentMembershipChange } from "./services/agent-membership-change-alerts";
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
@@ -5423,6 +5424,7 @@ router.patch(
       }
 
       const member = await storage.updateMember(parsedMemberId, memberUpdates);
+      await recordAgentMembershipChange({ memberRef: String(parsedMemberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "membership_changed", summary: "Membership plan or coverage changed by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       const enrollment = await storage.getEnrollmentDetails(parsedMemberId);
 
       res.json({
@@ -6908,6 +6910,7 @@ router.put(
         updateData,
       );
 
+      await recordAgentMembershipChange({ memberRef: String(memberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "member_profile_updated", summary: "Member profile edited by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       res.json(updatedMember);
     } catch (error) {
       console.error("Error updating member:", error);
@@ -6987,6 +6990,7 @@ router.put(
         },
       );
 
+      await recordAgentMembershipChange({ memberRef: String(memberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "subscription_plan_updated", summary: "DPC plan or coverage type updated by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       res.json({
         subscription: updatedSubscription,
         plan: newPlan,
@@ -7039,6 +7043,7 @@ router.post(
         familyMemberData.lastName,
       );
 
+      await recordAgentMembershipChange({ memberRef: String(memberId), actorId: req.user!.id, actorRole: req.user!.role, changeType: "family_member_added", summary: "Dependent added by agent" }).catch(err => console.error("[Member Alert] enqueue failed", err));
       res.status(201).json(newFamilyMember);
     } catch (error) {
       console.error("Error adding family member:", error);

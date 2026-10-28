@@ -1,3 +1,4 @@
+import { pbmEmailRecipients } from "./pbm-email-alerts";
 import { transaction } from "../lib/neonDb";
 import {
   canWithdrawPbmChange,
@@ -92,6 +93,11 @@ export async function requestPbmChange(input: {
         `PBM change scheduled for recurring cycle ${effectiveDate}; the current paid period is not refunded`,
         input.actorId, input.actorRole],
     );
+    // Durable PBM notification outbox entries are committed with the change.
+    for (const recipient of pbmEmailRecipients()) {
+      await client.query(`INSERT INTO public.pbm_email_outbox(change_id,recipient_email)
+        VALUES ($1,$2) ON CONFLICT (change_id,recipient_email) DO NOTHING`, [change.id,recipient]);
+    }
     return change;
   });
 }
