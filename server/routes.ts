@@ -1,5 +1,5 @@
-import { recordAgentMembershipChange } from "./services/agent-membership-change-alerts";
 // @ts-nocheck - Temporarily disable strict type checking for legacy code
+import { recordAgentMembershipChange } from "./services/agent-membership-change-alerts";
 import { Router } from "express";
 import { storage } from "./storage";
 import { authenticateToken, type AuthRequest } from "./auth/supabaseAuth";
