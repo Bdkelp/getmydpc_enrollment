@@ -7899,7 +7899,8 @@ export async function getSubscriptionsDueForBilling(
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND ($7::int[] IS NULL OR s.id = ANY($7::int[]))
         AND (
-          retry_gate.status IS DISTINCT FROM 'failed'
+          $7::int[] IS NOT NULL
+          OR retry_gate.status IS DISTINCT FROM 'failed'
           OR (
             retry_gate.retryable = true
             AND retry_gate.next_retry_date <= $1::timestamptz
