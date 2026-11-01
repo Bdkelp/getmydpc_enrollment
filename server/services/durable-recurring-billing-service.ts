@@ -433,6 +433,22 @@ export async function runDurableRecurringBilling(options: {
     controlledRetrySubscriptionIds,
     subscriptionIds,
   });
+  // Revenue recovery is scoped to October 2026: move stale scheduled dates
+  // forward to the October anniversary, never charge August/September arrears.
+  // This does not advance database billing dates until processor confirmation.
+  for (const subscription of due) {
+    if (subscription.nextBillingDate < "2026-10-01") {
+      const scheduled = subscription.nextBillingDate;
+      const anchorDay = Number(scheduled.slice(-2));
+      let OctoberCycle = scheduled;
+      while (OctoberCycle < "2026-10-01") {
+        OctoberCycle = calculateNextBillingCycleDate(OctoberCycle, anchorDay);
+      }
+      if (OctoberCycle <= "2026-10-31") {
+        subscription.nextBillingDate = OctoberCycle;
+      }
+    }
+  }
   const baseAmountBySubscriptionId = new Map<number, string>(
     due.map((subscription) => [subscription.subscriptionId, subscription.amount]),
   );
