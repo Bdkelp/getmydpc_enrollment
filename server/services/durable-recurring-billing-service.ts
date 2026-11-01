@@ -433,19 +433,20 @@ export async function runDurableRecurringBilling(options: {
     controlledRetrySubscriptionIds,
     subscriptionIds,
   });
-  // Revenue recovery is scoped to October 2026: move stale scheduled dates
-  // forward to the October anniversary, never charge August/September arrears.
-  // This does not advance database billing dates until processor confirmation.
-  for (const subscription of due) {
-    if (subscription.nextBillingDate < "2026-10-01") {
-      const scheduled = subscription.nextBillingDate;
-      const anchorDay = Number(scheduled.slice(-2));
-      let OctoberCycle = scheduled;
-      while (OctoberCycle < "2026-10-01") {
-        OctoberCycle = calculateNextBillingCycleDate(OctoberCycle, anchorDay);
-      }
-      if (OctoberCycle <= "2026-10-31") {
-        subscription.nextBillingDate = OctoberCycle;
+  // Only an explicitly targeted manual recovery may remap old scheduled dates.
+  // Daily automatic billing must never silently collect historical arrears.
+  if (options.triggerSource === "manual" && subscriptionIds.length > 0) {
+    for (const subscription of due) {
+      if (subscription.nextBillingDate < "2026-10-01") {
+        const scheduled = subscription.nextBillingDate;
+        const anchorDay = Number(scheduled.slice(-2));
+        let octoberCycle = scheduled;
+        while (octoberCycle < "2026-10-01") {
+          octoberCycle = calculateNextBillingCycleDate(octoberCycle, anchorDay);
+        }
+        if (octoberCycle <= "2026-10-31") {
+          subscription.nextBillingDate = octoberCycle;
+        }
       }
     }
   }
