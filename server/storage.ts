@@ -7898,14 +7898,7 @@ export async function getSubscriptionsDueForBilling(
         )
         AND COALESCE(s.pending_reason, '') <> 'member_cancelled'
         AND ($7::int[] IS NULL OR s.id = ANY($7::int[]))
-        AND (
-          retry_gate.status IS DISTINCT FROM 'failed'
-          OR (
-            retry_gate.retryable = true
-            AND retry_gate.next_retry_date <= $1::timestamptz
-          )
-          OR s.id = ANY($6::int[])
-        )
+        -- Legacy failed retry states no longer gate new eligible cycles.
       ORDER BY s.next_billing_date ASC, s.id ASC
     `,
     [
