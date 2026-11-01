@@ -128,13 +128,15 @@ function resolveCredential(subscription: BillableSubscription): {
     };
   }
 
+  // EPX stores the card details. Prefer the member's current BRIC for
+  // recurring transactions; legacy transaction references are fallbacks.
   const candidates: Array<[string, string | null]> = [
+    ["payment_tokens.bric_token", subscription.bricToken],
     [
       "payment_tokens.original_network_trans_id",
       subscription.tokenOriginalNetworkTransId,
     ],
     ["payments.epx_auth_guid", subscription.latestPaymentAuthGuid],
-    ["payment_tokens.bric_token", subscription.bricToken],
   ];
   for (const [source, value] of candidates) {
     const credential = String(value || "").trim();
